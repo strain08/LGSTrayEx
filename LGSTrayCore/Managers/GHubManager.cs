@@ -99,20 +99,20 @@ namespace LGSTrayCore.Managers
             _ws.ErrorReconnectTimeout = TimeSpan.FromMilliseconds(500);
             _ws.ReconnectTimeout = null;
 
-            Debug.WriteLine($"Trying to connect to LGHUB_agent, at {url}");
+            DiagnosticLogger.Log($"Attempting to connect to LGHUB at {url}");
 
             try
             {
                 await _ws.Start();
             }
-            catch (Websocket.Client.Exceptions.WebsocketException)
+            catch (Websocket.Client.Exceptions.WebsocketException ex)
             {
-                Debug.WriteLine("Failed to connect to LGHUB_agent");
+                DiagnosticLogger.LogError($"Failed to connect to LGHUB: {ex.Message}");
                 this.Dispose();
                 return;
             }
 
-            Debug.WriteLine($"Connected to LGHUB_agent");
+            DiagnosticLogger.Log("Connected to LGHUB successfully");
 
             _ws.Send(JsonConvert.SerializeObject(new
             {
@@ -128,6 +128,7 @@ namespace LGSTrayCore.Managers
                 path = "/battery/state/changed"
             }));
 
+            DiagnosticLogger.Log("Requesting device list from LGHUB");
             LoadDevices();
         }
 
@@ -174,7 +175,17 @@ namespace LGSTrayCore.Managers
         {
             try
             {
-                foreach (var deviceToken in payload["deviceInfos"]!)
+                var deviceInfos = payload["deviceInfos"];
+                if (deviceInfos == null)
+                {
+                    DiagnosticLogger.LogWarning("LGHUB response missing 'deviceInfos' field");
+                    return;
+                }
+
+                int deviceCount = deviceInfos.Count();
+                DiagnosticLogger.Log($"LGHUB reported {deviceCount} device(s)");
+
+                foreach (var deviceToken in deviceInfos)
                 {
                     if (!Enum.TryParse(deviceToken["deviceType"]!.ToString(), true, out DeviceType deviceType))
                     {
@@ -182,12 +193,15 @@ namespace LGSTrayCore.Managers
                     }
 
                     string deviceId = deviceToken["id"]!.ToString();
+                    string deviceName = deviceToken["extendedDisplayName"]!.ToString();
                     _deviceEventBus.Publish(new InitMessage(
                         deviceId,
-                        deviceToken["extendedDisplayName"]!.ToString(),
+                        deviceName,
                         (bool) deviceToken["capabilities"]!["hasBatteryStatus"]!,
                         deviceType
                     ));
+
+                    DiagnosticLogger.Log($"GHub device registered - {deviceId} ({deviceName})");
 
                     _ws?.Send(JsonConvert.SerializeObject(new
                     {
@@ -201,7 +215,11 @@ namespace LGSTrayCore.Managers
             {
                 if (e is NullReferenceException || e is JsonReaderException)
                 {
-                    Debug.WriteLine("Failed to parse device list, LGHUB_agent is probably starting up");
+                    DiagnosticLogger.LogError($"Failed to parse LGHUB device list: {e.Message}");
+                }
+                else
+                {
+                    DiagnosticLogger.LogError($"Unexpected error loading LGHUB devices: {e.Message}");
                 }
             }
         }
@@ -210,8 +228,9 @@ namespace LGSTrayCore.Managers
         {
             try
             {
+                string deviceId = payload["deviceId"]?.ToString() ?? "unknown";
                 _deviceEventBus.Publish(new UpdateMessage(
-                    payload["deviceId"]!.ToString(),
+                    deviceId,
                     payload["percentage"]!.ToObject<int>(),
                     payload["charging"]!.ToBoolean() ? PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING : PowerSupplyStatus.POWER_SUPPLY_STATUS_NOT_CHARGING,
                     0,
@@ -219,7 +238,11 @@ namespace LGSTrayCore.Managers
                     payload["mileage"]!.ToObject<double>()
                 ));
             }
-            catch { }
+            catch (Exception ex)
+            {
+                string deviceId = payload?["deviceId"]?.ToString() ?? "unknown";
+                DiagnosticLogger.LogError($"Failed to parse battery update for device {deviceId}: {ex.Message}");
+            }
         }
 
         public async void RediscoverDevices()

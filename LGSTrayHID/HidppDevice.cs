@@ -50,6 +50,7 @@ namespace LGSTrayHID
                 // Sync Ping
                 int successCount = 0;
                 int successThresh = 3;
+                DiagnosticLogger.Log($"Starting ping test for HID device index {_deviceIdx}");
                 for (int i = 0; i < 10; i++)
                 {
                     var ping = await _parent.Ping20(_deviceIdx, 100);
@@ -65,7 +66,13 @@ namespace LGSTrayHID
                     if (successCount >= successThresh) { break; }
                 }
 
-                if (successCount < successThresh) { return; }
+                if (successCount < successThresh)
+                {
+                    DiagnosticLogger.LogWarning($"HID device index {_deviceIdx} failed ping test ({successCount}/{successThresh} successes)");
+                    return;
+                }
+
+                DiagnosticLogger.Log($"HID device index {_deviceIdx} passed ping test");
 
                 // Find 0x0001 IFeatureSet
                 ret = await _parent.WriteRead20(_parent.DevShort, new byte[7] { 0x10, _deviceIdx, 0x00, 0x00 | SW_ID, 0x00, 0x01, 0x00 });
@@ -98,6 +105,8 @@ namespace LGSTrayHID
             Hidpp20 ret;
             byte featureId;
 
+            DiagnosticLogger.Log($"Enumerating features for HID device index {_deviceIdx}");
+
             // Device name
             if (_featureMap.TryGetValue(0x0005, out featureId))
             {
@@ -118,7 +127,7 @@ namespace LGSTrayHID
                 {
                     if (DeviceName.Contains(tag))
                     {
-                        Log.WriteLine($"{DeviceName} is marked as disabled");
+                        DiagnosticLogger.LogWarning($"HID device '{DeviceName}' filtered by disabledDevices config (matched: '{tag}')");
                         return;
                     }
                 };
@@ -129,6 +138,7 @@ namespace LGSTrayHID
             else
             {
                 // Device does not have a name/Hidpp error ignore it
+                DiagnosticLogger.LogWarning($"HID device index {_deviceIdx} missing feature 0x0005 (device name), ignoring");
                 return;
             }
 
@@ -186,6 +196,8 @@ namespace LGSTrayHID
                 IPCMessageType.INIT,
                 new InitMessage(Identifier, DeviceName, _getBatteryAsync != null, (DeviceType)DeviceType)
             );
+
+            DiagnosticLogger.Log($"HID device registered - {Identifier} ({DeviceName})");
 
             await Task.Delay(1000);
 

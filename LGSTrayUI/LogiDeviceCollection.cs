@@ -1,4 +1,5 @@
 ﻿using LGSTrayCore;
+using LGSTrayPrimitives;
 using LGSTrayPrimitives.MessageStructs;
 using MessagePipe;
 using System;
@@ -83,7 +84,11 @@ namespace LGSTrayUI
 
             dev = _logiDeviceViewModelFactory.CreateViewModel((x) => x.UpdateState(initMessage));
 
-            Application.Current.Dispatcher.BeginInvoke(() => Devices.Add(dev));
+            Application.Current.Dispatcher.BeginInvoke(() =>
+            {
+                Devices.Add(dev);
+                DiagnosticLogger.Log($"Device added to collection - {initMessage.deviceId} ({initMessage.deviceName})");
+            });
         }
 
         public void OnUpdateMessage(UpdateMessage updateMessage)
@@ -91,7 +96,11 @@ namespace LGSTrayUI
             Application.Current.Dispatcher.BeginInvoke(() =>
             {
                 var device = Devices.FirstOrDefault(dev => dev.DeviceId == updateMessage.deviceId);
-                if (device == null) { return; }
+                if (device == null)
+                {
+                    DiagnosticLogger.LogWarning($"Update for unknown device - {updateMessage.deviceId}");
+                    return;
+                }
 
                 device.UpdateState(updateMessage);
             });

@@ -3,6 +3,7 @@ using static LGSTrayHID.HidApi.HidApiWinApi;
 using static LGSTrayHID.HidApi.HidApiHotPlug;
 using LGSTrayHID.HidApi;
 using System.Collections.Concurrent;
+using LGSTrayPrimitives;
 using LGSTrayPrimitives.MessageStructs;
 
 namespace LGSTrayHID
@@ -39,6 +40,8 @@ namespace LGSTrayHID
         {
             if (hidApiHotPlugEvent == HidApiHotPlugEvent.HID_API_HOTPLUG_EVENT_DEVICE_ARRIVED)
             {
+                string devPath = (*device).GetPath();
+                DiagnosticLogger.Log($"HID device detected: {devPath}");
                 _deviceQueue.Add(*device);
             }
 
@@ -52,10 +55,12 @@ namespace LGSTrayHID
             {
                 case HidppMessageType.NONE:
                 case HidppMessageType.VERY_LONG:
+                    DiagnosticLogger.Log($"Skipping device with unsupported message type: {messageType}");
                     return 0;
             }
 
             string devPath = (deviceInfo).GetPath();
+            DiagnosticLogger.Log($"Initializing HID device: {devPath}");
 
             HidDevicePtr dev = HidOpenPath(ref deviceInfo);
             _ = HidWinApiGetContainerId(dev, out Guid containerId);
