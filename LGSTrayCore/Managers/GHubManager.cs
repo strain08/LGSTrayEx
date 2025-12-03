@@ -152,22 +152,26 @@ namespace LGSTrayCore.Managers
         protected void ParseSocketMsg(ResponseMessage msg)
         {
             GHUBMsg ghubmsg = GHUBMsg.DeserializeJson(msg.Text!);
+            DiagnosticLogger.Log($"LGHUB message received - Path: {ghubmsg.Path}");
 
             switch (ghubmsg.Path)
             {
                 case "/devices/list":
                     {
+                        DiagnosticLogger.Log("Processing /devices/list response");
                         LoadDevices(ghubmsg.Payload);
                         break;
                     }
                 case "/battery/state/changed":
                 case { } when BatteryDeviceStateRegex().Match(ghubmsg.Path).Success:
                     {
-                        Console.WriteLine(ghubmsg.Path);
+                        DiagnosticLogger.Log($"Processing battery update: {ghubmsg.Path}");
                         ParseBatteryUpdate(ghubmsg.Payload);
                         break;
                     }
-                default: break;
+                default:
+                    DiagnosticLogger.Log($"Unhandled LGHUB message path: {ghubmsg.Path}");
+                    break;
             }
         }
 

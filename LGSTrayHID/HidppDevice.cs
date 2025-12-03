@@ -47,29 +47,50 @@ namespace LGSTrayHID
             {
                 Hidpp20 ret;
 
-                // Sync Ping
-                int successCount = 0;
-                int successThresh = 3;
-                DiagnosticLogger.Log($"Starting ping test for HID device index {_deviceIdx}");
-                for (int i = 0; i < 10; i++)
+                // Sync Ping with retry logic for sleeping devices
+                const int maxRetries = 3;
+                const int initialDelay = 2000; // 2 seconds
+                bool pingSuccess = false;
+
+                for (int retry = 0; retry < maxRetries && !pingSuccess; retry++)
                 {
-                    var ping = await _parent.Ping20(_deviceIdx, 100);
-                    if (ping)
+                    // Add delay before retry attempts (not on first attempt)
+                    if (retry > 0)
                     {
-                        successCount++;
-                    }
-                    else
-                    {
-                        successCount = 0;
+                        int delay = initialDelay * (int)Math.Pow(2, retry - 1);
+                        DiagnosticLogger.Log($"Retrying HID device index {_deviceIdx} after {delay}ms delay (attempt {retry + 1}/{maxRetries})");
+                        await Task.Delay(delay);
                     }
 
-                    if (successCount >= successThresh) { break; }
-                }
+                    // Ping test
+                    int successCount = 0;
+                    int successThresh = 3;
+                    DiagnosticLogger.Log($"Starting ping test for HID device index {_deviceIdx}");
+                    for (int i = 0; i < 10; i++)
+                    {
+                        var ping = await _parent.Ping20(_deviceIdx, 100);
+                        if (ping)
+                        {
+                            successCount++;
+                        }
+                        else
+                        {
+                            successCount = 0;
+                        }
 
-                if (successCount < successThresh)
-                {
-                    DiagnosticLogger.LogWarning($"HID device index {_deviceIdx} failed ping test ({successCount}/{successThresh} successes)");
-                    return;
+                        if (successCount >= successThresh)
+                        {
+                            pingSuccess = true;
+                            break;
+                        }
+                    }
+
+                    // Log result if this is the last attempt and still failing
+                    if (!pingSuccess && retry == maxRetries - 1)
+                    {
+                        DiagnosticLogger.LogWarning($"HID device index {_deviceIdx} failed ping test after {maxRetries} retries ({successCount}/{successThresh} successes)");
+                        return;
+                    }
                 }
 
                 DiagnosticLogger.Log($"HID device index {_deviceIdx} passed ping test");
