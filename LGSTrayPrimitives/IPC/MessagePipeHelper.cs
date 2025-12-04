@@ -10,9 +10,8 @@ namespace LGSTrayPrimitives.IPC
             services.AddMessagePipe(options =>
             {
                 options.EnableCaptureStackTrace = true;
-            });
-
-            services.AddMessagePipeNamedPipeInterprocess("LGSTray", config =>
+            })
+            .AddNamedPipeInterprocess("LGSTray", config =>
             {
                 config.HostAsServer = hostAsServer;
             });

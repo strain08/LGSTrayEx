@@ -10,7 +10,8 @@ public static class AppExtensions
     {
         if (OperatingSystem.IsWindowsVersionAtLeast(8))
         {
-            var handle = Process.GetCurrentProcess().SafeHandle;
+            var processHandle = Process.GetCurrentProcess().SafeHandle;
+            var handle = new Winmdroot.Foundation.HANDLE(processHandle.DangerousGetHandle());
             Winmdroot.PInvoke.SetPriorityClass(handle, Winmdroot.System.Threading.PROCESS_CREATION_FLAGS.IDLE_PRIORITY_CLASS);
 
             Winmdroot.System.Threading.PROCESS_POWER_THROTTLING_STATE state = new()
