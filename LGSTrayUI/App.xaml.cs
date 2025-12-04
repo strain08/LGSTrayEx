@@ -60,7 +60,7 @@ public partial class App : Application
     {
         try
         {
-            config.AddTomlFile("appsettings.toml");
+            config.AddTomlFile(Path.Combine(AppContext.BaseDirectory, "appsettings.toml"));
         }
         catch (Exception ex)
         {
@@ -80,7 +80,7 @@ public partial class App : Application
                     );
                 }
 
-                config.AddTomlFile("appsettings.toml");
+                config.AddTomlFile(Path.Combine(AppContext.BaseDirectory, "appsettings.toml"));
             }
             else
             {
