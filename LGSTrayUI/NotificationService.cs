@@ -162,7 +162,7 @@ public class NotificationService : IHostedService
             title,
             message,
             notificationType,
-            areaName: "WindowArea",
+            areaName: "",
             expirationTime: TimeSpan.FromSeconds(5)
         );
     }
@@ -178,7 +178,7 @@ public class NotificationService : IHostedService
             title,
             message,
             NotificationType.Success,
-            areaName: "WindowArea",
+            areaName: "",
             expirationTime: TimeSpan.FromSeconds(5)
         );
     }
