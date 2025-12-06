@@ -40,14 +40,10 @@ public class NotificationService : IHostedService
         _subscriber = subscriber;
         _deviceCollection = deviceCollection;
         _notificationSettings = appSettings.Value.Notifications;
-
-        DiagnosticLogger.Log("NotificationService initialized");
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        DiagnosticLogger.Log("NotificationService starting - subscribing to device updates");
-
         // Subscribe to device update messages
         _subscription = _subscriber.Subscribe(message =>
         {
@@ -62,8 +58,6 @@ public class NotificationService : IHostedService
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        DiagnosticLogger.Log("NotificationService stopping");
-
         // Clean up subscription
         _subscription?.Dispose();
 
@@ -156,8 +150,6 @@ public class NotificationService : IHostedService
         var title = $"{deviceName} - Low Battery";
         var message = $"Battery level: {batteryPercent}%";
 
-        DiagnosticLogger.Log($"Showing {notificationType} notification for {deviceName}: {batteryPercent}% (threshold: {threshold}%)");
-
         _notificationManager.Show(
             title,
             message,
@@ -171,8 +163,6 @@ public class NotificationService : IHostedService
     {
         var title = $"{deviceName} - Battery Charged";
         var message = $"Battery level: {batteryPercent}%";
-
-        DiagnosticLogger.Log($"Showing Success notification for {deviceName}: {batteryPercent}% (battery charged)");
 
         _notificationManager.Show(
             title,
