@@ -61,6 +61,10 @@ namespace LGSTrayHID
         {
             if (Interlocked.Increment(ref _disposeCount) == 1)
             {
+#if DEBUG
+                // TEST HARNESS: Log disposal with device count
+                LGSTrayPrimitives.DiagnosticLogger.Log($"HidppDevices.Dispose called - Device count: {_deviceCollection.Count}");
+#endif
                 _isReading = false;
 
                 _devShort = IntPtr.Zero;
