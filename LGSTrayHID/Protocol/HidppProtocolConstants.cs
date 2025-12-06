@@ -109,6 +109,41 @@ namespace LGSTrayHID.Protocol
     }
 
     /// <summary>
+    /// Event function indices for battery features.
+    /// Battery events are broadcast by devices when battery state changes.
+    /// </summary>
+    public static class BatteryEventFunction
+    {
+        /// <summary>
+        /// Battery status broadcast event (Features 0x1000, 0x1001, 0x1004).
+        /// Function index 0x00 indicates this is an event, not a query response.
+        /// Events are distinguished from query responses by the calling context
+        /// (not matched to a pending request).
+        /// </summary>
+        public const byte BATTERY_STATUS_BROADCAST = 0x00;
+    }
+
+    /// <summary>
+    /// HID++ 1.0 register addresses for enabling battery reporting.
+    /// Used to enable automatic battery event broadcasts from devices.
+    /// </summary>
+    public static class Hidpp10Register
+    {
+        /// <summary>
+        /// Register address for enabling battery reports (HID++ 1.0).
+        /// Writing to this register enables automatic battery event notifications.
+        /// </summary>
+        public const byte ENABLE_REPORTS = 0x00;
+
+        /// <summary>
+        /// Flag value to enable battery reporting in ENABLE_REPORTS register.
+        /// Bit pattern: 0x04 enables battery status events.
+        /// Based on Linux kernel hid-logitech-hidpp.c implementation.
+        /// </summary>
+        public const byte ENABLE_BATTERY_REPORT = 0x04;
+    }
+
+    /// <summary>
     /// HID++ 1.0 receiver command codes
     /// </summary>
     public static class ReceiverCommand

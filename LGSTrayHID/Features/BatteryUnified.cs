@@ -53,5 +53,28 @@ namespace LGSTrayHID.Features
 
             return new BatteryUpdateReturn(percentage, status, millivolts);
         }
+
+        /// <inheritdoc/>
+        public BatteryUpdateReturn? ParseBatteryEvent(Hidpp20 eventMessage)
+        {
+            // Validate this is an event for our feature
+            if (eventMessage.GetFunctionId() != Protocol.BatteryEventFunction.BATTERY_STATUS_BROADCAST)
+            {
+                return null;
+            }
+
+            // Event payload format for Feature 0x1004:
+            // Note: 0x1004 events use function 0x00 (broadcast) vs 0x10 for queries
+            // but payload format matches capability response
+            // Param 0: Battery percentage (0-100)
+            // Param 2: Charging status code
+            double percentage = eventMessage.GetParam(0);
+            var status = BatteryStatusParser.ParseUnifiedBatteryStatus(eventMessage.GetParam(2));
+
+            // Feature 0x1004 doesn't provide voltage info
+            int millivolts = -1;
+
+            return new BatteryUpdateReturn(percentage, status, millivolts);
+        }
     }
 }

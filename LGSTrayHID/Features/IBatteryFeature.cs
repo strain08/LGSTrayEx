@@ -20,11 +20,25 @@ namespace LGSTrayHID.Features
         /// </value>
         ushort FeatureId { get; }
         string FeatureName { get; }
+
         /// <summary>
-        /// Query battery status from the device using this feature.
+        /// Query battery status from the device using this feature (request/response).
         /// </summary>
         /// <param name="device">The HID++ device to query</param>
         /// <returns>Battery status information, or null if the query failed</returns>
         Task<BatteryUpdateReturn?> GetBatteryAsync(HidppDevice device);
+
+        /// <summary>
+        /// Parse a battery event broadcast message from the device.
+        /// Battery events are unsolicited messages sent when battery state changes.
+        /// </summary>
+        /// <param name="eventMessage">The HID++ 2.0 event message</param>
+        /// <returns>Battery status information, or null if parsing failed</returns>
+        /// <remarks>
+        /// Event messages have function index 0x00 and are distinguished from query
+        /// responses by the calling context (not matched to a request).
+        /// Event payload format is feature-specific but typically matches query response format.
+        /// </remarks>
+        BatteryUpdateReturn? ParseBatteryEvent(Hidpp20 eventMessage);
     }
 }

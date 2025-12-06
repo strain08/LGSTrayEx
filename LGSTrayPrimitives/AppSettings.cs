@@ -45,6 +45,13 @@ public class NativeDeviceManagerSettings : IDeviceManagerSettings
     public int RetryTime { get; set; } = 10;
     public int PollPeriod { get; set; } = 600;
 
+    /// <summary>
+    /// Enable battery event-driven updates (default: true).
+    /// When enabled, devices send unsolicited battery updates on state changes.
+    /// Polling continues to run in parallel for validation and fallback.
+    /// </summary>
+    public bool EnableBatteryEvents { get; set; } = true;
+
     public IEnumerable<string> DisabledDevices { get; set; } = [];
 }
 

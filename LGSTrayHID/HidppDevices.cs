@@ -115,36 +115,50 @@ namespace LGSTrayHID
                     continue;
                 }
 
-                await ProcessMessgage(buffer);
+                await ProcessMessage(buffer);
             }
 
             HidClose(dev);
         }
 
-        private async Task ProcessMessgage(byte[] buffer)
+        private async Task ProcessMessage(byte[] buffer)
         {
             Hidpp20 message = buffer;
+
+            // Handle device announcements (hotplug arrival)
             if (message.IsDeviceAnnouncement() && ((buffer[4] & 0x40) == 0))
             {
-                byte deviceIdx = buffer[1];
-                if (true || !_deviceCollection.ContainsKey(deviceIdx))
+                byte announcementDeviceIdx = buffer[1];
+                if (true || !_deviceCollection.ContainsKey(announcementDeviceIdx))
                 {
-                    _deviceCollection[deviceIdx] = new(this, deviceIdx);
+                    _deviceCollection[announcementDeviceIdx] = new(this, announcementDeviceIdx);
+                    byte capturedIdx = announcementDeviceIdx;
                     new Thread(async () =>
                     {
                         try
                         {
                             await Task.Delay(1000);
-                            await _deviceCollection[deviceIdx].InitAsync();
+                            await _deviceCollection[capturedIdx].InitAsync();
                         }
                         catch (Exception) { }
                     }).Start();
                 }
+                return; // Don't send to channel
             }
-            else
+
+            // Check if this is a battery event (unsolicited, not a response)
+            byte deviceIdx = message.GetDeviceIdx();
+            if (_deviceCollection.TryGetValue(deviceIdx, out HidppDevice? device))
             {
-                await _channel.Writer.WriteAsync(buffer);
+                // Try to route as battery event to the device
+                if (await device.TryHandleBatteryEventAsync(message))
+                {
+                    return; // Event handled, don't send to response channel
+                }
             }
+
+            // Not an event - must be a query response, send to response channel
+            await _channel.Writer.WriteAsync(buffer);
         }
 
         public async Task<byte[]> WriteRead10(HidDevicePtr hidDevicePtr, byte[] buffer, int timeout = 100)

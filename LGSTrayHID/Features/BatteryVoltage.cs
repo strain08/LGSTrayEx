@@ -88,5 +88,24 @@ namespace LGSTrayHID.Features
             // Voltage is below the lowest value in the table
             return 0;
         }
+
+        /// <inheritdoc/>
+        public BatteryUpdateReturn? ParseBatteryEvent(Hidpp20 eventMessage)
+        {
+            // Validate this is an event for our feature
+            if (eventMessage.GetFunctionId() != Protocol.BatteryEventFunction.BATTERY_STATUS_BROADCAST)
+            {
+                return null;
+            }
+
+            // Event payload format matches query response format for Feature 0x1001:
+            // Params 0-1: Battery voltage in millivolts (16-bit big-endian)
+            // Param 2: Charging status flags
+            int millivolts = eventMessage.GetParam16(0);
+            double percentage = EstimatePercentageFromVoltage(millivolts);
+            var status = BatteryStatusParser.ParseVoltageBatteryStatus(eventMessage.GetParam(2));
+
+            return new BatteryUpdateReturn(percentage, status, millivolts);
+        }
     }
 }

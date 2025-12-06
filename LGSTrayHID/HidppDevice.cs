@@ -28,6 +28,11 @@ namespace LGSTrayHID
         private BatteryUpdateReturn lastBatteryReturn;
         private DateTimeOffset lastUpdate = DateTimeOffset.MinValue;
 
+        // Battery event tracking
+        private byte _batteryFeatureIndex = 0xFF; // 0xFF = not set
+        private DateTimeOffset _lastEventTime = DateTimeOffset.MinValue;
+        private const int EVENT_THROTTLE_MS = 500; // Prevent event spam
+
         private readonly HidppDevices _parent;
         public HidppDevices Parent => _parent;
 
@@ -205,16 +210,33 @@ namespace LGSTrayHID
 
             // Select battery feature using factory pattern
             _batteryFeature = BatteryFeatureFactory.GetBatteryFeature(FeatureMap);
-            
-            // Log battery feature presence
+
+            // Log battery feature presence and enable events
             if (_batteryFeature != null)
             {
                 DiagnosticLogger.Log($"[{DeviceName}] Battery feature found: {_batteryFeature.FeatureName} (ID: {_batteryFeature.FeatureId:X})");
+
+                // Store the feature index for event routing
+                _batteryFeatureIndex = FeatureMap[_batteryFeature.FeatureId];
+
+                // Enable battery event reporting (HID++ 1.0 command)
+                // Note: Not all devices support this - failures are non-fatal
+                try
+                {
+                    var enableCmd = Hidpp10Commands.EnableBatteryReports(_deviceIdx);
+                    await _parent.WriteRead10(_parent.DevShort, enableCmd, timeout: 1000);
+                    DiagnosticLogger.Log($"[{DeviceName}] Battery events enabled");
+                }
+                catch (Exception ex)
+                {
+                    DiagnosticLogger.LogWarning($"[{DeviceName}] Failed to enable battery events (device may not support): {ex.Message}");
+                    // Non-fatal - device will fall back to polling
+                }
             }
             else
             {
                 DiagnosticLogger.LogWarning($"[{DeviceName}] No battery feature found.");
-            }            
+            }
 
             HidppManagerContext.Instance.SignalDeviceEvent(
                 IPCMessageType.INIT,
@@ -233,7 +255,7 @@ namespace LGSTrayHID
                 {
                     var now = DateTimeOffset.Now;
 #if DEBUG
-                    var expectedUpdateTime = lastUpdate.AddSeconds(1);
+                    var expectedUpdateTime = lastUpdate.AddSeconds(600);
 #else
                     var expectedUpdateTime = lastUpdate.AddSeconds(GlobalSettings.settings.PollPeriod);
 #endif
@@ -268,7 +290,8 @@ namespace LGSTrayHID
             }
 
             var batStatus = ret.Value;
-            DiagnosticLogger.Log($"[{DeviceName}] Battery level {batStatus.batteryPercentage}.");
+            // Log with "poll" prefix to distinguish from event updates in logs
+            DiagnosticLogger.Log($"[{DeviceName}] Battery poll: {batStatus.batteryPercentage}%");
 
             lastUpdate = DateTimeOffset.Now;
 
@@ -282,6 +305,65 @@ namespace LGSTrayHID
                 IPCMessageType.UPDATE,
                 new UpdateMessage(Identifier, batStatus.batteryPercentage, batStatus.status, batStatus.batteryMVolt, lastUpdate)
             );
+        }
+
+        /// <summary>
+        /// Attempt to handle a message as a battery event.
+        /// Returns true if the message was a battery event and was handled.
+        /// </summary>
+        /// <param name="message">The HID++ message to check</param>
+        /// <returns>True if this was a battery event and was handled, false otherwise</returns>
+        public async Task<bool> TryHandleBatteryEventAsync(Hidpp20 message)
+        {
+            // Check if we have a battery feature configured
+            if (_batteryFeature == null || _batteryFeatureIndex == 0xFF)
+            {
+                return false;
+            }
+
+            // Check if this message is a battery event for our feature
+            if (!message.IsBatteryEvent(_batteryFeatureIndex))
+            {
+                return false;
+            }
+
+            // Throttle events to prevent spam (some devices send rapid bursts)
+            var now = DateTimeOffset.Now;
+            if ((now - _lastEventTime).TotalMilliseconds < EVENT_THROTTLE_MS)
+            {
+                DiagnosticLogger.Log($"[{DeviceName}] Battery event throttled (too frequent)");
+                return true; // Handled but suppressed
+            }
+            _lastEventTime = now;
+
+            // Parse the event using the battery feature
+            var batteryUpdate = _batteryFeature.ParseBatteryEvent(message);
+            if (batteryUpdate == null)
+            {
+                DiagnosticLogger.LogWarning($"[{DeviceName}] Failed to parse battery event");
+                return false;
+            }
+
+            var batStatus = batteryUpdate.Value;
+            DiagnosticLogger.Log($"[{DeviceName}] Battery event: {batStatus.batteryPercentage}%");
+
+            lastUpdate = now;
+
+            // Check for state change (deduplication)
+            if (batStatus == lastBatteryReturn)
+            {
+                // State unchanged, don't send IPC update
+                return true;
+            }
+
+            // State changed - send IPC update
+            lastBatteryReturn = batStatus;
+            HidppManagerContext.Instance.SignalDeviceEvent(
+                IPCMessageType.UPDATE,
+                new UpdateMessage(Identifier, batStatus.batteryPercentage, batStatus.status, batStatus.batteryMVolt, lastUpdate)
+            );
+
+            return true; // Event handled successfully
         }
     }
 }

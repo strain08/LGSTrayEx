@@ -70,6 +70,24 @@
         }
 
         /// <summary>
+        /// Check if this message is a battery event broadcast.
+        /// Battery events have function index 0x00 and are NOT matched to a pending request.
+        /// </summary>
+        /// <param name="featureIndex">The feature index to check against (from device's feature map)</param>
+        /// <returns>True if this is a battery event for the given feature</returns>
+        /// <remarks>
+        /// Battery events are distinguished from query responses by:
+        /// 1. Function ID is 0x00 (BATTERY_STATUS_BROADCAST)
+        /// 2. Not matched to a pending WriteRead20 request (caller's responsibility)
+        /// 3. Feature index matches a known battery feature (0x1000, 0x1001, 0x1004)
+        /// </remarks>
+        public bool IsBatteryEvent(byte featureIndex)
+        {
+            return GetFeatureIndex() == featureIndex
+                && GetFunctionId() == Protocol.BatteryEventFunction.BATTERY_STATUS_BROADCAST;
+        }
+
+        /// <summary>
         /// Get the error code from an error response.
         /// Only valid if IsError() returns true.
         /// </summary>
