@@ -16,6 +16,10 @@ namespace LGSTrayHID
     public class HidppDevice
     {
         private const int INIT_PING_TIMEOUT = 5000;
+        // hidpp constants
+        private const int DEVICE_NAME = 0x0005;
+        private const int DEVICE_FW_VERSION = 0x0003;
+
         private readonly SemaphoreSlim _initSemaphore = new(1, 1);
         private Func<HidppDevice, Task<BatteryUpdateReturn?>>? _getBatteryAsync;
 
@@ -49,7 +53,7 @@ namespace LGSTrayHID
                 Hidpp20 ret;
 
                 // Sync Ping with retry logic for sleeping devices
-                const int maxRetries = 3;
+                const int maxRetries = 10;
                 const int initialDelay = 2000; // 2 seconds
                 bool pingSuccess = false;
 
@@ -103,7 +107,7 @@ namespace LGSTrayHID
                 // Get Feature Count
                 ret = await _parent.WriteRead20(_parent.DevShort, new byte[7] { 0x10, _deviceIdx, _featureMap[0x0001], 0x00 | SW_ID, 0x00, 0x00, 0x00 });
                 int featureCount = ret.GetParam(0);
-
+                
                 // Enumerate Features
                 for (byte i = 0; i <= featureCount; i++)
                 {
@@ -130,7 +134,7 @@ namespace LGSTrayHID
             DiagnosticLogger.Log($"Enumerating features for HID device index {_deviceIdx}");
 
             // Device name
-            if (_featureMap.TryGetValue(0x0005, out featureId))
+            if (_featureMap.TryGetValue(DEVICE_NAME, out featureId))
             {
                 ret = await _parent.WriteRead20(_parent.DevShort, new byte[7] { 0x10, _deviceIdx, featureId, 0x00 | SW_ID, 0x00, 0x00, 0x00 });
                 int nameLength = ret.GetParam(0);
@@ -164,7 +168,7 @@ namespace LGSTrayHID
                 return;
             }
 
-            if (_featureMap.TryGetValue(0x0003, out featureId))
+            if (_featureMap.TryGetValue(DEVICE_FW_VERSION, out featureId))
             {
                 ret = await _parent.WriteRead20(_parent.DevShort, new byte[7] { 0x10, _deviceIdx, featureId, 0x00 | SW_ID, 0x00, 0x00, 0x00 });
 
@@ -242,28 +246,39 @@ namespace LGSTrayHID
 
                     await UpdateBattery();
                     await Task.Delay(GlobalSettings.settings.RetryTime * 1000);
+                    DiagnosticLogger.Log($"Polling battery for device {DeviceName}");
                 }
             });
         }
 
         public async Task UpdateBattery(bool forceIpcUpdate = false)
         {
-            if (Parent.Disposed) { return; }
-            if (_getBatteryAsync == null) { return; }
+            if (Parent.Disposed) { 
+                DiagnosticLogger.Log($"[{DeviceName}] Parent disposed, skipping battery update.");
+                return; 
+            }
+            if (_getBatteryAsync == null) { 
+                DiagnosticLogger.Log($"[{DeviceName}] No battery feature available, skipping battery update.");
+                return; 
+            }
 
             var ret = await _getBatteryAsync.Invoke(this);
 
-            if (ret == null) { return; }
+            if (ret == null) { 
+                DiagnosticLogger.Log($"[{DeviceName}] Battery update returned null, skipping.");
+                return; 
+            }
 
             var batStatus = ret.Value;
+            DiagnosticLogger.Log($"[{DeviceName}] Battery level {batStatus.batteryPercentage}.");
+
             lastUpdate = DateTimeOffset.Now;
 
             if (forceIpcUpdate || (batStatus == lastBatteryReturn))
-            {
+            {                
                 // Don't report if no change
                 return;
-            }
-
+            }            
             lastBatteryReturn = batStatus;
             HidppManagerContext.Instance.SignalDeviceEvent(
                 IPCMessageType.UPDATE,
