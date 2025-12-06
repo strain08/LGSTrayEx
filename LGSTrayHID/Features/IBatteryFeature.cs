@@ -19,7 +19,7 @@ namespace LGSTrayHID.Features
         /// - 0x1004: Unified Battery (extended)
         /// </value>
         ushort FeatureId { get; }
-
+        string FeatureName { get; }
         /// <summary>
         /// Query battery status from the device using this feature.
         /// </summary>

@@ -13,6 +13,8 @@ namespace LGSTrayHID.Features
         /// <inheritdoc/>
         public ushort FeatureId => HidppFeature.BATTERY_UNIFIED_LEVEL;
 
+        public string FeatureName => "Battery Unified Level";
+
         /// <inheritdoc/>
         public async Task<BatteryUpdateReturn?> GetBatteryAsync(HidppDevice device)
         {

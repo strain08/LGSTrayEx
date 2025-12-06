@@ -203,27 +203,18 @@ namespace LGSTrayHID
                 Identifier = $"{DeviceName.GetHashCode():X04}";
             }
 
-#if DEBUG
-            Log.WriteLine("---");
-            Log.WriteLine(DeviceName + " Ready");
-            Log.WriteLine(Identifier);
-            foreach ((ushort featureIdItr, string featureDesc) in new (ushort, string)[]
-            {
-                (0x1000, "Battery Unified Level"),
-                (0x1001, "Battery Voltage"),
-                (0x1004, "Unified Battery"),
-            })
-            {
-                if (_featureMap.ContainsKey(featureIdItr))
-                {
-                    Log.WriteLine($"0x{featureIdItr:X} - {featureDesc} Found");
-                }
-            }
-            Log.WriteLine("---");
-#endif
-
             // Select battery feature using factory pattern
             _batteryFeature = BatteryFeatureFactory.GetBatteryFeature(FeatureMap);
+            
+            // Log battery feature presence
+            if (_batteryFeature != null)
+            {
+                DiagnosticLogger.Log($"[{DeviceName}] Battery feature found: {_batteryFeature.FeatureName} (ID: {_batteryFeature.FeatureId:X})");
+            }
+            else
+            {
+                DiagnosticLogger.LogWarning($"[{DeviceName}] No battery feature found.");
+            }            
 
             HidppManagerContext.Instance.SignalDeviceEvent(
                 IPCMessageType.INIT,

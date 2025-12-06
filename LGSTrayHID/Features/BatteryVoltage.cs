@@ -18,6 +18,8 @@ namespace LGSTrayHID.Features
         /// <inheritdoc/>
         public ushort FeatureId => HidppFeature.BATTERY_VOLTAGE;
 
+        public string FeatureName => "Battery Voltage";
+
         /// <summary>
         /// Generic 3.7V LiPo discharge curve lookup table.
         /// Maps battery voltage (in millivolts) to estimated percentage.

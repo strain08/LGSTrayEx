@@ -13,6 +13,8 @@ namespace LGSTrayHID.Features
         /// <inheritdoc/>
         public ushort FeatureId => HidppFeature.BATTERY_UNIFIED;
 
+        public string FeatureName => "Unified Battery";
+
         /// <summary>
         /// Timeout for battery capability queries (longer than standard queries).
         /// </summary>
