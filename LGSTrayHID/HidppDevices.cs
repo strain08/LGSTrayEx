@@ -134,25 +134,52 @@ namespace LGSTrayHID
         {
             Hidpp20 message = buffer;
 
-            // Handle device announcements (hotplug arrival)
-            if (message.IsDeviceAnnouncement() && ((buffer[4] & 0x40) == 0))
+            // Handle device announcements (both connection and disconnection)
+            if (message.IsDeviceAnnouncement())
             {
                 byte announcementDeviceIdx = buffer[1];
-                if (true || !_deviceCollection.ContainsKey(announcementDeviceIdx))
+                bool isDeviceOn = (buffer[4] & 0x40) == 0;  // Bit 6 clear = ON, set = OFF
+
+                if (isDeviceOn)
                 {
-                    _deviceCollection[announcementDeviceIdx] = new(this, announcementDeviceIdx);
-                    byte capturedIdx = announcementDeviceIdx;
-                    new Thread(async () =>
+                    // Device turned ON or paired
+                    LGSTrayPrimitives.DiagnosticLogger.Log($"[Device ON Event] Index: {announcementDeviceIdx}, " +
+                                        $"Params: [0x{buffer[3]:X02} 0x{buffer[4]:X02} 0x{buffer[5]:X02} 0x{buffer[6]:X02}]");
+
+                    // Existing device creation logic
+                    if (true || !_deviceCollection.ContainsKey(announcementDeviceIdx))
                     {
-                        try
+                        _deviceCollection[announcementDeviceIdx] = new(this, announcementDeviceIdx);
+                        byte capturedIdx = announcementDeviceIdx;
+                        new Thread(async () =>
                         {
-                            await Task.Delay(1000);
-                            await _deviceCollection[capturedIdx].InitAsync();
-                        }
-                        catch (Exception) { }
-                    }).Start();
+                            try
+                            {
+                                await Task.Delay(1000);
+                                await _deviceCollection[capturedIdx].InitAsync();
+                            }
+                            catch (Exception) { }
+                        }).Start();
+                    }
                 }
-                return; // Don't send to channel
+                else
+                {
+                    // Device turned OFF or unpaired
+                    string deviceName = "Unknown";
+                    if (_deviceCollection.TryGetValue(announcementDeviceIdx, out HidppDevice? offlineDevice))
+                    {
+                        deviceName = offlineDevice.DeviceName;
+                    }
+
+                    LGSTrayPrimitives.DiagnosticLogger.Log($"[Device OFF Event] Index: {announcementDeviceIdx}, " +
+                                        $"Name: {deviceName}, " +
+                                        $"Params: [0x{buffer[3]:X02} 0x{buffer[4]:X02} 0x{buffer[5]:X02} 0x{buffer[6]:X02}]");
+
+                    // Note: Device stays in collection and UI (as per user requirement)
+                    // Future enhancement: Could mark as offline or remove here
+                }
+
+                return; // Don't send to response channel
             }
 
             // Check if this is a wireless status or battery event (unsolicited, not a response)
@@ -343,11 +370,46 @@ namespace LGSTrayHID
             };
             t2.Start();
 
+            // Wait for read threads to be ready before sending commands
+            await Task.Delay(500);
+
             byte[] ret;
 
             // Note: DJ protocol (0x20/0x21) does not work with BOLT receivers.
             // BOLT uses HID++ 2.0 Feature 0x1D4B (Wireless Device Status) for connection events.
             // Events are automatically enabled by the battery enable command (HID++ 1.0 register 0x00).
+
+            // Enable receiver notifications for device connection/disconnection events
+            // Send EnableBatteryReports to the RECEIVER (0xFF) to enable device on/off announcements
+            try
+            {
+                // This enables the receiver to send 0x41 announcements when devices turn on/off
+                // Same command as per-device battery enable, but sent to receiver index 0xFF
+                var enableReceiverNotifications = Hidpp10Commands.EnableBatteryReports(0xFF);
+                ret = await WriteRead10(_devShort, enableReceiverNotifications, 1000);
+                LGSTrayPrimitives.DiagnosticLogger.Log($"Receiver EnableBatteryReports response: {BitConverter.ToString(ret)}");
+
+                // Also try enabling all notification types (0x0F = all reports)
+                byte[] enableAllReports = new byte[7]
+                {
+                    0x10,  // HID++ 1.0
+                    0xFF,  // Receiver
+                    0x80,  // SET_REGISTER
+                    0x00,  // Register 0x00 (ENABLE_REPORTS)
+                    0x0F,  // Enable ALL report types (battery + wireless + others)
+                    0x0F,  // Confirmation
+                    0x00   // Padding
+                };
+                ret = await WriteRead10(_devShort, enableAllReports, 1000);
+                LGSTrayPrimitives.DiagnosticLogger.Log($"Receiver EnableAllReports response: {BitConverter.ToString(ret)}");
+
+                LGSTrayPrimitives.DiagnosticLogger.Log("Receiver device on/off notifications enabled");
+            }
+            catch (Exception ex)
+            {
+                LGSTrayPrimitives.DiagnosticLogger.Log($"Failed to enable receiver notifications: {ex.Message}");
+                // Non-fatal - continue with standard initialization
+            }
 
             // Query receiver for number of connected devices
             ret = await WriteRead10(_devShort, Hidpp10Commands.QueryDeviceCount(), 1000);
