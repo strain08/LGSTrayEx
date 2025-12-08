@@ -28,6 +28,7 @@ namespace LGSTrayHID
         public IReadOnlyDictionary<ushort, HidppDevice> DeviceCollection => _deviceCollection;
 
         private readonly SemaphoreSlim _semaphore = new(1, 1);
+        private readonly SemaphoreSlim _initSemaphore = new(1, 1); // Ensure sequential device initialization
         private readonly Channel<byte[]> _channel = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(5)
         {
             FullMode = BoundedChannelFullMode.DropOldest,
@@ -36,16 +37,9 @@ namespace LGSTrayHID
         });
 
         private HidDevicePtr _devShort = IntPtr.Zero;
-        public HidDevicePtr DevShort
-        {
-            get => _devShort;
-        }
+        public HidDevicePtr DevShort => _devShort;
 
-        private HidDevicePtr _devLong = IntPtr.Zero;
-        public HidDevicePtr DevLong
-        {
-            get => _devLong;
-        }
+        public HidDevicePtr DevLong { get; private set; } = IntPtr.Zero;
 
         private int _disposeCount = 0;
         public bool Disposed => _disposeCount > 0;
@@ -69,7 +63,7 @@ namespace LGSTrayHID
                 _isReading = false;
 
                 _devShort = IntPtr.Zero;
-                _devLong = IntPtr.Zero;
+                DevLong = IntPtr.Zero;
             }
         }
 
@@ -90,11 +84,11 @@ namespace LGSTrayHID
 
         public async Task SetDevLong(nint devLong)
         {
-            if (_devLong != IntPtr.Zero)
+            if (DevLong != IntPtr.Zero)
             {
                 throw new ReadOnlyException();
             }
-            _devLong = devLong;
+            DevLong = devLong;
             await SetUp();
         }
 
@@ -117,11 +111,11 @@ namespace LGSTrayHID
 
                 #if DEBUG
                 // Log ALL messages for debugging (first 7 bytes)
-                string hex = string.Join(" ", buffer.Take(Math.Min(7, ret)).Select(b => $"{b:X02}"));
-                if (buffer[0] != 0x10 || buffer[2] != 0x00) // Skip common ping responses to reduce noise
-                {
-                    LGSTrayPrimitives.DiagnosticLogger.Log($"DEBUG RAW [{bufferSize}b]: {hex}");
-                }
+                //string hex = string.Join(" ", buffer.Take(Math.Min(7, ret)).Select(b => $"{b:X02}"));
+                //if (buffer[0] != 0x10 || buffer[2] != 0x00) // Skip common ping responses to reduce noise
+                //{
+                //    LGSTrayPrimitives.DiagnosticLogger.Log($"DEBUG RAW [{bufferSize}b]: {hex}");
+                //}
                 #endif
 
                 await ProcessMessage(buffer);
@@ -156,9 +150,24 @@ namespace LGSTrayHID
                             try
                             {
                                 await Task.Delay(1000);
-                                await _deviceCollection[capturedIdx].InitAsync();
+
+                                // Wait for previous device initialization to complete (sequential init)
+                                await _initSemaphore.WaitAsync();
+                                try
+                                {
+                                    LGSTrayPrimitives.DiagnosticLogger.Log($"Starting initialization for device {capturedIdx}");
+                                    await _deviceCollection[capturedIdx].InitAsync();
+                                    LGSTrayPrimitives.DiagnosticLogger.Log($"Completed initialization for device {capturedIdx}");
+                                }
+                                finally
+                                {
+                                    _initSemaphore.Release();
+                                }
                             }
-                            catch (Exception) { }
+                            catch (Exception ex)
+                            {
+                                LGSTrayPrimitives.DiagnosticLogger.LogError($"Device {capturedIdx} initialization failed: {ex.Message}");
+                            }
                         }).Start();
                     }
                 }
@@ -349,7 +358,7 @@ namespace LGSTrayHID
 
         private async Task SetUp()
         {
-            if ((_devShort == IntPtr.Zero) || (_devLong == IntPtr.Zero))
+            if ((_devShort == IntPtr.Zero) || (DevLong == IntPtr.Zero))
             {
                 return;
             }
@@ -364,7 +373,7 @@ namespace LGSTrayHID
             };
             t1.Start();
 
-            Thread t2 = new(async () => { await ReadThread(_devLong, 20); })
+            Thread t2 = new(async () => { await ReadThread(DevLong, 20); })
             {
                 Priority = ThreadPriority.BelowNormal
             };
@@ -442,7 +451,16 @@ namespace LGSTrayHID
 
                 foreach ((_, var device) in _deviceCollection)
                 {
-                    await device.InitAsync();
+                    try
+                    {
+                        LGSTrayPrimitives.DiagnosticLogger.Log($"Starting fallback initialization for device {device.DeviceIdx}");
+                        await device.InitAsync();
+                        LGSTrayPrimitives.DiagnosticLogger.Log($"Completed fallback initialization for device {device.DeviceIdx}");
+                    }
+                    catch (Exception ex)
+                    {
+                        LGSTrayPrimitives.DiagnosticLogger.LogError($"Device {device.DeviceIdx} fallback initialization failed: {ex.Message}");
+                    }
                 }
             }
         }
