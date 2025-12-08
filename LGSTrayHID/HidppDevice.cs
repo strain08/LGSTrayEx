@@ -4,29 +4,22 @@ using LGSTrayHID.Features;
 using LGSTrayHID.Protocol;
 using LGSTrayHID.Metadata;
 using LGSTrayHID.Battery;
-using System.Text;
 
-using static LGSTrayHID.HidppDevices;
-
-#if DEBUG
-using Log = System.Console;
-#else
-using Log = System.Diagnostics.Debug;
-#endif
 
 namespace LGSTrayHID
 {
     public class HidppDevice
     {
-        private const int INIT_PING_TIMEOUT = 5000;
-
-        private readonly SemaphoreSlim _initSemaphore = new(1, 1);
-        private IBatteryFeature? _batteryFeature;
-
+        public HidppDevices Parent { get; }
+        public byte DeviceIdx { get; }
         public string DeviceName { get; private set; } = string.Empty;
         public int DeviceType { get; private set; } = 3;
-        public string Identifier { get; private set; } = string.Empty;
+        public string Identifier { get; private set; } = string.Empty;        
+        public Dictionary<ushort, byte> FeatureMap { get; } = [];
 
+        private const int INIT_PING_TIMEOUT_MS = 5000;
+        
+        private IBatteryFeature? _batteryFeature;        
         private DateTimeOffset lastUpdate = DateTimeOffset.MinValue;
 
         // Battery event tracking
@@ -36,20 +29,13 @@ namespace LGSTrayHID
 
         // Wireless device status event tracking (0x1D4B - BOLT receivers)
         private byte _wirelessStatusFeatureIndex = 0xFF; // 0xFF = not set
-
-        private readonly HidppDevices _parent;
-        public HidppDevices Parent => _parent;
-
-        private readonly byte _deviceIdx;
-        public byte DeviceIdx => _deviceIdx;
-
-        private readonly Dictionary<ushort, byte> _featureMap = [];
-        public Dictionary<ushort, byte> FeatureMap => _featureMap;
+        // Semaphore to prevent concurrent InitAsync calls
+        private readonly SemaphoreSlim _initSemaphore = new(1, 1);
 
         public HidppDevice(HidppDevices parent, byte deviceIdx)
         {
-            _parent = parent;
-            _deviceIdx = deviceIdx;
+            Parent = parent;
+            DeviceIdx = deviceIdx;
         }
 
         public async Task InitAsync()
@@ -70,17 +56,17 @@ namespace LGSTrayHID
                     if (retry > 0)
                     {
                         int delay = initialDelay * (int)Math.Pow(2, retry - 1);
-                        DiagnosticLogger.Log($"Retrying HID device index {_deviceIdx} after {delay}ms delay (attempt {retry + 1}/{maxRetries})");
+                        DiagnosticLogger.Log($"Retrying HID device index {DeviceIdx} after {delay}ms delay (attempt {retry + 1}/{maxRetries})");
                         await Task.Delay(delay);
                     }
 
                     // Ping test
                     int successCount = 0;
                     int successThresh = 3;
-                    DiagnosticLogger.Log($"Starting ping test for HID device index {_deviceIdx}");
+                    DiagnosticLogger.Log($"Starting ping test for HID device index {DeviceIdx}");
                     for (int i = 0; i < 10; i++)
                     {
-                        var ping = await _parent.Ping20(_deviceIdx, INIT_PING_TIMEOUT);
+                        var ping = await Parent.Ping20(DeviceIdx, INIT_PING_TIMEOUT_MS);
                         if (ping)
                         {
                             successCount++;
@@ -100,43 +86,43 @@ namespace LGSTrayHID
                     // Log result if this is the last attempt and still failing
                     if (!pingSuccess && retry == maxRetries - 1)
                     {
-                        DiagnosticLogger.LogWarning($"HID device index {_deviceIdx} failed ping test after {maxRetries} retries ({successCount}/{successThresh} successes)");
+                        DiagnosticLogger.LogWarning($"HID device index {DeviceIdx} failed ping test after {maxRetries} retries ({successCount}/{successThresh} successes)");
                         return;
                     }
                 }
 
-                DiagnosticLogger.Log($"HID device index {_deviceIdx} passed ping test");
+                DiagnosticLogger.Log($"HID device index {DeviceIdx} passed ping test");
 
                 // Find IFeatureSet (0x0001) - get its feature index
-                ret = await _parent.WriteRead20(_parent.DevShort,
-                    Hidpp20Commands.GetFeatureIndex(_deviceIdx, HidppFeature.FEATURE_SET));
-                _featureMap[HidppFeature.FEATURE_SET] = ret.GetParam(0);
+                ret = await Parent.WriteRead20(Parent.DevShort,
+                    Hidpp20Commands.GetFeatureIndex(DeviceIdx, HidppFeature.FEATURE_SET));
+                FeatureMap[HidppFeature.FEATURE_SET] = ret.GetParam(0);
 
                 // Get Feature Count
-                ret = await _parent.WriteRead20(_parent.DevShort,
-                    Hidpp20Commands.GetFeatureCount(_deviceIdx, _featureMap[HidppFeature.FEATURE_SET]));
+                ret = await Parent.WriteRead20(Parent.DevShort,
+                    Hidpp20Commands.GetFeatureCount(DeviceIdx, FeatureMap[HidppFeature.FEATURE_SET]));
                 int featureCount = ret.GetParam(0);
 
                 // Enumerate Features
                 for (byte i = 0; i <= featureCount; i++)
                 {
-                    ret = await _parent.WriteRead20(_parent.DevShort,
-                        Hidpp20Commands.EnumerateFeature(_deviceIdx, _featureMap[HidppFeature.FEATURE_SET], i), 5000);
+                    ret = await Parent.WriteRead20(Parent.DevShort,
+                        Hidpp20Commands.EnumerateFeature(DeviceIdx, FeatureMap[HidppFeature.FEATURE_SET], i), 5000);
 
                     // Check if we got a valid response (timeout returns empty array)
                     if (ret.Length == 0)
                     {
-                        DiagnosticLogger.LogWarning($"[Device {_deviceIdx}] Feature enumeration timeout at index {i}, stopping enumeration");
+                        DiagnosticLogger.LogWarning($"[Device {DeviceIdx}] Feature enumeration timeout at index {i}, stopping enumeration");
                         break;
                     }
 
                     ushort featureId = ret.GetFeatureId();
 
-                    _featureMap[featureId] = i;
+                    FeatureMap[featureId] = i;
 
                     #if DEBUG
                     // Log feature mapping for debugging connection events
-                    DiagnosticLogger.Log($"[Device {_deviceIdx}] Feature 0x{featureId:X04} mapped to index {i}");
+                    DiagnosticLogger.Log($"[Device {DeviceIdx}] Feature 0x{featureId:X04} mapped to index {i}");
                     #endif
                 }
 
@@ -153,10 +139,10 @@ namespace LGSTrayHID
         {
             byte featureId;
 
-            DiagnosticLogger.Log($"Enumerating features for HID device index {_deviceIdx}");
+            DiagnosticLogger.Log($"Enumerating features for HID device index {DeviceIdx}");
 
             // Device name
-            if (_featureMap.TryGetValue(HidppFeature.DEVICE_NAME, out featureId))
+            if (FeatureMap.TryGetValue(HidppFeature.DEVICE_NAME, out featureId))
             {
                 DeviceName = await DeviceMetadataRetriever.GetDeviceNameAsync(this, featureId);
 
@@ -172,11 +158,11 @@ namespace LGSTrayHID
             else
             {
                 // Device does not have a name/Hidpp error ignore it
-                DiagnosticLogger.LogWarning($"HID device index {_deviceIdx} missing feature 0x0005 (device name), ignoring");
+                DiagnosticLogger.LogWarning($"HID device index {DeviceIdx} missing feature 0x0005 (device name), ignoring");
                 return;
             }
 
-            if (_featureMap.TryGetValue(HidppFeature.DEVICE_FW_INFO, out featureId))
+            if (FeatureMap.TryGetValue(HidppFeature.DEVICE_FW_INFO, out featureId))
             {
                 var fwInfo = await DeviceMetadataRetriever.GetFirmwareInfoAsync(this, featureId);
 
@@ -209,8 +195,8 @@ namespace LGSTrayHID
                 // Note: Not all devices support this - failures are non-fatal
                 try
                 {
-                    var enableCmd = Hidpp10Commands.EnableBatteryReports(_deviceIdx);
-                    await _parent.WriteRead10(_parent.DevShort, enableCmd, timeout: 1000);
+                    var enableCmd = Hidpp10Commands.EnableBatteryReports(DeviceIdx);
+                    await Parent.WriteRead10(Parent.DevShort, enableCmd, timeout: 1000);
                     DiagnosticLogger.Log($"[{DeviceName}] Battery events enabled");
                 }
                 catch (Exception ex)
