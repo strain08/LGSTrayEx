@@ -1,5 +1,7 @@
 ﻿using LGSTrayHID.HidApi;
 using LGSTrayHID.Protocol;
+using LGSTrayPrimitives;
+using LGSTrayPrimitives.MessageStructs;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -185,8 +187,30 @@ namespace LGSTrayHID
                                         $"Name: {deviceName}, " +
                                         $"Params: [0x{buffer[3]:X02} 0x{buffer[4]:X02} 0x{buffer[5]:X02} 0x{buffer[6]:X02}]");
 
+                    // Send UpdateMessage to mark device as offline in UI
+                    string deviceId = "";
+                    if (offlineDevice != null)
+                    {
+                        deviceId = offlineDevice.Identifier;
+                    }
+
+                    if (!string.IsNullOrEmpty(deviceId))
+                    {
+                        HidppManagerContext.Instance.SignalDeviceEvent(
+                            IPCMessageType.UPDATE,
+                            new UpdateMessage(
+                                deviceId: deviceId,
+                                batteryPercentage: -1,  // Convention: -1 = offline/unknown
+                                powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_UNKNOWN,
+                                batteryMVolt: 0,
+                                updateTime: DateTimeOffset.Now,
+                                mileage: -1
+                            )
+                        );
+                        LGSTrayPrimitives.DiagnosticLogger.Log($"[{deviceName}] Device offline notification sent to UI");
+                    }
+
                     // Note: Device stays in collection and UI (as per user requirement)
-                    // Future enhancement: Could mark as offline or remove here
                 }
 
                 return; // Don't send to response channel

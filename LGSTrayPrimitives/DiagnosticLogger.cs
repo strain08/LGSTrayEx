@@ -13,7 +13,7 @@ public static class DiagnosticLogger
     private static readonly object _lock = new object();
     private static readonly string _logFilePath = Path.Combine(AppContext.BaseDirectory, "diagnostic.log");
 
-    public static bool Enable { get; set; } = true;
+    public static bool Enable { get; set; } = false;
 
     /// <summary>
     /// Log an informational message with timestamp.

@@ -5,6 +5,7 @@ using MessagePipe;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Notification.Wpf;
+using Notification.Wpf.Constants;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -30,6 +31,9 @@ public class NotificationService : IHostedService
     // Track the last charging state for each device
     private readonly Dictionary<string, bool> _lastChargingState = new();
 
+    // Track the last online state for each device
+    private readonly Dictionary<string, bool> _lastOnlineState = new();
+
     public NotificationService(
         INotificationManager notificationManager,
         ISubscriber<IPCMessage> subscriber,
@@ -40,6 +44,10 @@ public class NotificationService : IHostedService
         _subscriber = subscriber;
         _deviceCollection = deviceCollection;
         _notificationSettings = appSettings.Value.Notifications;
+        // Customize notification colors
+        NotificationConstants.InformationBackgroundColor = System.Windows.Media.Brushes.SteelBlue;
+        NotificationConstants.WarningBackgroundColor = System.Windows.Media.Brushes.DarkOrange;
+        NotificationConstants.SuccessBackgroundColor = System.Windows.Media.Brushes.DarkGreen;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -79,6 +87,34 @@ public class NotificationService : IHostedService
         if (device != null)
         {
             deviceName = device.DeviceName;
+        }
+
+        // Check device online/offline state transitions
+        var isOnline = batteryPercent >= 0;
+        var hasSeenDeviceBefore = _lastOnlineState.TryGetValue(deviceId, out var lastOnline);
+
+        // Only show notifications for actual state transitions (not during first-time initialization)
+        if (hasSeenDeviceBefore)
+        {
+            // Device went offline
+            if (lastOnline && !isOnline)
+            {
+                ShowDeviceOfflineNotification(deviceName);
+            }
+            // Device came back online
+            else if (!lastOnline && isOnline)
+            {
+                ShowDeviceOnlineNotification(deviceName, batteryPercent);
+            }
+        }
+
+        // Update online state tracking (initialize for new devices, or update for existing)
+        _lastOnlineState[deviceId] = isOnline;
+
+        // If device is offline, skip battery notification logic
+        if (!isOnline)
+        {
+            return;
         }
 
         // Check if we need to show battery charged notification
@@ -168,6 +204,34 @@ public class NotificationService : IHostedService
             title,
             message,
             NotificationType.Success,
+            areaName: "",
+            expirationTime: TimeSpan.FromSeconds(5)
+        );
+    }
+
+    private void ShowDeviceOfflineNotification(string deviceName)
+    {
+        var title = $"{deviceName} - Device Offline";
+        var message = "Device has been turned off or disconnected";
+
+        _notificationManager.Show(
+            title,
+            message,
+            NotificationType.Warning,
+            areaName: "",
+            expirationTime: TimeSpan.FromSeconds(5)
+        );
+    }
+
+    private void ShowDeviceOnlineNotification(string deviceName, int batteryPercent)
+    {
+        var title = $"{deviceName} - Device Online";
+        var message = $"Device is back online (Battery: {batteryPercent}%)";
+
+        _notificationManager.Show(
+            title,
+            message,
+            NotificationType.Information,
             areaName: "",
             expirationTime: TimeSpan.FromSeconds(5)
         );
