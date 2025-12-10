@@ -32,16 +32,9 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += new UnhandledExceptionEventHandler(CrashHandler);
 
         EnableEfficiencyMode();
-        if (e.Args.Length > 0 && e.Args.Contains("--log"))
-        {
-            DiagnosticLogger.Enable=true;
-            DiagnosticLogger.ResetLog();
-        }
 
-#if DEBUG
-        DiagnosticLogger.Enable = true;
         DiagnosticLogger.ResetLog();
-#endif
+        DiagnosticLogger.Log("Logging started.");
 
         var builder = Host.CreateEmptyApplicationBuilder(null);
         await LoadAppSettings(builder.Configuration);

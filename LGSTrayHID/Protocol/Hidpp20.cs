@@ -1,4 +1,4 @@
-﻿namespace LGSTrayHID
+﻿namespace LGSTrayHID.Protocol
 {
     public readonly struct Hidpp20
     {
@@ -6,46 +6,28 @@
 
         public Hidpp20(byte[] data)
         {
-            this._data = data;
+            _data = data;
         }
-
+        
+        // conversion to/from byte array
         public static explicit operator byte[](Hidpp20 msg) => msg._data;
-
         public static implicit operator Hidpp20(byte[] data) => new(data);
 
         public byte this[int index] => _data[index];
 
         public int Length => _data.Length;
 
-        public byte GetDeviceIdx()
-        {
-            return _data[1];
-        }
+        public byte GetDeviceIdx() => _data[1];
 
-        public byte GetFeatureIndex()
-        {
-            return _data[2];
-        }
+        public byte GetFeatureIndex() => _data[2];
 
-        public byte GetFunctionId()
-        {
-            return (byte)((_data[3] & 0xF0) >> 4);
-        }
+        public byte GetFunctionId() => (byte)((_data[3] & 0xF0) >> 4);
 
-        public byte GetSoftwareId()
-        {
-            return (byte)(_data[3] & 0x0F);
-        }
+        public byte GetSoftwareId() => (byte)(_data[3] & 0x0F);
 
-        public Span<byte> GetParams()
-        {
-            return _data.AsSpan(4);
-        }
+        public Span<byte> GetParams() => _data.AsSpan(4);
 
-        public byte GetParam(int paramIdx)
-        {
-            return _data[4 + paramIdx];
-        }
+        public byte GetParam(int paramIdx) => _data[4 + paramIdx];
 
         // ========== Phase 2: Response Parsing Helpers ==========
 
@@ -54,20 +36,14 @@
         /// Error responses have feature index 0x8F.
         /// </summary>
         /// <returns>True if this is an error response</returns>
-        public bool IsError()
-        {
-            return GetFeatureIndex() == Protocol.HidppResponse.ERROR;
-        }
+        public bool IsError() => GetFeatureIndex() == HidppResponse.ERROR;
 
         /// <summary>
         /// Check if this is a device announcement message (hotplug arrival).
         /// Device announcements have feature index 0x41.
         /// </summary>
         /// <returns>True if this is a device announcement</returns>
-        public bool IsDeviceAnnouncement()
-        {
-            return GetFeatureIndex() == Protocol.HidppResponse.DEVICE_ANNOUNCEMENT;
-        }
+        public bool IsDeviceAnnouncement() => GetFeatureIndex() == HidppResponse.DEVICE_ANNOUNCEMENT;
 
         /// <summary>
         /// Check if this message is a battery event broadcast.
@@ -81,11 +57,8 @@
         /// 2. Not matched to a pending WriteRead20 request (caller's responsibility)
         /// 3. Feature index matches a known battery feature (0x1000, 0x1001, 0x1004)
         /// </remarks>
-        public bool IsBatteryEvent(byte featureIndex)
-        {
-            return GetFeatureIndex() == featureIndex
-                && GetFunctionId() == Protocol.BatteryEventFunction.BATTERY_STATUS_BROADCAST;
-        }
+        public bool IsBatteryEvent(byte featureIndex) => 
+                    GetFeatureIndex() == featureIndex && GetFunctionId() == BatteryEventFunction.BATTERY_STATUS_BROADCAST;
 
         /// <summary>
         /// Check if this is a DJ protocol notification (not HID++ message).
@@ -96,11 +69,9 @@
         /// CRITICAL: Always check IsDJNotification() BEFORE checking IsDeviceAnnouncement()
         /// to avoid 0x41 disambiguation issues. DJ 0x41 (device paired) vs HID++ 0x41 (announcement).
         /// </remarks>
-        public bool IsDJNotification()
-        {
-            return _data[0] == Protocol.DJProtocol.REPORT_ID_SHORT
-                || _data[0] == Protocol.DJProtocol.REPORT_ID_LONG;
-        }
+        public bool IsDJNotification() => 
+                   _data[0] == DJProtocol.REPORT_ID_SHORT || 
+                   _data[0] == DJProtocol.REPORT_ID_LONG;
 
         /// <summary>
         /// Get the DJ notification type (byte[2]) from a DJ notification.
@@ -113,10 +84,7 @@
         /// - 0x41: Device paired
         /// - 0x42: Connection status change
         /// </remarks>
-        public byte GetDJNotificationType()
-        {
-            return _data[2];
-        }
+        public byte GetDJNotificationType() => _data[2];
 
         /// <summary>
         /// Get the error code from an error response.
@@ -143,20 +111,14 @@
         /// // Instead of: ushort featureId = (ushort)((ret.GetParam(0) << 8) + ret.GetParam(1));
         /// // Use: ushort featureId = ret.GetParam16(0);
         /// </example>
-        public ushort GetParam16(int offset)
-        {
-            return (ushort)((GetParam(offset) << 8) | GetParam(offset + 1));
-        }
+        public ushort GetParam16(int offset) => (ushort)((GetParam(offset) << 8) | GetParam(offset + 1));
 
         /// <summary>
         /// Get the feature ID from a feature enumeration response.
         /// This is a convenience method that calls GetParam16(0).
         /// </summary>
         /// <returns>Feature ID as 16-bit unsigned value</returns>
-        public ushort GetFeatureId()
-        {
-            return GetParam16(0);
-        }
+        public ushort GetFeatureId() => GetParam16(0);
 
         /// <summary>
         /// Check if this response matches the given request.
@@ -164,10 +126,7 @@
         /// </summary>
         /// <param name="request">The original request command</param>
         /// <returns>True if the response matches the request</returns>
-        public bool MatchesRequest(Hidpp20 request)
-        {
-            return GetFeatureIndex() == request.GetFeatureIndex()
-                && GetSoftwareId() == request.GetSoftwareId();
-        }
+        public bool MatchesRequest(Hidpp20 request) => GetFeatureIndex() == request.GetFeatureIndex() &&
+                                                       GetSoftwareId() == request.GetSoftwareId();
     }
 }

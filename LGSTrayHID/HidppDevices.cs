@@ -61,10 +61,8 @@ namespace LGSTrayHID
         {
             if (Interlocked.Increment(ref _disposeCount) == 1)
             {
-#if DEBUG
                 // TEST HARNESS: Log disposal with device count
-                LGSTrayPrimitives.DiagnosticLogger.Log($"HidppDevices.Dispose called - Device count: {_deviceCollection.Count}");
-#endif
+                DiagnosticLogger.Log($"HidppDevices.Dispose called - Device count: {_deviceCollection.Count}");
                 _isReading = false;
 
                 DevShort = IntPtr.Zero;
@@ -114,14 +112,14 @@ namespace LGSTrayHID
                     continue;
                 }
 
-                #if DEBUG
+#if VERBOSE
                 // Log ALL messages for debugging (first 7 bytes)
-                //string hex = string.Join(" ", buffer.Take(Math.Min(7, ret)).Select(b => $"{b:X02}"));
-                //if (buffer[0] != 0x10 || buffer[2] != 0x00) // Skip common ping responses to reduce noise
-                //{
-                //    LGSTrayPrimitives.DiagnosticLogger.Log($"DEBUG RAW [{bufferSize}b]: {hex}");
-                //}
-                #endif
+                string hex = string.Join(" ", buffer.Take(Math.Min(7, ret)).Select(b => $"{b:X02}"));
+                if (buffer[0] != 0x10 || buffer[2] != 0x00) // Skip common ping responses to reduce noise
+                {
+                    DiagnosticLogger.Log($"DEBUG RAW [{bufferSize}b]: {hex}");
+                }
+#endif
 
                 await ProcessMessage(buffer);
             }
@@ -142,7 +140,7 @@ namespace LGSTrayHID
                 if (isDeviceOn)
                 {
                     // Device turned ON or paired
-                    LGSTrayPrimitives.DiagnosticLogger.Log($"[Device ON Event] Index: {announcementDeviceIdx}, " +
+                    DiagnosticLogger.Log($"[Device ON Event] Index: {announcementDeviceIdx}, " +
                                         $"Params: [0x{buffer[3]:X02} 0x{buffer[4]:X02} 0x{buffer[5]:X02} 0x{buffer[6]:X02}]");
 
                     // Existing device creation logic                    
@@ -158,9 +156,9 @@ namespace LGSTrayHID
                             await _initSemaphore.WaitAsync();
                             try
                             {
-                                LGSTrayPrimitives.DiagnosticLogger.Log($"Starting initialization for device {capturedIdx}");
+                                DiagnosticLogger.Log($"Starting initialization for device {capturedIdx}");
                                 await _deviceCollection[capturedIdx].InitAsync();
-                                LGSTrayPrimitives.DiagnosticLogger.Log($"Completed initialization for device {capturedIdx}");
+                                DiagnosticLogger.Log($"Completed initialization for device {capturedIdx}");
                             }
                             finally
                             {
@@ -169,7 +167,7 @@ namespace LGSTrayHID
                         }
                         catch (Exception ex)
                         {
-                            LGSTrayPrimitives.DiagnosticLogger.LogError($"Device {capturedIdx} initialization failed: {ex.Message}");
+                            DiagnosticLogger.LogError($"Device {capturedIdx} initialization failed: {ex.Message}");
                         }
                     }).Start();
                     
@@ -183,7 +181,7 @@ namespace LGSTrayHID
                         deviceName = offlineDevice.DeviceName;
                     }
 
-                    LGSTrayPrimitives.DiagnosticLogger.Log($"[Device OFF Event] Index: {announcementDeviceIdx}, " +
+                    DiagnosticLogger.Log($"[Device OFF Event] Index: {announcementDeviceIdx}, " +
                                         $"Name: {deviceName}, " +
                                         $"Params: [0x{buffer[3]:X02} 0x{buffer[4]:X02} 0x{buffer[5]:X02} 0x{buffer[6]:X02}]");
 
@@ -207,7 +205,7 @@ namespace LGSTrayHID
                                 mileage: -1
                             )
                         );
-                        LGSTrayPrimitives.DiagnosticLogger.Log($"[{deviceName}] Device offline notification sent to UI");
+                        DiagnosticLogger.Log($"[{deviceName}] Device offline notification sent to UI");
                     }
 
                     // Note: Device stays in collection and UI (as per user requirement)
@@ -289,11 +287,9 @@ namespace LGSTrayHID
             if ((DevShort == IntPtr.Zero) || (DevLong == IntPtr.Zero))
             {
                 return;
-            }
-            
-#if DEBUG
-            Console.WriteLine("Device ready");
-#endif
+            }            
+
+            DiagnosticLogger.Log("Device ready");
 
             Thread t1 = new(async () => { await ReadThread(DevShort, 7); })
             {
@@ -324,7 +320,7 @@ namespace LGSTrayHID
                 // Same command as per-device battery enable, but sent to receiver index 0xFF
                 var enableReceiverNotifications = Hidpp10Commands.EnableBatteryReports(0xFF);
                 ret = await WriteRead10(DevShort, enableReceiverNotifications, 1000);
-                LGSTrayPrimitives.DiagnosticLogger.Log($"Receiver EnableBatteryReports response: {BitConverter.ToString(ret)}");
+                DiagnosticLogger.Log($"Receiver EnableBatteryReports response: {BitConverter.ToString(ret)}");
 
                 // Also try enabling all notification types (0x0F = all reports)
                 byte[] enableAllReports = new byte[7]
@@ -338,13 +334,13 @@ namespace LGSTrayHID
                     0x00   // Padding
                 };
                 ret = await WriteRead10(DevShort, enableAllReports, 1000);
-                LGSTrayPrimitives.DiagnosticLogger.Log($"Receiver EnableAllReports response: {BitConverter.ToString(ret)}");
+                DiagnosticLogger.Log($"Receiver EnableAllReports response: {BitConverter.ToString(ret)}");
 
-                LGSTrayPrimitives.DiagnosticLogger.Log("Receiver device on/off notifications enabled");
+                DiagnosticLogger.Log("Receiver device on/off notifications enabled");
             }
             catch (Exception ex)
             {
-                LGSTrayPrimitives.DiagnosticLogger.Log($"Failed to enable receiver notifications: {ex.Message}");
+                DiagnosticLogger.Log($"Failed to enable receiver notifications: {ex.Message}");
                 // Non-fatal - continue with standard initialization
             }
 
@@ -381,13 +377,13 @@ namespace LGSTrayHID
                 {
                     try
                     {
-                        LGSTrayPrimitives.DiagnosticLogger.Log($"Starting fallback initialization for device {device.DeviceIdx}");
+                        DiagnosticLogger.Log($"Starting fallback initialization for device {device.DeviceIdx}");
                         await device.InitAsync();
-                        LGSTrayPrimitives.DiagnosticLogger.Log($"Completed fallback initialization for device {device.DeviceIdx}");
+                        DiagnosticLogger.Log($"Completed fallback initialization for device {device.DeviceIdx}");
                     }
                     catch (Exception ex)
                     {
-                        LGSTrayPrimitives.DiagnosticLogger.LogError($"Device {device.DeviceIdx} fallback initialization failed: {ex.Message}");
+                        DiagnosticLogger.LogError($"Device {device.DeviceIdx} fallback initialization failed: {ex.Message}");
                     }
                 }
             }

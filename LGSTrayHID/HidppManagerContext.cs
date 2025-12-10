@@ -41,11 +41,7 @@ namespace LGSTrayHID
             if (hidApiHotPlugEvent == HidApiHotPlugEvent.HID_API_HOTPLUG_EVENT_DEVICE_ARRIVED)
             {
                 string devPath = (*device).GetPath();
-#if DEBUG
                 DiagnosticLogger.Log($"HID device arrival detected: {devPath}");
-#else
-                DiagnosticLogger.Log($"HID device detected: {devPath}");
-#endif
                 _deviceQueue.Add(*device);
             }
 
@@ -69,29 +65,23 @@ namespace LGSTrayHID
             HidDevicePtr dev = HidOpenPath(ref deviceInfo);
             _ = HidWinApiGetContainerId(dev, out Guid containerId);
 
-#if DEBUG
-            Console.WriteLine(devPath);
-            Console.WriteLine(containerId.ToString());
-            Console.WriteLine("x{0:X04}", (deviceInfo).Usage);
-            Console.WriteLine("x{0:X04}", (deviceInfo).UsagePage);
-            Console.WriteLine();
-#endif
+            DiagnosticLogger.Log(devPath);
+            DiagnosticLogger.Log(containerId.ToString());
+            DiagnosticLogger.Log("Usage: x{0:X04}", (deviceInfo).Usage.ToString());
+            DiagnosticLogger.Log("Page : x{0:X04}", (deviceInfo).UsagePage.ToString());
+            DiagnosticLogger.Log("");
 
             if (!_deviceMap.TryGetValue(containerId, out HidppDevices? value))
             {
                 value = new();
                 _deviceMap[containerId] = value;
                 _containerMap[devPath] = containerId;
-#if DEBUG
                 DiagnosticLogger.Log($"New container created - Path: {devPath}, Container: {containerId}");
-#endif
             }
-#if DEBUG
             else
             {
                 DiagnosticLogger.Log($"Existing container found - Path: {devPath}, Container: {containerId}");
             }
-#endif
 
             switch (messageType)
             {
@@ -110,14 +100,11 @@ namespace LGSTrayHID
         {
             string devPath = (*deviceInfo).GetPath();
 
-#if DEBUG
             // TEST HARNESS: Log device removal event with path
             DiagnosticLogger.Log($"HID device removal detected: {devPath}");
-#endif
 
             if (_containerMap.TryGetValue(devPath, out var containerId))
             {
-#if DEBUG
                 // TEST HARNESS: Extract and log device information BEFORE disposal
                 var hidppDevices = _deviceMap[containerId];
                 var deviceCollection = hidppDevices.DeviceCollection;
@@ -135,25 +122,20 @@ namespace LGSTrayHID
                                       $"Index: {device.DeviceIdx}";
                     DiagnosticLogger.Log(logMessage);
                 }
-#endif
 
                 // Original disposal logic
                 _deviceMap[containerId].Dispose();
                 _deviceMap.Remove(containerId);
                 _containerMap.Remove(devPath);
 
-#if DEBUG
                 // TEST HARNESS: Confirm cleanup completed
                 DiagnosticLogger.Log($"Device removal complete - Path: {devPath}, Container: {containerId}");
-#endif
             }
-#if DEBUG
             else
             {
                 // TEST HARNESS: Log when device path not found in container map
                 DiagnosticLogger.LogWarning($"Device removal for unknown path: {devPath}");
             }
-#endif
 
             return 0;
         }
