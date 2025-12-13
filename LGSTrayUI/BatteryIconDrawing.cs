@@ -66,7 +66,6 @@ namespace LGSTrayUI
 
         private static Bitmap GetBatteryValue(LogiDevice device) => device.BatteryPercentage switch
         {
-            { } when device.PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING => Charging,
             < 0 => Missing,
             < 10 => Resources.Indicator_10,
             < 50 => Resources.Indicator_30,
@@ -108,6 +107,43 @@ namespace LGSTrayUI
                 image.Dispose();
             }
 
+            // Overlay charging indicator if device is charging
+            if (device.PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING)
+            {
+                // Use theme-appropriate charging icon
+                Bitmap chargingOverlay = Charging;
+
+                // Scale overlay
+                int overlaySize = (int)(ImageSize* 1.50 );
+
+                // Position at bottom-center corner with small margin                
+                int marginLeft = - (int)(ImageSize * 0.30);
+                int marginTop = (int)(ImageSize * 0.50);
+                int x = ImageSize - overlaySize + marginLeft;
+                int y = ImageSize - overlaySize + marginTop;
+                
+
+                Rectangle overlayRect = new(x, y, overlaySize, overlaySize);
+
+                //Create ColorMatrix to render charging icon
+                //using var blackAttributes = new ImageAttributes();
+                //ColorMatrix colorMatrix = new ColorMatrix(new float[][]
+                //{
+                //    new float[] {0, 0, 0, 0, 0},        // Red channel 
+                //    new float[] {0, 0, 0, 0, 0},        // Green channel 
+                //    new float[] {0, 0, 255, 0, 0},        // Blue channel 
+                //    new float[] {0, 0, 0, 1, 0},        // Alpha channel (preserve)
+                //    new float[] {0, 0, 0, 0, 1}         // Translation
+                //});
+                //blackAttributes.SetColorMatrix(colorMatrix);
+
+                g.DrawImage(chargingOverlay, overlayRect, 0, 0,
+                            chargingOverlay.Width, chargingOverlay.Height,
+                            GraphicsUnit.Pixel);
+
+                chargingOverlay.Dispose();
+            }
+
             g.Save();
 
             IntPtr iconHandle = b.GetHicon();
@@ -121,6 +157,15 @@ namespace LGSTrayUI
         {
             using Bitmap b = new(ImageSize, ImageSize);
             using Graphics g = Graphics.FromImage(b);
+
+            // Fill with green background if charging
+            if (device.PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING)
+            {
+                using (SolidBrush greenBrush = new SolidBrush(Color.FromArgb(255, 76, 175, 80))) // Material Green 500
+                {
+                    g.FillRectangle(greenBrush, 0, 0, ImageSize, ImageSize);
+                }
+            }
 
             string displayString = (device.BatteryPercentage < 0) ? "?" : $"{device.BatteryPercentage:f0}";
             g.DrawString(
