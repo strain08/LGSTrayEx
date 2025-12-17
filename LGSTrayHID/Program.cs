@@ -20,6 +20,10 @@ namespace LGSTrayHID
             // Parse logging flags BEFORE any configuration loading
             bool enableLogging = args.Contains("--log");
             bool enableVerbose = args.Contains("--verbose");
+#if DEBUG
+            enableLogging = true;
+            enableVerbose = true;
+#endif
             DiagnosticLogger.Initialize(enableLogging, enableVerbose);
 
             var builder = Host.CreateEmptyApplicationBuilder(null);
