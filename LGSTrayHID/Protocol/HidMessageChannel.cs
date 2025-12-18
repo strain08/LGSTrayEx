@@ -73,9 +73,9 @@ namespace LGSTrayHID.Protocol
             HidClose(device);
         }
 
-#if VERBOSE
+
         /// <summary>
-        /// Logs raw HID messages for debugging (VERBOSE build only).
+        /// Logs raw HID messages for debugging
         /// Skips common ping responses (0x10 0x?? 0x00) to reduce noise.
         /// </summary>
         private static void LogRawMessage(byte[] buffer, int bytesRead, int bufferSize)
@@ -83,10 +83,10 @@ namespace LGSTrayHID.Protocol
             string hex = string.Join(" ", buffer.Take(Math.Min(7, bytesRead)).Select(b => $"{b:X02}"));
             if (buffer[0] != 0x10 || buffer[2] != 0x00) // Skip common ping responses
             {
-                DiagnosticLogger.Log($"DEBUG RAW [{bufferSize}b]: {hex}");
+                DiagnosticLogger.Verbose($"DEBUG RAW [{bufferSize}b]: {hex}");
             }
         }
-#endif
+
 
         /// <summary>
         /// Stops the read threads by setting _isReading to false.

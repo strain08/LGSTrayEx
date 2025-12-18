@@ -22,7 +22,7 @@ namespace LGSTrayHID
             bool enableVerbose = args.Contains("--verbose");
 #if DEBUG
             enableLogging = true;
-            enableVerbose = true;
+            enableVerbose = false;
 #endif
             DiagnosticLogger.Initialize(enableLogging, enableVerbose);
 
