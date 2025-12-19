@@ -335,8 +335,11 @@ public class HidppDevice : IDisposable
         var batStatus = batteryUpdate.Value;
         lastUpdate = now;
 
-        _poolingCts.Cancel(); // Stop polling when we get an event
-
+        if (!_poolingCts.IsCancellationRequested)
+        {
+            DiagnosticLogger.Log($"[{DeviceName}] Battery event received, stopping polling");
+            _poolingCts.Cancel(); // Stop polling when we get an event
+        }
         // Publish update (handles deduplication, IPC, logging)
         _batteryPublisher.PublishUpdate(Identifier, DeviceName, batStatus, now, "event");
 
