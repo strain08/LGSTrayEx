@@ -44,7 +44,7 @@ namespace LGSTrayHID.Protocol
             {
                 await device.WriteAsync(command);
 
-                CancellationTokenSource cts = new();
+                using CancellationTokenSource cts = new();
                 cts.CancelAfter(timeout);
 
                 while (!cts.IsCancellationRequested)
@@ -105,7 +105,7 @@ namespace LGSTrayHID.Protocol
             {
                 await device.WriteAsync((byte[])command);
 
-                CancellationTokenSource cts = new();
+                using CancellationTokenSource cts = new();
                 cts.CancelAfter(timeout);
 
                 while (!cts.IsCancellationRequested)

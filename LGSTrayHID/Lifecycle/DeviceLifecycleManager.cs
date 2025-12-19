@@ -49,5 +49,21 @@ namespace LGSTrayHID.Lifecycle
         /// Gets the current number of devices in the collection.
         /// </summary>
         public int Count => _devices.Count;
+
+        /// <summary>
+        /// Disposes all devices in the collection and clears the collection.
+        /// Called during HidppReceiver disposal to ensure proper cleanup.
+        /// </summary>
+        public void DisposeAll()
+        {
+            lock (_devices)
+            {
+                foreach (var device in _devices.Values)
+                {
+                    device.Dispose();
+                }
+                _devices.Clear();
+            }
+        }
     }
 }

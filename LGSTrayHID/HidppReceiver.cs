@@ -57,12 +57,29 @@ namespace LGSTrayHID
         {
             if (Interlocked.Increment(ref _disposeCount) == 1)
             {
-                // TEST HARNESS: Log disposal with device count
-                DiagnosticLogger.Log($"HidppDevices.Dispose called - Device count: {_lifecycleManager.Count}");
-                _messageChannel.Dispose();
+                DiagnosticLogger.Log($"HidppReceiver.Dispose starting - Device count: {_lifecycleManager.Count}");
 
+                if (disposing)
+                {
+                    // Dispose devices first (stops battery polling tasks)
+                    _lifecycleManager.DisposeAll();
+
+                    // Then dispose message channel (stops read threads)
+                    _messageChannel.Dispose();
+
+                    // Dispose synchronization primitives
+                    _semaphore.Dispose();
+                    _initSemaphore.Dispose();
+
+                    // Note: _correlator doesn't own _semaphore or _channel, so we don't dispose it
+                    // Note: Channel<T> doesn't implement IDisposable - no cleanup needed
+                }
+
+                // Clear device handles
                 DevShort = IntPtr.Zero;
                 DevLong = IntPtr.Zero;
+
+                DiagnosticLogger.Log("HidppReceiver.Dispose completed");
             }
         }
 

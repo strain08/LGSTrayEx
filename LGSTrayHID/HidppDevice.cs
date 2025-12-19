@@ -8,18 +8,18 @@ using LGSTrayHID.Battery;
 
 namespace LGSTrayHID;
 
-public class HidppDevice
+public class HidppDevice : IDisposable
 {
     public HidppReceiver Parent { get; init; }
     public byte DeviceIdx { get; init; }
     public string DeviceName { get; private set; } = string.Empty;
     public int DeviceType { get; private set; } = 3; //device type 3 = mouse
-    public string Identifier { get; private set; } = string.Empty;        
+    public string Identifier { get; private set; } = string.Empty;
     public Dictionary<ushort, byte> FeatureMap { get; } = [];
 
     private const int INIT_PING_TIMEOUT_MS = 5000;
     private const int WRITE_READ_TIMEOUT_MS = 5000;
-    private IBatteryFeature? _batteryFeature;        
+    private IBatteryFeature? _batteryFeature;
     private DateTimeOffset lastUpdate = DateTimeOffset.MinValue;
 
     // Battery event tracking
@@ -29,8 +29,15 @@ public class HidppDevice
 
     // Wireless device status event tracking (0x1D4B - BOLT receivers)
     private byte _wirelessStatusFeatureIndex = 0xFF; // 0xFF = not set
+
     // Semaphore to prevent concurrent InitAsync calls
     private readonly SemaphoreSlim _initSemaphore = new(1, 1);
+
+    // Disposal and cancellation support
+    private readonly CancellationTokenSource _cancellationSource = new();
+    private Task? _pollingTask;
+    private int _disposeCount = 0;
+    public bool Disposed => _disposeCount > 0;
 
     public HidppDevice(HidppReceiver parent, byte deviceIdx)
     {
@@ -222,38 +229,46 @@ public class HidppDevice
         DiagnosticLogger.Log($"HID device registered - {Identifier} ({DeviceName})");
 
         await Task.Delay(1000);
-        if (_batteryFeature == null) return; 
+        if (_batteryFeature == null) return;
 
-        _ = Task.Run(async () =>
+        // Start battery polling loop with cancellation support
+        _pollingTask = Task.Run(async () =>
         {
-           
-
-            while (true)
+            try
             {
-                var now = DateTimeOffset.Now;
-#if DEBUG
-                var expectedUpdateTime = lastUpdate.AddSeconds(1);
-#else
-                var expectedUpdateTime = lastUpdate.AddSeconds(GlobalSettings.settings.PollPeriod);
-#endif
-                if (now < expectedUpdateTime)
+                while (!_cancellationSource.Token.IsCancellationRequested)
                 {
-                    await Task.Delay((int)(expectedUpdateTime - now).TotalMilliseconds);
+                    var now = DateTimeOffset.Now;
+#if DEBUG
+                    var expectedUpdateTime = lastUpdate.AddSeconds(1);
+#else
+                    var expectedUpdateTime = lastUpdate.AddSeconds(GlobalSettings.settings.PollPeriod);
+#endif
+                    if (now < expectedUpdateTime)
+                    {
+                        var delayMs = (int)(expectedUpdateTime - now).TotalMilliseconds;
+                        await Task.Delay(delayMs, _cancellationSource.Token);
+                    }
+
+                    DiagnosticLogger.Log($"Polling battery for device {DeviceName}");
+                    await UpdateBattery();
+                    await Task.Delay(GlobalSettings.settings.RetryTime * 1000, _cancellationSource.Token);
                 }
-                DiagnosticLogger.Log($"Polling battery for device {DeviceName}");
-                await UpdateBattery();
-                await Task.Delay(GlobalSettings.settings.RetryTime * 1000);
-                
             }
-        });
+            catch (OperationCanceledException)
+            {
+                // Expected during disposal
+                DiagnosticLogger.Log($"[{DeviceName}] Battery polling task cancelled (device disposed)");
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.LogWarning($"[{DeviceName}] Battery polling task error: {ex.Message}");
+            }
+        }, _cancellationSource.Token);
     }
 
     public async Task UpdateBattery(bool forceIpcUpdate = false)
     {
-        if (Parent.Disposed) { 
-            DiagnosticLogger.Log($"[{DeviceName}] Parent disposed, skipping battery update.");
-            return; 
-        }
         if (_batteryFeature == null) {
             DiagnosticLogger.Log($"[{DeviceName}] No battery feature available, skipping battery update.");
             return;
@@ -359,5 +374,54 @@ public class HidppDevice
         DiagnosticLogger.Log($"Wireless Status Event: {DeviceName} - {state} (Params: 0x{param0:X02} 0x{param1:X02} 0x{param2:X02})");
 
         return true;
+    }
+
+    public void Dispose()
+    {
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (Interlocked.Increment(ref _disposeCount) == 1)
+        {
+            DiagnosticLogger.Log($"[{DeviceName}] HidppDevice.Dispose starting");
+
+            if (disposing)
+            {
+                // Cancel battery polling task
+                _cancellationSource.Cancel();
+
+                // Wait for polling task to exit (with timeout)
+                if (_pollingTask != null)
+                {
+                    try
+                    {
+                        // Wait up to 5 seconds for task to exit gracefully
+                        bool completed = _pollingTask.Wait(TimeSpan.FromSeconds(5));
+                        if (!completed)
+                        {
+                            DiagnosticLogger.LogWarning($"[{DeviceName}] Battery polling task did not exit within timeout");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DiagnosticLogger.LogWarning($"[{DeviceName}] Error waiting for polling task: {ex.Message}");
+                    }
+                }
+
+                // Dispose managed resources
+                _cancellationSource.Dispose();
+                _initSemaphore.Dispose();
+            }
+
+            DiagnosticLogger.Log($"[{DeviceName}] HidppDevice.Dispose completed");
+        }
+    }
+
+    ~HidppDevice()
+    {
+        Dispose(disposing: false);
     }
 }

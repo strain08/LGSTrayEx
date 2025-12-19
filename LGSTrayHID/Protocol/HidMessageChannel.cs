@@ -17,8 +17,11 @@ namespace LGSTrayHID.Protocol
     public class HidMessageChannel : IDisposable
     {
         private readonly HidMessageRouter _router;
+        private readonly CancellationTokenSource _cancellationSource = new();
+        private readonly List<Thread> _readerThreads = new();
         private bool _isReading = true;
         private const int READ_TIMEOUT = 100;
+        private const int THREAD_JOIN_TIMEOUT_MS = 5000; // 5 seconds
 
         public HidMessageChannel(HidMessageRouter router)
         {
@@ -38,6 +41,7 @@ namespace LGSTrayHID.Protocol
                 Priority = ThreadPriority.BelowNormal,
                 Name = "HID-SHORT-Reader"
             };
+            _readerThreads.Add(shortThread);
             shortThread.Start();
 
             Thread longThread = new(async () => { await ReadThreadAsync(devLong, 20); })
@@ -45,6 +49,7 @@ namespace LGSTrayHID.Protocol
                 Priority = ThreadPriority.BelowNormal,
                 Name = "HID-LONG-Reader"
             };
+            _readerThreads.Add(longThread);
             longThread.Start();
         }
 
@@ -90,11 +95,37 @@ namespace LGSTrayHID.Protocol
 
         /// <summary>
         /// Stops the read threads by setting _isReading to false.
-        /// Threads will exit gracefully and close their HID handles.
+        /// Waits for threads to exit gracefully before returning.
         /// </summary>
         public void Dispose()
         {
+            DiagnosticLogger.Log("HidMessageChannel.Dispose starting");
+
+            // Signal threads to stop
             _isReading = false;
+            _cancellationSource.Cancel();
+
+            // Wait for all threads to exit
+            foreach (var thread in _readerThreads)
+            {
+                if (thread.IsAlive)
+                {
+                    bool joined = thread.Join(THREAD_JOIN_TIMEOUT_MS);
+                    if (!joined)
+                    {
+                        DiagnosticLogger.LogWarning($"HidMessageChannel: Thread '{thread.Name}' did not exit within {THREAD_JOIN_TIMEOUT_MS}ms timeout");
+                    }
+                    else
+                    {
+                        DiagnosticLogger.Log($"HidMessageChannel: Thread '{thread.Name}' exited successfully");
+                    }
+                }
+            }
+
+            _readerThreads.Clear();
+            _cancellationSource.Dispose();
+
+            DiagnosticLogger.Log("HidMessageChannel.Dispose completed");
         }
     }
 }
