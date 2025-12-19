@@ -35,7 +35,10 @@ public class HidppDevice : IDisposable
 
     // Disposal and cancellation support
     private readonly CancellationTokenSource _cancellationSource = new();
+    
     private Task? _pollingTask;
+    private readonly CancellationTokenSource _poolingCts = new();
+
     private int _disposeCount = 0;
     public bool Disposed => _disposeCount > 0;
 
@@ -232,39 +235,43 @@ public class HidppDevice : IDisposable
         if (_batteryFeature == null) return;
 
         // Start battery polling loop with cancellation support
-        _pollingTask = Task.Run(async () =>
+        _pollingTask = Task.Run(() => PollBattery(_cancellationSource.Token, _poolingCts.Token), _cancellationSource.Token);        
+
+    }
+
+    /// <summary>
+    /// Poll the battery status at regular intervals defined in settings RetryTime
+    /// </summary>
+    /// <param name="lifeCycle"></param>
+    /// <param name="pooling"></param>
+    /// <returns></returns>
+    private async Task PollBattery(CancellationToken lifeCycle, CancellationToken pooling)
+    {
+        while (!lifeCycle.IsCancellationRequested && !pooling.IsCancellationRequested)
         {
+            var now = DateTimeOffset.Now;
+#if DEBUG
+            var expectedUpdateTime = lastUpdate.AddSeconds(1);
+#else
+                        var expectedUpdateTime = lastUpdate.AddSeconds(GlobalSettings.settings.PollPeriod);
+#endif
+            if (now < expectedUpdateTime)
+            {
+                await Task.Delay((int)(expectedUpdateTime - now).TotalMilliseconds);
+            }
             try
             {
-                while (!_cancellationSource.Token.IsCancellationRequested)
-                {
-                    var now = DateTimeOffset.Now;
-#if DEBUG
-                    var expectedUpdateTime = lastUpdate.AddSeconds(1);
-#else
-                    var expectedUpdateTime = lastUpdate.AddSeconds(GlobalSettings.settings.PollPeriod);
-#endif
-                    if (now < expectedUpdateTime)
-                    {
-                        var delayMs = (int)(expectedUpdateTime - now).TotalMilliseconds;
-                        await Task.Delay(delayMs, _cancellationSource.Token);
-                    }
+                await UpdateBattery();
+            }
+            catch
+            {
+                break;
+            }
 
-                    DiagnosticLogger.Log($"Polling battery for device {DeviceName}");
-                    await UpdateBattery();
-                    await Task.Delay(GlobalSettings.settings.RetryTime * 1000, _cancellationSource.Token);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected during disposal
-                DiagnosticLogger.Log($"[{DeviceName}] Battery polling task cancelled (device disposed)");
-            }
-            catch (Exception ex)
-            {
-                DiagnosticLogger.LogWarning($"[{DeviceName}] Battery polling task error: {ex.Message}");
-            }
-        }, _cancellationSource.Token);
+            await Task.Delay(GlobalSettings.settings.RetryTime * 1000);
+            DiagnosticLogger.Log($"Polling battery for device {DeviceName}");
+        }
+        DiagnosticLogger.Log($"Pooling stopped for {DeviceName}.");
     }
 
     public async Task UpdateBattery(bool forceIpcUpdate = false)
@@ -327,6 +334,8 @@ public class HidppDevice : IDisposable
 
         var batStatus = batteryUpdate.Value;
         lastUpdate = now;
+
+        _poolingCts.Cancel(); // Stop polling when we get an event
 
         // Publish update (handles deduplication, IPC, logging)
         _batteryPublisher.PublishUpdate(Identifier, DeviceName, batStatus, now, "event");
