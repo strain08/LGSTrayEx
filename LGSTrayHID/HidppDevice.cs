@@ -15,7 +15,7 @@ public class HidppDevice : IDisposable
     public string DeviceName { get; private set; } = string.Empty;
     public int DeviceType { get; private set; } = 3; //device type 3 = mouse
     public string Identifier { get; private set; } = string.Empty;
-    public Dictionary<ushort, byte> FeatureMap { get; } = [];
+    public Dictionary<ushort, byte> FeatureMap { get; private set; } = [];
 
     private const int INIT_PING_TIMEOUT_MS = 5000;
     private const int WRITE_READ_TIMEOUT_MS = 5000;
@@ -26,9 +26,6 @@ public class HidppDevice : IDisposable
     private byte _batteryFeatureIndex = 0xFF; // 0xFF = not set
     private readonly BatteryEventThrottler _eventThrottler = new(500); // 500ms throttle window
     private readonly BatteryUpdatePublisher _batteryPublisher = new(); // Handles deduplication and IPC
-
-    // Wireless device status event tracking (0x1D4B - BOLT receivers)
-    private byte _wirelessStatusFeatureIndex = 0xFF; // 0xFF = not set
 
     // Semaphore to prevent concurrent InitAsync calls
     private readonly SemaphoreSlim _initSemaphore = new(1, 1);
@@ -167,7 +164,8 @@ public class HidppDevice : IDisposable
             DiagnosticLogger.LogWarning($"HID device index {DeviceIdx} missing feature 0x0005 (device name), ignoring");
             return;
         }
-
+        
+        // Device identifier
         if (FeatureMap.TryGetValue(HidppFeature.DEVICE_FW_INFO, out featureId))
         {
             var fwInfo = await DeviceMetadataRetriever.GetFirmwareInfoAsync(this, featureId);
@@ -214,14 +212,6 @@ public class HidppDevice : IDisposable
         else
         {
             DiagnosticLogger.LogWarning($"[{DeviceName}] No battery feature found.");
-        }
-
-        // Check for wireless device status feature (0x1D4B - BOLT receivers)
-        if (FeatureMap.TryGetValue(HidppFeature.WIRELESS_DEVICE_STATUS, out byte value))
-        {
-            _wirelessStatusFeatureIndex = value;
-            DiagnosticLogger.Log($"[{DeviceName}] Wireless device status feature (0x1D4B) found at index {_wirelessStatusFeatureIndex}");
-            // Note: Events are automatically enabled by the battery enable command (HID++ 1.0 register 0x00)
         }
 
         HidppManagerContext.Instance.SignalDeviceEvent(
@@ -346,47 +336,6 @@ public class HidppDevice : IDisposable
         return true; // Event handled successfully
     }
 
-    /// <summary>
-    /// Attempt to handle a message as a wireless device status event (0x1D4B).
-    /// This is used by BOLT receivers to report connection/disconnection events.
-    /// Returns true if the message was a wireless status event and was handled.
-    /// </summary>
-    /// <param name="message">The HID++ message to check</param>
-    /// <returns>True if this was a wireless status event and was handled, false otherwise</returns>
-    public bool TryHandleWirelessStatusEvent(Hidpp20 message)
-    {
-        // Check if we have wireless status feature configured
-        if (_wirelessStatusFeatureIndex == 0xFF)
-        {
-            return false;
-        }
-
-        // Check if this message is a wireless status event
-        // Feature index should match and function should be 0x00 (status broadcast)
-        if (message.GetFeatureIndex() != _wirelessStatusFeatureIndex ||
-            message.GetFunctionId() != WirelessDeviceStatusEvent.STATUS_BROADCAST)
-        {
-            return false;
-        }
-
-        // Parse event parameters from your device logs
-        // Message: 11 02 04 00 01 01 01
-        // Byte 4 (param 0): 0x01
-        // Byte 5 (param 1): 0x01
-        // Byte 6 (param 2): 0x01
-        byte param0 = message.GetParam(0);
-        byte param1 = message.GetParam(1);
-        byte param2 = message.GetParam(2);
-
-        // Based on your logs, this event fires when device is turned ON
-        // Status interpretation: param0 = 0x01 appears to indicate connection/wake
-        bool isConnected = (param0 & 0x01) == 1;
-        string state = isConnected ? "CONNECTED/WOKE UP" : "DISCONNECTED/SLEEPING";
-
-        DiagnosticLogger.Log($"Wireless Status Event: {DeviceName} - {state} (Params: 0x{param0:X02} 0x{param1:X02} 0x{param2:X02})");
-
-        return true;
-    }
 
     public void Dispose()
     {

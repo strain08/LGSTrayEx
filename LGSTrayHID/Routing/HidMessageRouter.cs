@@ -62,16 +62,15 @@ namespace LGSTrayHID.Routing
         private async Task<bool> TryRouteAsDeviceEventAsync(Hidpp20 message)
         {
             byte deviceIdx = message.GetDeviceIdx();
-
+            
             if (!_lifecycleManager.TryGetDevice(deviceIdx, out HidppDevice? device))
             {
                 return false; // Device not found
             }
-
-            // Try wireless status event (0x1D4B - BOLT receivers)
-            if (device!.TryHandleWirelessStatusEvent(message))
+            
+            if (device is null)
             {
-                return true;
+                return false; // Device not found
             }
 
             // Try battery event (features 0x1000, 0x1001, 0x1004)
