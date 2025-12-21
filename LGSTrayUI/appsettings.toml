@@ -11,7 +11,7 @@ useIpv6 = true
 enabled = true
 
 [Native]
-enabled = true
+enabled = false
 
 # Time in seconds to retry a device poll on failure
 retryTime = 10

@@ -74,6 +74,11 @@ public partial class App : Application
         LoggingEnabled = enableLogging;
         VerboseLoggingEnabled = enableVerbose;
 
+#if DEBUG
+        enableLogging = true;
+        enableVerbose = true;
+#endif
+
         // Initialize logging before any Log() calls
         DiagnosticLogger.Initialize(enableLogging, enableVerbose);
 
