@@ -22,9 +22,10 @@ namespace LGSTrayUI;
 /// </summary>
 public partial class App : Application
 {
+    private static Mutex? _mutex;
     /// <summary>
     /// Gets whether logging is enabled (--log flag).
-    /// </summary>
+    /// </summary>    
     public static bool LoggingEnabled { get; private set; }
 
     /// <summary>
@@ -34,6 +35,25 @@ public partial class App : Application
 
     protected override async void OnStartup(StartupEventArgs e)
     {
+        // Check for existing instance using a named mutex
+
+        const string mutexName = "LGSTrayBattery_SingleInstance";
+        _mutex = new Mutex(true, mutexName, out bool createdNew);
+
+        if (!createdNew)
+        {
+            // Another instance is already running
+            MessageBox.Show(
+                "LGSTray is already running.",
+                "LGSTray",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information
+            );
+            Shutdown();
+            return;
+
+        }
+
         base.OnStartup(e);
 
         Directory.SetCurrentDirectory(AppContext.BaseDirectory);
@@ -87,6 +107,12 @@ public partial class App : Application
         var host = builder.Build();
         await host.RunAsync();
         Dispatcher.InvokeShutdown();
+    }
+    protected override void OnExit(ExitEventArgs e)
+    {
+        _mutex?.ReleaseMutex();
+        _mutex?.Dispose();
+        base.OnExit(e);
     }
 
     static async Task LoadAppSettings(Microsoft.Extensions.Configuration.ConfigurationManager config)
