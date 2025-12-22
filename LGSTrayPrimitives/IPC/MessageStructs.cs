@@ -6,7 +6,8 @@ public enum IPCMessageType : byte
 {
     HEARTBEAT = 0,
     INIT,
-    UPDATE
+    UPDATE,
+    REMOVE
 }
 
 public enum IPCMessageRequestType : byte
@@ -16,6 +17,7 @@ public enum IPCMessageRequestType : byte
 
 [Union(0, typeof(InitMessage))]
 [Union(1, typeof(UpdateMessage))]
+[Union(2, typeof(RemoveMessage))]
 public abstract class IPCMessage(string deviceId)
 {
     [Key(0)]
@@ -59,6 +61,13 @@ public class UpdateMessage(
 
     [Key(5)]
     public double Mileage = mileage;
+}
+
+[MessagePackObject]
+public class RemoveMessage(string deviceId, string reason = "") : IPCMessage(deviceId)
+{
+    [Key(1)]
+    public string reason = reason;
 }
 
 [MessagePackObject]

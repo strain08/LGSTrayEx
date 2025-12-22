@@ -1,7 +1,9 @@
-﻿using LGSTrayCore;
-using LGSTrayCore.Managers;
+﻿using LGSTrayCore.Managers;
 using LGSTrayPrimitives;
 using LGSTrayPrimitives.IPC;
+using LGSTrayPrimitives.Interfaces;
+using LGSTrayUI.Interfaces;
+using LGSTrayUI.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Notification.Wpf;
@@ -14,6 +16,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using Tommy.Extensions.Configuration;
 using static LGSTrayUI.AppExtensions;
+using LGSTrayCore.Interfaces;
 
 namespace LGSTrayUI;
 
@@ -22,9 +25,10 @@ namespace LGSTrayUI;
 /// </summary>
 public partial class App : Application
 {
+    private static Mutex? _mutex;
     /// <summary>
     /// Gets whether logging is enabled (--log flag).
-    /// </summary>
+    /// </summary>    
     public static bool LoggingEnabled { get; private set; }
 
     /// <summary>
@@ -34,6 +38,25 @@ public partial class App : Application
 
     protected override async void OnStartup(StartupEventArgs e)
     {
+        // Check for existing instance using a named mutex
+
+        const string mutexName = "LGSTrayBattery_SingleInstance";
+        _mutex = new Mutex(true, mutexName, out bool createdNew);
+
+        if (!createdNew)
+        {
+            // Another instance is already running
+            MessageBox.Show(
+                "LGSTray is already running.",
+                "LGSTray",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information
+            );
+            Shutdown();
+            return;
+
+        }
+
         base.OnStartup(e);
 
         Directory.SetCurrentDirectory(AppContext.BaseDirectory);
@@ -51,6 +74,11 @@ public partial class App : Application
         LoggingEnabled = enableLogging;
         VerboseLoggingEnabled = enableVerbose;
 
+#if DEBUG
+        enableLogging = true;
+        enableVerbose = true;
+#endif
+
         // Initialize logging before any Log() calls
         DiagnosticLogger.Initialize(enableLogging, enableVerbose);
 
@@ -67,11 +95,13 @@ public partial class App : Application
 
         builder.Services.Configure<AppSettings>(builder.Configuration);
         builder.Services.AddLGSMessagePipe(true);
+        builder.Services.AddWebSocketClientFactory();
         builder.Services.AddSingleton<UserSettingsWrapper>();
         builder.Services.AddSingleton<INotificationManager, NotificationManager>();
 
-        builder.Services.AddSingleton<LogiDeviceIconFactory>();
+        builder.Services.AddSingleton<ILogiDeviceIconFactory, LogiDeviceIconFactory>();
         builder.Services.AddSingleton<LogiDeviceViewModelFactory>();
+        builder.Services.AddSingleton<IDispatcher, WpfDispatcher>();
 
         builder.Services.AddWebserver(builder.Configuration);
 
@@ -87,6 +117,12 @@ public partial class App : Application
         var host = builder.Build();
         await host.RunAsync();
         Dispatcher.InvokeShutdown();
+    }
+    protected override void OnExit(ExitEventArgs e)
+    {
+        _mutex?.ReleaseMutex();
+        _mutex?.Dispose();
+        base.OnExit(e);
     }
 
     static async Task LoadAppSettings(Microsoft.Extensions.Configuration.ConfigurationManager config)

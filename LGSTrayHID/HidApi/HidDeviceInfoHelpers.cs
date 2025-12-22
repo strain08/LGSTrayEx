@@ -5,45 +5,44 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace LGSTrayHID.HidApi
+namespace LGSTrayHID.HidApi;
+
+public enum HidppMessageType : short
 {
-    public enum HidppMessageType : short
+    NONE = 0,
+    SHORT,
+    LONG,
+    VERY_LONG
+}
+
+internal static class HidDeviceInfoHelpers
+{
+    internal static string GetPath(this HidDeviceInfo deviceInfo)
     {
-        NONE = 0,
-        SHORT,
-        LONG,
-        VERY_LONG
+        unsafe
+        {
+            return Marshal.PtrToStringAnsi((nint)deviceInfo.Path)!;
+        }
     }
 
-    internal static class HidDeviceInfoHelpers
+    internal static HidppMessageType GetHidppMessageType(this HidDeviceInfo deviceInfo)
     {
-        internal static string GetPath(this HidDeviceInfo deviceInfo)
+        unsafe
         {
-            unsafe
+            if ((deviceInfo.UsagePage & 0xFF00) == 0xFF00)
             {
-                return Marshal.PtrToStringAnsi((nint)deviceInfo.Path)!;
+                return deviceInfo.Usage switch
+                {
+                    0x0001 => HidppMessageType.SHORT,
+                    0x0002 => HidppMessageType.LONG,
+                    _ => HidppMessageType.NONE,
+                };
+            }
+            else
+            {
+                return HidppMessageType.NONE;
             }
         }
-
-        internal static HidppMessageType GetHidppMessageType(this HidDeviceInfo deviceInfo)
-        {
-            unsafe
-            {
-                if ((deviceInfo.UsagePage & 0xFF00) == 0xFF00)
-                {
-                    return deviceInfo.Usage switch
-                    {
-                        0x0001 => HidppMessageType.SHORT,
-                        0x0002 => HidppMessageType.LONG,
-                        _ => HidppMessageType.NONE,
-                    };
-                }
-                else
-                {
-                    return HidppMessageType.NONE;
-                }
-            }
-        }
-
     }
+
 }

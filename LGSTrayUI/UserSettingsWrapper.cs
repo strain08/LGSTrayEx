@@ -1,44 +1,43 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using System.Collections.Specialized;
 
-namespace LGSTrayUI
+namespace LGSTrayUI;
+
+public partial class UserSettingsWrapper : ObservableObject
 {
-    public partial class UserSettingsWrapper : ObservableObject
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "")]
+    public StringCollection SelectedDevices => Properties.Settings.Default.SelectedDevices;
+
+    public bool NumericDisplay
     {
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "")]
-        public StringCollection SelectedDevices => Properties.Settings.Default.SelectedDevices;
-
-        public bool NumericDisplay
+        get => Properties.Settings.Default.NumericDisplay;
+        set
         {
-            get => Properties.Settings.Default.NumericDisplay;
-            set
-            {
-                Properties.Settings.Default.NumericDisplay = value;
-                Properties.Settings.Default.Save();
-
-                OnPropertyChanged();
-            }
-        }
-
-        public void AddDevice(string deviceId)
-        {
-            if (Properties.Settings.Default.SelectedDevices.Contains(deviceId))
-            {
-                return;
-            }
-
-            Properties.Settings.Default.SelectedDevices.Add(deviceId);
+            Properties.Settings.Default.NumericDisplay = value;
             Properties.Settings.Default.Save();
 
-            OnPropertyChanged(nameof(SelectedDevices));
+            OnPropertyChanged();
         }
+    }
 
-        public void RemoveDevice(string deviceId)
+    public void AddDevice(string deviceId)
+    {
+        if (Properties.Settings.Default.SelectedDevices.Contains(deviceId))
         {
-            Properties.Settings.Default.SelectedDevices.Remove(deviceId);
-            Properties.Settings.Default.Save();
-
-            OnPropertyChanged(nameof(SelectedDevices));
+            return;
         }
+
+        Properties.Settings.Default.SelectedDevices.Add(deviceId);
+        Properties.Settings.Default.Save();
+
+        OnPropertyChanged(nameof(SelectedDevices));
+    }
+
+    public void RemoveDevice(string deviceId)
+    {
+        Properties.Settings.Default.SelectedDevices.Remove(deviceId);
+        Properties.Settings.Default.Save();
+
+        OnPropertyChanged(nameof(SelectedDevices));
     }
 }

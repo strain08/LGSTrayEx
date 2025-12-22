@@ -1,4 +1,4 @@
-﻿namespace LGSTrayCore.Managers;
+﻿namespace LGSTrayCore.Interfaces;
 
 public interface IDeviceManager
 {

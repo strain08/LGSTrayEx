@@ -1,9 +1,8 @@
-﻿namespace LGSTrayPrimitives
+﻿namespace LGSTrayPrimitives;
+
+public enum DeviceType : byte
 {
-    public enum DeviceType : byte
-    {
-        Keyboard = 0,
-        Mouse = 3,
-        Headset = 8,
-    }
+    Keyboard = 0,
+    Mouse = 3,
+    Headset = 8,
 }

@@ -2,6 +2,7 @@
 using EmbedIO;
 using EmbedIO.WebApi;
 using System.Reflection;
+using LGSTrayCore.Interfaces;
 
 namespace LGSTrayCore.HttpServer;
 

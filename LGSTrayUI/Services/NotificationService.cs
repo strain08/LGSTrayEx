@@ -1,4 +1,4 @@
-﻿using LGSTrayCore;
+﻿using LGSTrayCore.Interfaces;
 using LGSTrayPrimitives;
 using LGSTrayPrimitives.MessageStructs;
 using MessagePipe;

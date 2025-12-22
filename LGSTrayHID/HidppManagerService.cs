@@ -3,32 +3,31 @@ using LGSTrayPrimitives.MessageStructs;
 using MessagePipe;
 using Microsoft.Extensions.Hosting;
 
-namespace LGSTrayHID
+namespace LGSTrayHID;
+
+public class HidppManagerService : IHostedService
 {
-    public class HidppManagerService : IHostedService
+    private readonly IDistributedPublisher<IPCMessageType, IPCMessage> _publisher;
+
+    public HidppManagerService(IDistributedPublisher<IPCMessageType, IPCMessage> publisher)
     {
-        private readonly IDistributedPublisher<IPCMessageType, IPCMessage> _publisher;
+        _publisher = publisher;
 
-        public HidppManagerService(IDistributedPublisher<IPCMessageType, IPCMessage> publisher)
+        HidppManagerContext.Instance.HidppDeviceEvent += async (type, message) =>
         {
-            _publisher = publisher;
+            await _publisher.PublishAsync(type, message);
+        };
+    }
 
-            HidppManagerContext.Instance.HidppDeviceEvent += async (type, message) =>
-            {
-                await _publisher.PublishAsync(type, message);
-            };
-        }
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        HidppManagerContext.Instance.Start(cancellationToken);
 
-        public Task StartAsync(CancellationToken cancellationToken)
-        {
-            HidppManagerContext.Instance.Start(cancellationToken);
+        return Task.CompletedTask;
+    }
 
-            return Task.CompletedTask;
-        }
-
-        public Task StopAsync(CancellationToken cancellationToken)
-        {
-            return Task.CompletedTask;
-        }
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        return Task.CompletedTask;
     }
 }
