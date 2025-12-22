@@ -10,7 +10,14 @@ using LGSTrayPrimitives;
 using Microsoft.Win32;
 
 namespace LGSTrayUI;
-
+/// <summary>
+/// Provides static methods for drawing and updating battery and device icons for taskbar notifications.
+/// </summary>
+/// <remarks>This class offers utility methods to render battery status and device icons, including numeric and
+/// unknown states, for use with taskbar notification icons. It adapts icon appearance based on the current Windows
+/// theme and device charging status.
+/// <br> All members are static and thread safety is not guaranteed; callers should ensure
+/// thread safety if accessing from multiple threads.</br></remarks>
 public static partial class BatteryIconDrawing
 {
     [LibraryImport("user32.dll")]

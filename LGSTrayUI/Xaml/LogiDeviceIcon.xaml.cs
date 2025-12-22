@@ -32,10 +32,16 @@ public class LogiDeviceIconFactory : ILogiDeviceIconFactory
 public partial class LogiDeviceIcon : UserControl, IDisposable
 {
     #region IDisposable
-    private bool disposedValue;
+    private volatile int _disposed = 0;  // 0 = not disposed, 1 = disposed (atomic flag)
+    private readonly object _disposeLock = new object();
+
     protected virtual void Dispose(bool disposing)
     {
-        if (!disposedValue)
+        // Atomic check-and-set: only first caller proceeds
+        if (System.Threading.Interlocked.CompareExchange(ref _disposed, 1, 0) == 1)
+            return;  // Already disposed by another thread
+
+        lock (_disposeLock)
         {
             if (disposing)
             {
@@ -49,10 +55,9 @@ public partial class LogiDeviceIcon : UserControl, IDisposable
                 SubRef();
             }
 
-            // TODO: free unmanaged resources (unmanaged objects) and override finalizer
-            // TODO: set large fields to null
-            disposedValue = true;
-            taskbarIcon.Dispose();
+            // Dispose taskbar icon last
+            taskbarIcon?.Dispose();
+            taskbarIcon = null;
         }
     }
 
@@ -76,14 +81,20 @@ public partial class LogiDeviceIcon : UserControl, IDisposable
 
     public static void AddRef()
     {
-        _refCount++;
-        RefCountChanged?.Invoke(RefCount);
+        var newCount = System.Threading.Interlocked.Increment(ref _refCount);
+
+        // Capture delegate to avoid null-check race
+        var handler = RefCountChanged;
+        handler?.Invoke(newCount);
     }
 
     public static void SubRef()
     {
-        _refCount--;
-        RefCountChanged?.Invoke(RefCount);
+        var newCount = System.Threading.Interlocked.Decrement(ref _refCount);
+
+        // Capture delegate to avoid null-check race
+        var handler = RefCountChanged;
+        handler?.Invoke(newCount);
     }
 
     public static event Action<int>? RefCountChanged;
@@ -141,17 +152,31 @@ public partial class LogiDeviceIcon : UserControl, IDisposable
 
     private void DrawBatteryIcon()
     {
-        // Don't draw if disposed or taskbarIcon is null
-        if (disposedValue || taskbarIcon == null)
-        {
+        // Quick check before acquiring lock
+        if (_disposed == 1)
             return;
+
+        // Capture taskbarIcon under lock to ensure thread safety
+        TaskbarIcon? iconSnapshot;
+        lock (_disposeLock)
+        {
+            if (_disposed == 1 || taskbarIcon == null)
+                return;
+
+            iconSnapshot = taskbarIcon;
         }
 
         _ = Dispatcher.BeginInvoke(() =>
         {
-            // Double-check inside dispatcher callback
-            if (!disposedValue && taskbarIcon != null)
+            // Final check inside dispatcher callback
+            if (_disposed == 1)
+                return;
+
+            lock (_disposeLock)
             {
+                if (_disposed == 1 || taskbarIcon == null)
+                    return;
+
                 _drawBatteryIcon(taskbarIcon, (LogiDevice)DataContext);
             }
         });

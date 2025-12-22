@@ -98,39 +98,40 @@ public class LogiDeviceCollection : ILogiDeviceCollection
 
     public void OnInitMessage(InitMessage initMessage)
     {
-        LogiDeviceViewModel? dev = Devices.SingleOrDefault(x => x.DeviceId == initMessage.deviceId);
-
-        // Device already exists - just update it
-        if (dev != null)
+        // Marshal ALL Devices collection access to UI thread to prevent
+        // InvalidOperationException during enumeration
+        _dispatcher.BeginInvoke(() =>
         {
-            _dispatcher.BeginInvoke(() => dev.UpdateState(initMessage));
-            return;
-        }
+            LogiDeviceViewModel? dev = Devices.SingleOrDefault(x => x.DeviceId == initMessage.deviceId);
 
-        // Check if this is a GHUB device reconnecting with new ID
-        // Look for uninitialized stub to replace
-        if (IsLikelyGHubIdChange(initMessage.deviceId))
-        {
-            var stub = Devices.FirstOrDefault(d => IsUninitializedStub(d));
-
-            if (stub != null)
+            // Device already exists - just update it
+            if (dev != null)
             {
-                DiagnosticLogger.Log($"Replacing stub {stub.DeviceId} with {initMessage.deviceId} ({initMessage.deviceName})");
+                dev.UpdateState(initMessage);
+                return;
+            }
 
-                // Transfer selection state
-                bool wasSelected = stub.IsChecked;
+            // Check if this is a GHUB device reconnecting with new ID
+            // Look for uninitialized stub to replace
+            if (IsLikelyGHubIdChange(initMessage.deviceId))
+            {
+                var stub = Devices.FirstOrDefault(d => IsUninitializedStub(d));
 
-                // Remove old stub
-                _userSettings.RemoveDevice(stub.DeviceId);
-
-                _dispatcher.BeginInvoke(() =>
+                if (stub != null)
                 {
+                    DiagnosticLogger.Log($"Replacing stub {stub.DeviceId} with {initMessage.deviceId} ({initMessage.deviceName})");
+
+                    // Transfer selection state
+                    bool wasSelected = stub.IsChecked;
+
                     // Uncheck stub to dispose icon before removing from collection
                     if (stub.IsChecked)
                     {
                         stub.IsChecked = false;
                     }
 
+                    // Remove old stub
+                    _userSettings.RemoveDevice(stub.DeviceId);
                     Devices.Remove(stub);
 
                     // Add new device with transferred selection
@@ -144,17 +145,12 @@ public class LogiDeviceCollection : ILogiDeviceCollection
                     _userSettings.AddDevice(initMessage.deviceId);
 
                     DiagnosticLogger.Log($"Stub replacement complete - {initMessage.deviceId}");
-                });
-
-                return;
+                    return;
+                }
             }
-        }
 
-        // Normal new device addition
-        dev = _logiDeviceViewModelFactory.CreateViewModel((x) => x.UpdateState(initMessage));
-
-        _dispatcher.BeginInvoke(() =>
-        {
+            // Normal new device addition
+            dev = _logiDeviceViewModelFactory.CreateViewModel((x) => x.UpdateState(initMessage));
             Devices.Add(dev);
             DiagnosticLogger.Log($"Device added to collection - {initMessage.deviceId} ({initMessage.deviceName})");
         });
