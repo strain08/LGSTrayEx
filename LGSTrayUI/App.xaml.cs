@@ -26,6 +26,7 @@ namespace LGSTrayUI;
 public partial class App : Application
 {
     private static Mutex? _mutex;
+    private bool _hasHandle = false; // Track ownership
     /// <summary>
     /// Gets whether logging is enabled (--log flag).
     /// </summary>    
@@ -38,14 +39,13 @@ public partial class App : Application
 
     protected override async void OnStartup(StartupEventArgs e)
     {
-        // Check for existing instance using a named mutex
+        const string mutexName = "LGSTrayBattery_SingleInstance";       
 
-        const string mutexName = "LGSTrayBattery_SingleInstance";
-        _mutex = new Mutex(true, mutexName, out bool createdNew);
+        // The 'true' here attempts to acquire ownership immediately
+        _mutex = new Mutex(true, mutexName, out _hasHandle);
 
-        if (!createdNew)
+        if (!_hasHandle)
         {
-            // Another instance is already running
             MessageBox.Show(
                 "LGSTray is already running.",
                 "LGSTray",
@@ -54,7 +54,6 @@ public partial class App : Application
             );
             Shutdown();
             return;
-
         }
 
         base.OnStartup(e);
@@ -120,7 +119,19 @@ public partial class App : Application
     }
     protected override void OnExit(ExitEventArgs e)
     {
-        _mutex?.ReleaseMutex();
+        // ONLY release if we actually acquired it in OnStartup
+        if (_hasHandle)
+        {
+            try
+            {
+                _mutex?.ReleaseMutex();
+            }
+            catch
+            {
+                // Fail silently during exit if the handle is already gone
+            }
+        }
+
         _mutex?.Dispose();
         base.OnExit(e);
     }
