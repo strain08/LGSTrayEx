@@ -39,7 +39,13 @@ public partial class LogiDeviceIcon : UserControl, IDisposable
         {
             if (disposing)
             {
-                // TODO: dispose managed state (managed objects)
+                // Unsubscribe from static event to prevent memory leak
+                if (_themeChangedHandler != null)
+                {
+                    CheckTheme.StaticPropertyChanged -= _themeChangedHandler;
+                    _themeChangedHandler = null;
+                }
+
                 SubRef();
             }
 
@@ -83,6 +89,7 @@ public partial class LogiDeviceIcon : UserControl, IDisposable
     public static event Action<int>? RefCountChanged;
 
     private Action<TaskbarIcon, LogiDevice> _drawBatteryIcon;
+    private PropertyChangedEventHandler? _themeChangedHandler;
 
     public LogiDeviceIcon(LogiDevice device, AppSettings appSettings, UserSettingsWrapper userSettings)
     {
@@ -97,7 +104,11 @@ public partial class LogiDeviceIcon : UserControl, IDisposable
 
         device.PropertyChanged += LogiDevicePropertyChanged;
         userSettings.PropertyChanged += NotifyIconViewModelPropertyChanged;
-        CheckTheme.StaticPropertyChanged += (_, _) => DrawBatteryIcon();
+
+        // Store handler to unsubscribe later
+        _themeChangedHandler = (_, _) => DrawBatteryIcon();
+        CheckTheme.StaticPropertyChanged += _themeChangedHandler;
+
         _drawBatteryIcon = userSettings.NumericDisplay ? BatteryIconDrawing.DrawNumeric : BatteryIconDrawing.DrawIcon;
         DrawBatteryIcon();
     }
@@ -130,6 +141,19 @@ public partial class LogiDeviceIcon : UserControl, IDisposable
 
     private void DrawBatteryIcon()
     {
-        _ = Dispatcher.BeginInvoke(() => _drawBatteryIcon(taskbarIcon, (LogiDevice)DataContext));
+        // Don't draw if disposed or taskbarIcon is null
+        if (disposedValue || taskbarIcon == null)
+        {
+            return;
+        }
+
+        _ = Dispatcher.BeginInvoke(() =>
+        {
+            // Double-check inside dispatcher callback
+            if (!disposedValue && taskbarIcon != null)
+            {
+                _drawBatteryIcon(taskbarIcon, (LogiDevice)DataContext);
+            }
+        });
     }
 }

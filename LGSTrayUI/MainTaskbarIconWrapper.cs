@@ -24,6 +24,7 @@ public class MainTaskbarIconWrapper : IDisposable
         {
             if (disposing)
             {
+                _debounceTimer?.Dispose();
                 _taskbarIcon?.Dispose();
                 LogiDeviceIcon.RefCountChanged -= OnRefCountChanged;
             }
@@ -50,6 +51,7 @@ public class MainTaskbarIconWrapper : IDisposable
     #endregion
 
     private TaskbarIcon? _taskbarIcon = new MainTaskBarIcon();
+    private System.Threading.Timer? _debounceTimer;
 
     public MainTaskbarIconWrapper()
     {
@@ -59,12 +61,29 @@ public class MainTaskbarIconWrapper : IDisposable
 
     private void OnRefCountChanged(int refCount)
     {
+        // Cancel any pending timer
+        _debounceTimer?.Dispose();
+        _debounceTimer = null;
+
         if (refCount == 0)
         {
-            _taskbarIcon ??= new MainTaskBarIcon();
+            // Debounce: Wait 500ms before showing main icon
+            // This prevents unnecessary creation/disposal during rediscover
+            _debounceTimer = new System.Threading.Timer(_ =>
+            {
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    // Double-check count hasn't changed
+                    if (LogiDeviceIcon.RefCount == 0)
+                    {
+                        _taskbarIcon ??= new MainTaskBarIcon();
+                    }
+                });
+            }, null, 500, System.Threading.Timeout.Infinite);
         }
         else
         {
+            // Immediately hide main icon when device icons appear
             _taskbarIcon?.Dispose();
             _taskbarIcon = null;
         }

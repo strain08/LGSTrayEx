@@ -125,6 +125,12 @@ public class LogiDeviceCollection : ILogiDeviceCollection
 
                 _dispatcher.BeginInvoke(() =>
                 {
+                    // Uncheck stub to dispose icon before removing from collection
+                    if (stub.IsChecked)
+                    {
+                        stub.IsChecked = false;
+                    }
+
                     Devices.Remove(stub);
 
                     // Add new device with transferred selection
@@ -284,6 +290,13 @@ public class LogiDeviceCollection : ILogiDeviceCollection
                 foreach (var stub in staleStubs)
                 {
                     DiagnosticLogger.Log($"Removing stale stub - {stub.DeviceId}");
+
+                    // Uncheck stub to dispose icon before removing from collection
+                    if (stub.IsChecked)
+                    {
+                        stub.IsChecked = false;
+                    }
+
                     _userSettings.RemoveDevice(stub.DeviceId);
                     Devices.Remove(stub);
                 }
