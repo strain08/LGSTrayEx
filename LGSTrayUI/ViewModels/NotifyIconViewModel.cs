@@ -2,6 +2,7 @@
 using CommunityToolkit.Mvvm.Input;
 using LGSTrayCore;
 using LGSTrayCore.Interfaces;
+using LGSTrayPrimitives;
 using LGSTrayUI.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Win32;
@@ -133,7 +134,7 @@ public partial class NotifyIconViewModel : ObservableObject, IHostedService
     [RelayCommand]
     private async Task RediscoverDevices()
     {
-        Console.WriteLine("Rediscover");
+        DiagnosticLogger.Log("Rediscover devices");
         RediscoverDevicesEnabled = false;
 
         foreach (var manager in _deviceManagers)
