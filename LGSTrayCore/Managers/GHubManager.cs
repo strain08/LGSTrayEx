@@ -150,6 +150,11 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
             case "/devices/list":
                 {
                     DiagnosticLogger.Log("Processing /devices/list response");
+                    if (ghubmsg.Payload == null)
+                    {
+                        DiagnosticLogger.LogWarning("Received /devices/list with null payload");
+                        break;
+                    }
                     LoadDevices(ghubmsg.Payload);
                     break;
                 }
@@ -157,12 +162,22 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
             case { } when BatteryDeviceStateRegex().IsMatch(ghubmsg.Path):
                 {
                     DiagnosticLogger.Log($"Processing battery update: {ghubmsg.Path}");
+                    if (ghubmsg.Payload == null)
+                    {
+                        DiagnosticLogger.LogWarning($"Received battery update with null payload: {ghubmsg.Path}");
+                        break;
+                    }
                     ParseBatteryUpdate(ghubmsg.Payload);
                     break;
                 }
             case "/devices/state/changed":
                 {
                     DiagnosticLogger.Log("Processing device state change");
+                    if (ghubmsg.Payload == null)
+                    {
+                        DiagnosticLogger.LogWarning("Received device state change with null payload");
+                        break;
+                    }
                     ParseDeviceStateChange(ghubmsg.Payload);
                     break;
                 }

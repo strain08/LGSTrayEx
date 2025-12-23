@@ -1,5 +1,6 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using LGSTrayCore;
+using LGSTrayPrimitives;
 using LGSTrayPrimitives.MessageStructs;
 using LGSTrayUI.Interfaces;
 using System;
@@ -61,6 +62,7 @@ public partial class LogiDeviceViewModel : LogiDevice
         DeviceName = initMessage.deviceName;
         HasBattery = initMessage.hasBattery;
         DeviceType = initMessage.deviceType;
+        DataSource = DataSourceHelper.GetDataSource(initMessage.deviceId);
     }
 
     public void UpdateState(UpdateMessage updateMessage)

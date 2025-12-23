@@ -5,6 +5,7 @@ using LGSTrayPrimitives.Interfaces;
 using LGSTrayPrimitives.IPC;
 using LGSTrayUI.Interfaces;
 using LGSTrayUI.Services;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Notification.Wpf;
@@ -93,6 +94,12 @@ public partial class App : Application
 
 
         builder.Services.Configure<AppSettings>(builder.Configuration);
+
+        // Register AppSettings as singleton for direct injection
+        IConfiguration config = builder.Configuration;
+        var appSettings = config.Get<AppSettings>()!;
+        builder.Services.AddSingleton(appSettings);
+
         builder.Services.AddLGSMessagePipe(true);
         builder.Services.AddWebSocketClientFactory();
         builder.Services.AddSingleton<UserSettingsWrapper>();

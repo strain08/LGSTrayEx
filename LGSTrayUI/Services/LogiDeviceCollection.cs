@@ -73,6 +73,7 @@ public class LogiDeviceCollection : ILogiDeviceCollection
                 {
                     x.DeviceId = deviceId!;
                     x.DeviceName = "Not Initialised";
+                    x.DataSource = DataSourceHelper.GetDataSource(deviceId!);
                     x.IsChecked = true;
                 })
             );
@@ -201,8 +202,8 @@ public class LogiDeviceCollection : ILogiDeviceCollection
             {
                 DiagnosticLogger.Log($"Wildcard GHUB removal requested (reason: {removeMessage.reason})");
 
-                // Remove all devices with IDs starting with "dev" (GHUB convention)
-                var ghubDevices = Devices.Where(d => d.DeviceId.StartsWith("dev")).ToList();
+                // Remove all devices with GHub data source
+                var ghubDevices = Devices.Where(d => d.DataSource == DataSource.GHub).ToList();
 
                 foreach (var device in ghubDevices)
                 {
@@ -270,7 +271,7 @@ public class LogiDeviceCollection : ILogiDeviceCollection
     /// </summary>
     private bool IsLikelyGHubIdChange(string deviceId)
     {
-        return deviceId.StartsWith("dev") && deviceId.Length > 3;
+        return DataSourceHelper.GetDataSource(deviceId) == DataSource.GHub && deviceId.Length > 3;
     }
 
     /// <summary>

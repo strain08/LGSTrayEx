@@ -11,6 +11,9 @@ public partial class LogiDevice : ObservableObject
     private DeviceType _deviceType;
 
     [ObservableProperty]
+    private DataSource _dataSource = DataSource.Native;
+
+    [ObservableProperty]
     private string _deviceId = NOT_FOUND;
 
     [ObservableProperty]
