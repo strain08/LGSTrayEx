@@ -63,12 +63,12 @@ public static partial class BatteryIconDrawing
     {
         _ => CheckTheme.LightTheme ? Color.FromArgb(0x11, 0x11, 0x11) : Color.FromArgb(0xEE, 0xEE, 0xEE)
 
-        //return device.DeviceType switch
-        //{
-        //    DeviceType.Keyboard => Color.FromArgb(0xA1, 0xE4, 0x4D),
-        //    DeviceType.Headset => Color.FromArgb(0xFA, 0x79, 0x21),
-        //    _ => Color.FromArgb(0xBB, 0x86, 0xFC),
-        //};
+    //return device.DeviceType switch
+    //{
+    //    DeviceType.Keyboard => Color.FromArgb(0xA1, 0xE4, 0x4D),
+    //    DeviceType.Headset => Color.FromArgb(0xFA, 0x79, 0x21),
+    //    _ => Color.FromArgb(0xBB, 0x86, 0xFC),
+    //};
     };
 
     private static Bitmap GetBatteryValue(LogiDevice device) => device.BatteryPercentage switch
@@ -168,10 +168,8 @@ public static partial class BatteryIconDrawing
         // Fill with green background if charging
         if (device.PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING)
         {
-            using (SolidBrush greenBrush = new SolidBrush(Color.FromArgb(255, 76, 175, 80))) // Material Green 500
-            {
-                g.FillRectangle(greenBrush, 0, 0, ImageSize, ImageSize);
-            }
+            using SolidBrush greenBrush = CheckTheme.LightTheme ? new(Color.LimeGreen) : new(Color.DarkGreen);            
+            g.FillRectangle(greenBrush, 0, 0, ImageSize, ImageSize);           
         }
 
         string displayString = (device.BatteryPercentage < 0) ? "?" : $"{device.BatteryPercentage:f0}";
