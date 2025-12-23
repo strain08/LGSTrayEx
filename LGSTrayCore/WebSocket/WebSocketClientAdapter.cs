@@ -1,4 +1,5 @@
 using LGSTrayCore.Interfaces;
+using LGSTrayPrimitives;
 using Websocket.Client;
 
 namespace LGSTrayCore.WebSocket;
@@ -14,9 +15,14 @@ public class WebSocketClientAdapter : IWebSocketClient
     public WebSocketClientAdapter(WebsocketClient client)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
+        
     }
-
+    
     public IObservable<ResponseMessage> MessageReceived => _client.MessageReceived;
+
+    public IObservable<DisconnectionInfo> DisconnectionHappened => _client.DisconnectionHappened;
+
+    public IObservable<ReconnectionInfo> ReconnectionHappened => _client.ReconnectionHappened;
 
     public TimeSpan? ErrorReconnectTimeout
     {

@@ -21,6 +21,8 @@ public interface IWebSocketClient : IDisposable
     /// Timeout for reconnection (null = disabled)
     /// </summary>
     TimeSpan? ReconnectTimeout { get; set; }
+    IObservable<DisconnectionInfo> DisconnectionHappened { get; }
+    IObservable<ReconnectionInfo> ReconnectionHappened { get; }
 
     /// <summary>
     /// Send a text message through the WebSocket

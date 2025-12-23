@@ -139,7 +139,7 @@ public partial class NotifyIconViewModel : ObservableObject, IHostedService
     [RelayCommand]
     private async Task RediscoverDevices()
     {
-        DiagnosticLogger.Log("Rediscover devices");
+        DiagnosticLogger.Log("NotifyIconViewModel: Rediscover devices");
         RediscoverDevicesEnabled = false;
 
         foreach (var manager in _deviceManagers)

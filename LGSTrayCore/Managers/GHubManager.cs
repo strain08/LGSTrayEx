@@ -62,6 +62,8 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
     }
     #endregion
 
+    const double RECONNECT_TIMEOUT = 15000;
+
     private const string WEBSOCKET_SERVER = "ws://localhost:9010";
 
     [GeneratedRegex(@"\/battery\/dev[0-9a-zA-Z]+\/state")]
@@ -86,11 +88,22 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
         _ws = _wsFactory.Create(url);
 
         _ws.MessageReceived.Subscribe(ParseSocketMsg);
-        _ws.ErrorReconnectTimeout = TimeSpan.FromMilliseconds(500);
+
+        _ws.ErrorReconnectTimeout = TimeSpan.FromMilliseconds(RECONNECT_TIMEOUT);
         _ws.ReconnectTimeout = null;
+        _ws.DisconnectionHappened.Subscribe(info =>
+        {
+            DiagnosticLogger.LogWarning($"LGHUB WebSocket disconnected: {info.Type}");
+            DiagnosticLogger.Log("Clearing all GHUB devices.");
+            _deviceEventBus.Publish(new RemoveMessage("*GHUB*", "rediscover_cleanup"));
+        });
+        _ws.ReconnectionHappened.Subscribe(info =>
+        {
+            DiagnosticLogger.Log("LGHUB WebSocket reconnected, reloading devices");
+            if (info.Type != ReconnectionType.Initial) RediscoverDevices();
+        });
 
         DiagnosticLogger.Log($"Attempting to connect to LGHUB at {url}");
-
         try
         {
             await _ws.Start();
