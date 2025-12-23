@@ -22,7 +22,7 @@ internal class Program
         bool enableVerbose = args.Contains("--verbose");
 #if DEBUG
         enableLogging = true;
-        enableVerbose = false;
+        enableVerbose = true;
 #endif
         DiagnosticLogger.Initialize(enableLogging, enableVerbose);
 

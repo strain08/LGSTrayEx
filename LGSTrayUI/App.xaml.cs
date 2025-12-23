@@ -63,7 +63,8 @@ public partial class App : Application
         Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         AppDomain.CurrentDomain.UnhandledException += new UnhandledExceptionEventHandler(CrashHandler);
-
+        Microsoft.Win32.SystemEvents.PowerModeChanged += AppExtensions_PowerModeChanged
+            ;
         EnableEfficiencyMode();
 
         // Parse command-line arguments for logging control
@@ -124,8 +125,24 @@ public partial class App : Application
         await host.RunAsync();
         Dispatcher.InvokeShutdown();
     }
+
+    private void AppExtensions_PowerModeChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        switch (e.Mode)
+        {
+            case Microsoft.Win32.PowerModes.Resume:
+                DiagnosticLogger.Log("System resumed from sleep.");
+                break;
+            case Microsoft.Win32.PowerModes.Suspend:
+                DiagnosticLogger.Log("System is suspending to sleep.");
+                break;
+        }
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
+        Microsoft.Win32.SystemEvents.PowerModeChanged-= AppExtensions_PowerModeChanged;
+
         // ONLY release if we actually acquired it in OnStartup
         if (_hasHandle)
         {

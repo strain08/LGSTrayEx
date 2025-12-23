@@ -27,5 +27,4 @@ public static class AppExtensions
             (uint)sizeof(Winmdroot.System.Threading.PROCESS_POWER_THROTTLING_STATE)
         );
     }
-
 }

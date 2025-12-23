@@ -218,6 +218,7 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
             {
                 if (!Enum.TryParse(deviceToken["deviceType"]!.ToString(), true, out DeviceType deviceType))
                 {
+                    DiagnosticLogger.LogWarning($"Unknown device type '{deviceToken["deviceType"]}', defaulting to Mouse for now.");
                     deviceType = DeviceType.Mouse;
                 }
 
