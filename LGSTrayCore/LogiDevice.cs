@@ -65,7 +65,7 @@ public partial class LogiDevice : ObservableObject
 
     partial void OnLastUpdateChanged(DateTimeOffset value)
     {
-        Console.WriteLine(ToolTipString);
+        DiagnosticLogger.Log(ToolTipString);
     }
 
     public string GetXmlData()

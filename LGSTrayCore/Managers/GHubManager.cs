@@ -143,6 +143,7 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
     {
         GHUBMsg ghubmsg = GHUBMsg.DeserializeJson(msg.Text!);
         DiagnosticLogger.Log($"LGHUB message received - Path: {ghubmsg.Path}");
+        //DiagnosticLogger.Log($"Full message: {msg.Text}");
 
         switch (ghubmsg.Path)
         {
@@ -153,7 +154,7 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
                     break;
                 }
             case "/battery/state/changed":
-            case { } when BatteryDeviceStateRegex().Match(ghubmsg.Path).Success:
+            case { } when BatteryDeviceStateRegex().IsMatch(ghubmsg.Path):
                 {
                     DiagnosticLogger.Log($"Processing battery update: {ghubmsg.Path}");
                     ParseBatteryUpdate(ghubmsg.Payload);
@@ -224,6 +225,59 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
         }
     }
 
+    /// <summary>
+    /// Process single device info response (for reconnected devices)
+    /// </summary>
+    protected void LoadDevice(JObject? payload)
+    {
+        try
+        {
+            if (payload == null)
+            {
+                DiagnosticLogger.LogError("LoadDevice called with null payload");
+                return;
+            }
+
+            // Payload is the device object itself (not wrapped in deviceInfos array)
+            if (!Enum.TryParse(payload["deviceType"]!.ToString(), true, out DeviceType deviceType))
+            {
+                deviceType = DeviceType.Mouse;
+            }
+
+            string deviceId = payload["id"]!.ToString();
+            string deviceName = payload["extendedDisplayName"]!.ToString();
+
+            _deviceEventBus.Publish(new InitMessage(
+                deviceId,
+                deviceName,
+                (bool)payload["capabilities"]!["hasBatteryStatus"]!,
+                deviceType
+            ));
+
+            DiagnosticLogger.Log($"GHub device re-registered - {deviceId} ({deviceName})");
+
+            // Request initial battery state
+            _ws?.Send(JsonConvert.SerializeObject(new
+            {
+                msgId = "",
+                verb = "GET",
+                path = $"/battery/{deviceId}/state"
+            }));
+        }
+        catch (Exception e)
+        {
+            string deviceId = payload?["id"]?.ToString() ?? "unknown";
+            if (e is NullReferenceException || e is JsonReaderException)
+            {
+                DiagnosticLogger.LogError($"Failed to parse LGHUB device info for {deviceId}: {e.Message}");
+            }
+            else
+            {
+                DiagnosticLogger.LogError($"Unexpected error loading LGHUB device {deviceId}: {e.Message}");
+            }
+        }
+    }
+
     protected void ParseBatteryUpdate(JObject payload)
     {
         try
@@ -252,30 +306,24 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
     {
         try
         {
-            string deviceId = payload["deviceId"]?.ToString() ?? "unknown";
+            string deviceId = payload["id"]?.ToString() ?? "unknown";
             string state = payload["state"]?.ToString()?.ToLower() ?? "";
 
             DiagnosticLogger.Log($"GHUB device state change - {deviceId}: {state}");
+            //DiagnosticLogger.Log($"Full payload: {payload.ToString(Formatting.None)}");
 
             switch (state)
             {
-                case "disconnected":
-                case "offline":
+                case "not_connected":                
                     // Device disconnected - publish removal
                     _deviceEventBus.Publish(new RemoveMessage(deviceId, "ghub_disconnect"));
                     DiagnosticLogger.Log($"Device removed via GHUB disconnect - {deviceId}");
                     break;
 
-                case "connected":
-                case "online":
-                    // Device reconnected - request device info to re-register
-                    DiagnosticLogger.Log($"Device reconnected - requesting info for {deviceId}");
-                    _ws?.Send(JsonConvert.SerializeObject(new
-                    {
-                        msgId = "",
-                        verb = "GET",
-                        path = $"/devices/{deviceId}"
-                    }));
+                case "active":                
+                    // Device reconnected - register from payload (full Device.Info already present)
+                    DiagnosticLogger.Log($"Device reconnected - re-registering from state payload: {deviceId}");
+                    LoadDevice(payload);
                     break;
 
                 default:
@@ -285,7 +333,7 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
         }
         catch (Exception ex)
         {
-            string deviceId = payload?["deviceId"]?.ToString() ?? "unknown";
+            string deviceId = payload?["id"]?.ToString() ?? "unknown";
             DiagnosticLogger.LogError($"Failed to parse device state change for {deviceId}: {ex.Message}");
         }
     }

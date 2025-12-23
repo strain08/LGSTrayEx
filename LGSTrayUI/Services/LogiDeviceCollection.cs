@@ -108,6 +108,15 @@ public class LogiDeviceCollection : ILogiDeviceCollection
             if (dev != null)
             {
                 dev.UpdateState(initMessage);
+
+                // Restore IsChecked from settings if device was previously selected
+                // (handles cases where device wasn't removed from collection but lost checked state)
+                if (!dev.IsChecked && _userSettings.SelectedDevices.Contains(initMessage.deviceId))
+                {
+                    dev.IsChecked = true;
+                    DiagnosticLogger.Log($"Restored selection state for existing device - {initMessage.deviceId}");
+                }
+
                 return;
             }
 
@@ -151,6 +160,14 @@ public class LogiDeviceCollection : ILogiDeviceCollection
 
             // Normal new device addition
             dev = _logiDeviceViewModelFactory.CreateViewModel((x) => x.UpdateState(initMessage));
+
+            // Restore IsChecked state from settings if device was previously selected
+            if (_userSettings.SelectedDevices.Contains(initMessage.deviceId))
+            {
+                dev.IsChecked = true;
+                DiagnosticLogger.Log($"Restored selection state for device - {initMessage.deviceId}");
+            }
+
             Devices.Add(dev);
             DiagnosticLogger.Log($"Device added to collection - {initMessage.deviceId} ({initMessage.deviceName})");
         });
@@ -222,8 +239,18 @@ public class LogiDeviceCollection : ILogiDeviceCollection
             device.IsChecked = false;
         }
 
-        // Remove from settings
-        _userSettings.RemoveDevice(device.DeviceId);
+        // Only remove from settings if this is NOT a temporary disconnect
+        // Preserve settings for disconnect events so device reappears when reconnected
+        bool isTemporaryDisconnect = reason == "ghub_disconnect" || reason == "rediscover_cleanup";
+        if (!isTemporaryDisconnect)
+        {
+            _userSettings.RemoveDevice(device.DeviceId);
+            DiagnosticLogger.Log($"Device removed from settings - {device.DeviceId}");
+        }
+        else
+        {
+            DiagnosticLogger.Log($"Device settings preserved for reconnection - {device.DeviceId}");
+        }
 
         // Remove from collection (triggers UI update via ObservableCollection)
         Devices.Remove(device);
