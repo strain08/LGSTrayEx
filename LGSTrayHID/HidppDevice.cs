@@ -17,8 +17,7 @@ public class HidppDevice : IDisposable
     public string Identifier { get; private set; } = string.Empty;
     public Dictionary<ushort, byte> FeatureMap { get; private set; } = [];
 
-    private const int INIT_PING_TIMEOUT_MS = 5000;
-    private const int WRITE_READ_TIMEOUT_MS = 5000;
+
     private IBatteryFeature? _batteryFeature;
     private DateTimeOffset lastUpdate = DateTimeOffset.MinValue;
 
@@ -73,7 +72,7 @@ public class HidppDevice : IDisposable
                 DiagnosticLogger.Log($"Starting ping test for HID device index {DeviceIdx}");
                 for (int i = 0; i < 10; i++)
                 {
-                    var ping = await Parent.Ping20(DeviceIdx, INIT_PING_TIMEOUT_MS);
+                    var ping = await Parent.Ping20(DeviceIdx, AppConstants.INIT_PING_TIMEOUT_MS);
                     if (ping)
                     {
                         successCount++;
@@ -114,7 +113,7 @@ public class HidppDevice : IDisposable
             for (byte i = 0; i <= featureCount; i++)
             {
                 ret = await Parent.WriteRead20(Parent.DevShort,
-                    Hidpp20Commands.EnumerateFeature(DeviceIdx, FeatureMap[HidppFeature.FEATURE_SET], i), WRITE_READ_TIMEOUT_MS);
+                    Hidpp20Commands.EnumerateFeature(DeviceIdx, FeatureMap[HidppFeature.FEATURE_SET], i), AppConstants.WRITE_READ_TIMEOUT_MS);
 
                 // Check if we got a valid response (timeout returns empty array)
                 if (ret.Length == 0)

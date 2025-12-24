@@ -14,11 +14,6 @@ public class BatteryUnified : IBatteryFeature
 
     public string FeatureName => "Unified Battery";
 
-    /// <summary>
-    /// Timeout for battery capability queries (longer than standard queries).
-    /// </summary>
-    private const int QueryTimeout = 5000;
-
     /// <inheritdoc/>
     public async Task<BatteryUpdateReturn?> GetBatteryAsync(HidppDevice device)
     {
@@ -33,7 +28,7 @@ public class BatteryUnified : IBatteryFeature
         Hidpp20 response = await device.Parent.WriteRead20(
             device.Parent.DevShort,
             command,
-            timeout: QueryTimeout);
+            timeout: AppConstants.UNIFIED_QueryTimeout);
 
         // Check if request timed out or failed
         if (response.Length == 0)

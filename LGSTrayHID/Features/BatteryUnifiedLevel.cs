@@ -9,7 +9,6 @@ namespace LGSTrayHID.Features;
 /// </summary>
 public class BatteryUnifiedLevel : IBatteryFeature
 {
-    private const int QueryTimeout = 5000;
     /// <inheritdoc/>
     public ushort FeatureId => HidppFeature.BATTERY_UNIFIED_LEVEL;
 
@@ -28,7 +27,7 @@ public class BatteryUnifiedLevel : IBatteryFeature
         Hidpp20 response = await device.Parent.WriteRead20(
             device.Parent.DevShort,
             command,
-            QueryTimeout);
+            AppConstants.UNIFIED_LEVEL_QueryTimeout);
 
         // Check if request timed out or failed
         if (response.Length == 0)

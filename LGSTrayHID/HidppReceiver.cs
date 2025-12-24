@@ -13,7 +13,7 @@ public class HidppReceiver : IDisposable
     public HidDevicePtr DevShort { get; private set; } = IntPtr.Zero;
     public HidDevicePtr DevLong { get; private set; } = IntPtr.Zero;
     public IReadOnlyDictionary<ushort, HidppDevice> DeviceCollection => _lifecycleManager.Devices;
-    public const byte SW_ID = 0x0A;
+    
     private byte PING_PAYLOAD = 0x55;
 
     private readonly DeviceLifecycleManager _lifecycleManager;
@@ -85,7 +85,7 @@ public class HidppReceiver : IDisposable
         return await _correlator.SendHidpp10AndWaitAsync(
             hidDevicePtr,
             buffer,
-            matcher: response => (response[2] == 0x8F) || (response[2] == buffer[2]),
+            matcher: response => (response[2] == HidppResponse.ERROR) || (response[2] == buffer[2]),
             timeout: timeout,
             earlyExit: null
         );
@@ -99,7 +99,7 @@ public class HidppReceiver : IDisposable
             hidDevicePtr,
             buffer,
             matcher: response => (response.GetFeatureIndex() == buffer.GetFeatureIndex()) &&
-                                 (response.GetSoftwareId() == SW_ID),
+                                 (response.GetSoftwareId() == AppConstants.SW_ID),
             timeout: timeout,
             earlyExit: ignoreHID10 ? null : response => response.IsError()
         );
@@ -116,7 +116,7 @@ public class HidppReceiver : IDisposable
             DevShort,
             command,
             matcher: response => (response.GetFeatureIndex() == 0x00) &&
-                                (response.GetSoftwareId() == SW_ID) &&
+                                (response.GetSoftwareId() == AppConstants.SW_ID) &&
                                 (response.GetParam(2) == pingPayload),
             timeout: timeout,
             earlyExit: ignoreHIDPP10 ? null : response => response.IsError()
