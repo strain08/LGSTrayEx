@@ -20,9 +20,26 @@ file struct GHUBMsg
     public JObject Result { get; set; }
     public JObject Payload { get; set; }
 
-    public static GHUBMsg DeserializeJson(string json)
+    public static GHUBMsg? DeserializeJson(string? json)
     {
-        return JsonConvert.DeserializeObject<GHUBMsg>(json);
+        try
+        {
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                DiagnosticLogger.LogWarning("GHUB received null or empty message");
+                return null;
+            }
+
+            return JsonConvert.DeserializeObject<GHUBMsg>(json);
+        }
+        catch (JsonException ex)
+        {
+            DiagnosticLogger.LogError($"GHUB JSON deserialization failed: {ex.Message}");
+            // Log first 500 chars of the raw message for debugging
+            int maxLength = Math.Min(500, json?.Length ?? 0);
+            DiagnosticLogger.LogError($"Raw message (truncated): {json?.Substring(0, maxLength)}");
+            return null;
+        }
     }
 }
 
@@ -73,6 +90,11 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
     private readonly IWebSocketClientFactory _wsFactory;
 
     protected IWebSocketClient? _ws;
+
+    // Protocol change detection
+    private int _protocolErrorCount = 0;
+    private const int PROTOCOL_ERROR_THRESHOLD = 3;
+    private DateTime _lastProtocolErrorNotification = DateTime.MinValue;
 
     public GHubManager(
         IPublisher<IPCMessage> deviceEventBus,
@@ -154,7 +176,17 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
 
     protected void ParseSocketMsg(ResponseMessage msg)
     {
-        GHUBMsg ghubmsg = GHUBMsg.DeserializeJson(msg.Text!);
+        GHUBMsg? ghubmsgNullable = GHUBMsg.DeserializeJson(msg.Text);
+
+        if (ghubmsgNullable == null)
+        {
+            DiagnosticLogger.LogWarning("GHUB Failed to deserialize message - possible protocol change");
+            return;
+        }
+
+        // Extract non-nullable value
+        GHUBMsg ghubmsg = ghubmsgNullable.Value;
+
         DiagnosticLogger.Log($"GHUB message received - Path: {ghubmsg.Path}");
         //DiagnosticLogger.Log($"Full message: {msg.Text}");
 
@@ -204,35 +236,68 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
     {
         try
         {
-            var deviceInfos = payload["deviceInfos"];
+            // Safe array extraction with type checking
+            var deviceInfos = payload["deviceInfos"] as JArray;
             if (deviceInfos == null)
             {
-                DiagnosticLogger.LogWarning("LGHUB response missing 'deviceInfos' field");
+                DiagnosticLogger.LogWarning("GHUB response missing or invalid 'deviceInfos' array");
+                DiagnosticLogger.LogError("POSSIBLE PROTOCOL CHANGE - Please update LGSTrayBattery");
+                DiagnosticLogger.LogError($"Received payload: {payload.ToString(Formatting.None)}");
+                RecordProtocolError("LoadDevices - missing deviceInfos array");
                 return;
             }
 
-            int deviceCount = deviceInfos.Count();
+            int deviceCount = deviceInfos.Count;
             DiagnosticLogger.Log($"GHUB reported {deviceCount} device(s)");
 
             foreach (var deviceToken in deviceInfos)
             {
-                if (!Enum.TryParse(deviceToken["deviceType"]!.ToString(), true, out DeviceType deviceType))
+                // Validate that each device entry is a JObject
+                if (deviceToken is not JObject deviceObj)
                 {
-                    DiagnosticLogger.LogWarning($"Unknown device type '{deviceToken["deviceType"]}', defaulting to Mouse for now.");
+                    DiagnosticLogger.LogWarning("GHUB device entry is not an object - skipping");
+                    continue;
+                }
+
+                // Validate required fields BEFORE accessing them
+                if (!GHubJsonHelpers.HasRequiredFields(deviceObj, "id", "extendedDisplayName"))
+                {
+                    DiagnosticLogger.LogError("GHUB device missing required fields - PROTOCOL CHANGE DETECTED");
+                    DiagnosticLogger.LogError($"Device data: {deviceObj.ToString(Formatting.None)}");
+                    RecordProtocolError("LoadDevices - device missing required fields");
+                    continue;
+                }
+
+                // Safe extraction using helper methods
+                string deviceId = GHubJsonHelpers.GetStringOrDefault(deviceObj, "id", "unknown");
+                string deviceName = GHubJsonHelpers.GetStringOrDefault(deviceObj, "extendedDisplayName", "Unknown Device");
+
+                // Safe nested extraction for capabilities.hasBatteryStatus
+                bool hasBattery = GHubJsonHelpers.GetNestedBoolOrDefault(
+                    deviceObj,
+                    new[] { "capabilities", "hasBatteryStatus" },
+                    false  // Default to false if field is missing
+                );
+
+                // Safe device type parsing
+                string deviceTypeStr = GHubJsonHelpers.GetStringOrDefault(deviceObj, "deviceType", "mouse");
+                if (!Enum.TryParse(deviceTypeStr, true, out DeviceType deviceType))
+                {
+                    DiagnosticLogger.LogWarning($"Unknown device type '{deviceTypeStr}', defaulting to Mouse");
                     deviceType = DeviceType.Mouse;
                 }
 
-                string deviceId = deviceToken["id"]!.ToString();
-                string deviceName = deviceToken["extendedDisplayName"]!.ToString();
+                // Publish device with validated data
                 _deviceEventBus.Publish(new InitMessage(
                     deviceId,
                     deviceName,
-                    (bool)deviceToken["capabilities"]!["hasBatteryStatus"]!,
+                    hasBattery,
                     deviceType
                 ));
 
                 DiagnosticLogger.Log($"GHub device registered - {deviceId} ({deviceName})");
 
+                // Request initial battery state
                 _ws?.Send(JsonConvert.SerializeObject(new
                 {
                     msgId = "",
@@ -241,16 +306,22 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
                 }));
             }
         }
+        catch (InvalidOperationException ex)
+        {
+            DiagnosticLogger.LogError($"GHUB protocol structure changed (InvalidOperation): {ex.Message}");
+            DiagnosticLogger.LogError("PLEASE UPDATE LGSTrayBattery - GHUB API has changed");
+            RecordProtocolError("LoadDevices - structure change");
+        }
+        catch (InvalidCastException ex)
+        {
+            DiagnosticLogger.LogError($"GHUB protocol type mismatch (InvalidCast): {ex.Message}");
+            DiagnosticLogger.LogError("PLEASE UPDATE LGSTrayBattery - GHUB API has changed");
+            RecordProtocolError("LoadDevices - type mismatch");
+        }
         catch (Exception e)
         {
-            if (e is NullReferenceException || e is JsonReaderException)
-            {
-                DiagnosticLogger.LogError($"Failed to parse LGHUB device list: {e.Message}");
-            }
-            else
-            {
-                DiagnosticLogger.LogError($"Unexpected error loading LGHUB devices: {e.Message}");
-            }
+            DiagnosticLogger.LogError($"Unexpected error loading GHUB devices: {e.GetType().Name} - {e.Message}");
+            DiagnosticLogger.LogError($"Stack trace: {e.StackTrace}");
         }
     }
 
@@ -267,19 +338,39 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
                 return;
             }
 
-            // Payload is the device object itself (not wrapped in deviceInfos array)
-            if (!Enum.TryParse(payload["deviceType"]!.ToString(), true, out DeviceType deviceType))
+            // Validate required fields BEFORE accessing them
+            if (!GHubJsonHelpers.HasRequiredFields(payload, "id", "extendedDisplayName"))
             {
+                DiagnosticLogger.LogError("GHUB device missing required fields - PROTOCOL CHANGE DETECTED");
+                DiagnosticLogger.LogError($"Device data: {payload.ToString(Formatting.None)}");
+                RecordProtocolError("LoadDevice - missing required fields");
+                return;
+            }
+
+            // Safe extraction using helper methods
+            string deviceId = GHubJsonHelpers.GetStringOrDefault(payload, "id", "unknown");
+            string deviceName = GHubJsonHelpers.GetStringOrDefault(payload, "extendedDisplayName", "Unknown Device");
+
+            // Safe nested extraction for capabilities.hasBatteryStatus
+            bool hasBattery = GHubJsonHelpers.GetNestedBoolOrDefault(
+                payload,
+                new[] { "capabilities", "hasBatteryStatus" },
+                false  // Default to false if field is missing
+            );
+
+            // Safe device type parsing
+            string deviceTypeStr = GHubJsonHelpers.GetStringOrDefault(payload, "deviceType", "mouse");
+            if (!Enum.TryParse(deviceTypeStr, true, out DeviceType deviceType))
+            {
+                DiagnosticLogger.LogWarning($"Unknown device type '{deviceTypeStr}', defaulting to Mouse");
                 deviceType = DeviceType.Mouse;
             }
 
-            string deviceId = payload["id"]!.ToString();
-            string deviceName = payload["extendedDisplayName"]!.ToString();
-
+            // Publish device with validated data
             _deviceEventBus.Publish(new InitMessage(
                 deviceId,
                 deviceName,
-                (bool)payload["capabilities"]!["hasBatteryStatus"]!,
+                hasBattery,
                 deviceType
             ));
 
@@ -293,38 +384,84 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
                 path = $"/battery/{deviceId}/state"
             }));
         }
+        catch (InvalidOperationException ex)
+        {
+            string deviceId = payload?["id"]?.ToString() ?? "unknown";
+            DiagnosticLogger.LogError($"GHUB protocol structure changed for device {deviceId} (InvalidOperation): {ex.Message}");
+            DiagnosticLogger.LogError("PLEASE UPDATE LGSTrayBattery - GHUB API has changed");
+            RecordProtocolError($"LoadDevice - structure change (device: {deviceId})");
+        }
+        catch (InvalidCastException ex)
+        {
+            string deviceId = payload?["id"]?.ToString() ?? "unknown";
+            DiagnosticLogger.LogError($"GHUB protocol type mismatch for device {deviceId} (InvalidCast): {ex.Message}");
+            DiagnosticLogger.LogError("PLEASE UPDATE LGSTrayBattery - GHUB API has changed");
+            RecordProtocolError($"LoadDevice - type mismatch (device: {deviceId})");
+        }
         catch (Exception e)
         {
             string deviceId = payload?["id"]?.ToString() ?? "unknown";
-            if (e is NullReferenceException || e is JsonReaderException)
-            {
-                DiagnosticLogger.LogError($"Failed to parse LGHUB device info for {deviceId}: {e.Message}");
-            }
-            else
-            {
-                DiagnosticLogger.LogError($"Unexpected error loading LGHUB device {deviceId}: {e.Message}");
-            }
+            DiagnosticLogger.LogError($"Unexpected error loading GHUB device {deviceId}: {e.GetType().Name} - {e.Message}");
+            DiagnosticLogger.LogError($"Stack trace: {e.StackTrace}");
         }
     }
 
     protected void ParseBatteryUpdate(JObject payload)
     {
+        string deviceId = "unknown";
+
         try
         {
-            string deviceId = payload["deviceId"]?.ToString() ?? "unknown";
+            // Extract deviceId first for error reporting
+            deviceId = GHubJsonHelpers.GetStringOrDefault(payload, "deviceId", "unknown");
+
+            // Validate required fields
+            if (!GHubJsonHelpers.HasRequiredFields(payload, "percentage", "charging"))
+            {
+                DiagnosticLogger.LogError($"GHUB battery update missing required fields for {deviceId}");
+                DiagnosticLogger.LogError($"Payload: {payload.ToString(Formatting.None)}");
+                DiagnosticLogger.LogError("POSSIBLE PROTOCOL CHANGE - Please update LGSTrayBattery");
+                RecordProtocolError($"ParseBatteryUpdate - missing required fields (device: {deviceId})");
+                return;
+            }
+
+            // Safe extraction with type checking
+            int? percentage = GHubJsonHelpers.GetInt(payload, "percentage");
+            bool? charging = GHubJsonHelpers.GetBool(payload, "charging");
+            double? mileage = GHubJsonHelpers.GetDouble(payload, "mileage");
+
+            // Validate extracted values
+            if (!percentage.HasValue || !charging.HasValue)
+            {
+                DiagnosticLogger.LogError($"GHUB battery fields have wrong types for {deviceId}");
+                DiagnosticLogger.LogError($"Payload: {payload.ToString(Formatting.None)}");
+                DiagnosticLogger.LogError("POSSIBLE PROTOCOL CHANGE - Please update LGSTrayBattery");
+                RecordProtocolError($"ParseBatteryUpdate - wrong field types (device: {deviceId})");
+                return;
+            }
+
+            // Validate percentage range
+            if (percentage.Value < 0 || percentage.Value > 100)
+            {
+                DiagnosticLogger.LogWarning($"GHUB reported invalid battery percentage {percentage.Value}% for {deviceId}");
+                percentage = Math.Clamp(percentage.Value, 0, 100);
+            }
+
             _deviceEventBus.Publish(new UpdateMessage(
                 deviceId,
-                payload["percentage"]!.ToObject<int>(),
-                payload["charging"]!.ToBoolean() ? PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING : PowerSupplyStatus.POWER_SUPPLY_STATUS_NOT_CHARGING,
-                0,
+                percentage.Value,
+                charging.Value
+                    ? PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING
+                    : PowerSupplyStatus.POWER_SUPPLY_STATUS_NOT_CHARGING,
+                0,  // No voltage from GHUB
                 DateTime.Now,
-                payload["mileage"]!.ToObject<double>()
+                mileage ?? 0.0  // Default to 0 if missing
             ));
         }
         catch (Exception ex)
         {
-            string deviceId = payload?["deviceId"]?.ToString() ?? "unknown";
-            DiagnosticLogger.LogError($"GHUB Failed to parse battery update for device {deviceId}: {ex.Message}");
+            DiagnosticLogger.LogError($"GHUB Failed to parse battery update for device {deviceId}: {ex.GetType().Name} - {ex.Message}");
+            DiagnosticLogger.LogError("POSSIBLE PROTOCOL CHANGE - Please update LGSTrayBattery");
         }
     }
 
@@ -374,6 +511,32 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
         {
             string deviceId = payload?["id"]?.ToString() ?? "unknown";
             DiagnosticLogger.LogError($"Failed to parse device state change for {deviceId}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Record a protocol error and notify user if threshold is exceeded.
+    /// </summary>
+    /// <param name="context">Description of where the error occurred</param>
+    private void RecordProtocolError(string context)
+    {
+        _protocolErrorCount++;
+
+        if (_protocolErrorCount >= PROTOCOL_ERROR_THRESHOLD)
+        {
+            // Only notify once per hour to avoid spam
+            if ((DateTime.Now - _lastProtocolErrorNotification).TotalHours >= 1)
+            {
+                DiagnosticLogger.LogError("============================================================");
+                DiagnosticLogger.LogError("GHUB PROTOCOL ERRORS DETECTED");
+                DiagnosticLogger.LogError($"Multiple protocol errors in: {context}");
+                DiagnosticLogger.LogError("Logitech may have changed their GHUB WebSocket API");
+                DiagnosticLogger.LogError("Please check for LGSTrayBattery updates at:");
+                DiagnosticLogger.LogError("https://github.com/your-repo/LGSTrayBattery/releases");
+                DiagnosticLogger.LogError("============================================================");
+
+                _lastProtocolErrorNotification = DateTime.Now;
+            }
         }
     }
 
