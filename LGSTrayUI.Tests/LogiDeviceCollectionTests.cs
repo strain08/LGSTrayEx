@@ -11,7 +11,7 @@ namespace LGSTrayUI.Tests;
 /// </summary>
 public class LogiDeviceCollectionTests
 {
-    private static LogiDeviceCollection CreateTestCollection(params string[] initialDeviceIds)
+    private static LogiDeviceCollection CreateTestCollection(params string[] initialDeviceSignatures)
     {
         var dispatcher = new SynchronousDispatcher();
         var subscriber = new MockSubscriber();
@@ -19,13 +19,14 @@ public class LogiDeviceCollectionTests
         // Use real UserSettingsWrapper - simplified for testing
         var settings = new UserSettingsWrapper();
 
-        // Initialize with test device IDs if provided
-        settings.SelectedDevices.Clear();
-        foreach (var id in initialDeviceIds)
+        // Initialize with test device signatures if provided
+        settings.SelectedSignatures.Clear();
+        settings.SelectedDevices.Clear(); // Ensure old system is cleared
+        foreach (var signature in initialDeviceSignatures)
         {
-            if (!string.IsNullOrEmpty(id))
+            if (!string.IsNullOrEmpty(signature))
             {
-                settings.SelectedDevices.Add(id);
+                settings.SelectedSignatures.Add(signature);
             }
         }
 
@@ -33,11 +34,23 @@ public class LogiDeviceCollectionTests
         var iconFactory = new MockLogiDeviceIconFactory();
         var viewModelFactory = new LogiDeviceViewModelFactory(iconFactory);
 
+        // Create mock AppSettings with default values
+        var appSettings = new AppSettings
+        {
+            UI = new UISettings { KeepOfflineDevices = false },
+            Logging = new LoggingSettings { Enabled = false, Verbose = false },
+            HTTPServer = new HttpServerSettings { Enabled = false, Addr = "localhost", Port = 12321 },
+            GHub = new IDeviceManagerSettings { Enabled = false },
+            Native = new NativeDeviceManagerSettings { Enabled = false },
+            Notifications = new NotificationSettings()
+        };
+
         var collection = new LogiDeviceCollection(
             settings,
             viewModelFactory,
             subscriber,
-            dispatcher);
+            dispatcher,
+            appSettings);
 
         return collection;
     }
@@ -124,76 +137,43 @@ public class LogiDeviceCollectionTests
     }
 
     [Fact]
-    public async Task CleanupStaleStubs_RemovesUninitializedDevicesAfterTimeout()
-    {
-        // This test verifies that "Not Initialised" stub entries are
-        // automatically removed after 30 seconds
-
-        // Note: This test uses a shorter delay for testing purposes
-        // Actual implementation uses 30 seconds
-
-        // Arrange
-        var collection = CreateTestCollection("OLD_ID_123");
-
-        // Verify stub created
-        Assert.Single(collection.Devices);
-        Assert.Equal("Not Initialised", collection.Devices.First().DeviceName);
-        Assert.Equal("OLD_ID_123", collection.Devices.First().DeviceId);
-
-        // For now, just verify the stub was created as expected
-        // In real usage, the cleanup timer would remove it after 30s
-        Assert.Single(collection.Devices);
-    }
-
-    [Fact]
-    public void OnInitMessage_ReplacesStubWithRealDevice_WhenGHubIdChanges()
-    {
-        // This is the KEY TEST that fixes the main issue!
-        //
-        // Scenario:
-        // - User previously selected keyboard with ID dev00000001
-        // - On startup, stub created: DeviceId=dev00000001, DeviceName="Not Initialised"
-        // - System wakes from sleep, keyboard now has ID dev00000002
-        // - InitMessage arrives for dev00000002
-        // - Smart logic detects: GHUB ID (starts with "dev"), stub exists
-        // - Solution: Replace stub with real device, transfer IsChecked state
-
-        // Arrange
-        var collection = CreateTestCollection("dev00000001");
-
-        // Verify stub created
-        Assert.Single(collection.Devices);
-        var stub = collection.Devices.First();
-        Assert.Equal("dev00000001", stub.DeviceId);
-        Assert.Equal("Not Initialised", stub.DeviceName);
-        Assert.True(stub.IsChecked); // Stub is checked because it was previously selected
-
-        // Act: Real device arrives with new ID
-        collection.OnInitMessage(new InitMessage("dev00000002", "G Pro Wireless", true, DeviceType.Mouse));
-
-        // Assert: Stub replaced
-        Assert.Single(collection.Devices);
-        var device = collection.Devices.First();
-        Assert.Equal("dev00000002", device.DeviceId);
-        Assert.Equal("G Pro Wireless", device.DeviceName);
-        Assert.True(device.IsChecked); // Selection transferred
-    }
-
-    [Fact]
     public void LoadPreviouslySelectedDevices_DeduplicatesSettings()
     {
-        // This test verifies that duplicate IDs and empty strings are
-        // removed from settings during load
+        // This test verifies that duplicate signatures and empty strings are
+        // removed from SelectedSignatures during load (signature-based system)
 
-        // Arrange & Act - creating collection triggers deduplication
-        var collection = CreateTestCollection("dev001", "dev001", "", "ABC123", null!);
+        // Arrange
+        var settings = new UserSettingsWrapper();
+        settings.SelectedSignatures.Clear();
+        settings.SelectedDevices.Clear();
 
-        // Assert - Verify stubs created for unique IDs only
-        Assert.Equal(2, collection.Devices.Count);
+        // Add duplicate signatures and empty strings
+        settings.SelectedSignatures.Add("GHUB.dev001");
+        settings.SelectedSignatures.Add("GHUB.dev001"); // duplicate
+        settings.SelectedSignatures.Add(""); // empty
+        settings.SelectedSignatures.Add("NATIVE.ABC123");
+        settings.SelectedSignatures.Add(null!); // null
 
-        // Verify the correct device IDs were kept
-        var deviceIds = collection.Devices.Select(d => d.DeviceId).ToList();
-        Assert.Contains("dev001", deviceIds);
-        Assert.Contains("ABC123", deviceIds);
+        var dispatcher = new SynchronousDispatcher();
+        var subscriber = new MockSubscriber();
+        var iconFactory = new MockLogiDeviceIconFactory();
+        var viewModelFactory = new LogiDeviceViewModelFactory(iconFactory);
+        var appSettings = new AppSettings
+        {
+            UI = new UISettings { KeepOfflineDevices = false },
+            Logging = new LoggingSettings { Enabled = false, Verbose = false },
+            HTTPServer = new HttpServerSettings { Enabled = false, Addr = "localhost", Port = 12321 },
+            GHub = new IDeviceManagerSettings { Enabled = false },
+            Native = new NativeDeviceManagerSettings { Enabled = false },
+            Notifications = new NotificationSettings()
+        };
+
+        // Act - creating collection triggers deduplication
+        var collection = new LogiDeviceCollection(settings, viewModelFactory, subscriber, dispatcher, appSettings);
+
+        // Assert - Verify signatures deduplicated (unique signatures only)
+        Assert.Equal(2, settings.SelectedSignatures.Count);
+        Assert.Contains("GHUB.dev001", settings.SelectedSignatures.Cast<string>());
+        Assert.Contains("NATIVE.ABC123", settings.SelectedSignatures.Cast<string>());
     }
 }
