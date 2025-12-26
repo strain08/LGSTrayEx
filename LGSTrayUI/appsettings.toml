@@ -1,25 +1,39 @@
+# LGSTrayUI application settings
+
 [UI]
+
+# Enable tooltips for additional info, also for devices menu items
 enableRichToolTips = true
 
-# Keep devices in taskbar when they go offline 
+# Keep selected devices in taskbar when they go offline
 keepOfflineDevices = false
 
 [HTTPServer]
+
+# Enable built-in HTTP server for status and control
 enabled = true
+
 addr = "localhost"
 port = 12321
 useIpv6 = true
 
 [GHub]
-enabled = true
+
+# Requires Logitech G-HUB to be installed and running
+# Could provide mileage on devices that support it
+enabled = false
 
 [Native]
+
+# Enable HID++ 1.0 and 2.0 protocols, most compatible
+# Also works with most G series devices
 enabled = true
 
 # Time in seconds to retry a device poll on failure
 retryTime = 10
 
 # Time in seconds to next device poll on sucess
+# Pooling will automatically disabled when device is event-capable
 pollPeriod = 600
 
 # List of disabled devices
@@ -27,6 +41,13 @@ disabledDevices = [
 ]
 
 [Notifications]
+
+# Enable toast style notifications
+enabled = true
+
+# Notify on device offline / online
+notifyStateChange = true
+
 # Enable/disable low battery notifications
 notifyOnBatteryLow = true
 
@@ -45,6 +66,6 @@ batteryHighThreshold = 80
 # Can be overridden by --log command-line flag
 enabled = false
 
-# Enable verbose logging (detailed trace messages)
+# Enable verbose logging (+protocol messages)
 # Can be overridden by --verbose command-line flag
 verbose = false

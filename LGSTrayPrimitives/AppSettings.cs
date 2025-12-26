@@ -65,6 +65,8 @@ public class NativeDeviceManagerSettings : IDeviceManagerSettings
 
 public class NotificationSettings
 {
+    public bool Enabled { get; set; } = true;
+    public bool NotifyStateChange { get; set; } = true;
     public bool NotifyOnBatteryLow { get; set; } = true;
     public int BatteryLowThreshold { get; set; } = 30;
     public bool NotifyOnBatteryHigh { get; set; } = true;

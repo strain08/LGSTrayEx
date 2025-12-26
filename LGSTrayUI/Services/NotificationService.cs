@@ -208,6 +208,11 @@ public class NotificationService : IHostedService
 
     private void ShowDeviceOfflineNotification(string deviceName)
     {
+        if (!_notificationSettings.NotifyStateChange)
+        {
+            DiagnosticLogger.Log($"Skipping offline notification for {deviceName} as NotifyStateChange is disabled in settings.");
+            return;
+        }
         var title = $"{deviceName} - Device Offline";
         var message = "Device has been turned off or disconnected";
 
@@ -222,6 +227,11 @@ public class NotificationService : IHostedService
 
     private void ShowDeviceOnlineNotification(string deviceName, int batteryPercent)
     {
+        if (!_notificationSettings.NotifyStateChange)
+        {
+            DiagnosticLogger.Log($"Skipping online notification for {deviceName} as NotifyStateChange is disabled in settings.");
+            return;
+        }
         var title = $"{deviceName} - Device Online";
         var message = $"Device is back online (Battery: {batteryPercent}%)";
 

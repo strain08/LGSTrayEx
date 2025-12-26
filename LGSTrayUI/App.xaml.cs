@@ -116,8 +116,7 @@ public partial class App : Application
 
         builder.Services.AddLGSMessagePipe(true);
         builder.Services.AddWebSocketClientFactory();
-        builder.Services.AddSingleton<UserSettingsWrapper>();
-        builder.Services.AddSingleton<INotificationManager, NotificationManager>();
+        builder.Services.AddSingleton<UserSettingsWrapper>();        
 
         builder.Services.AddSingleton<ILogiDeviceIconFactory, LogiDeviceIconFactory>();
         builder.Services.AddSingleton<LogiDeviceViewModelFactory>();
@@ -132,7 +131,11 @@ public partial class App : Application
 
         builder.Services.AddSingleton<MainTaskbarIconWrapper>();
         builder.Services.AddHostedService<NotifyIconViewModel>();
-        builder.Services.AddHostedService<NotificationService>();
+        if (appSettings.Notifications.Enabled)
+        {
+            builder.Services.AddSingleton<INotificationManager, NotificationManager>();
+            builder.Services.AddHostedService<NotificationService>();
+        }        
 
         var host = builder.Build();
         _host = host; // Store host reference for wake handler

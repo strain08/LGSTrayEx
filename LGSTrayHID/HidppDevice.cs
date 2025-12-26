@@ -272,7 +272,7 @@ public class HidppDevice : IDisposable
                 break;
             }
 
-            await Task.Delay(GlobalSettings.settings.RetryTime * 1000);
+            await Task.Delay(4000);
             DiagnosticLogger.Log($"Polling battery for device {DeviceName}");
         }
         DiagnosticLogger.Log($"Pooling stopped for {DeviceName}.");
