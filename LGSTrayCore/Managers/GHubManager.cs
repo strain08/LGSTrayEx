@@ -266,7 +266,7 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
                 // Validate required fields BEFORE accessing them
                 if (!GHubJsonHelpers.HasRequiredFields(deviceObj, "id", "extendedDisplayName"))
                 {
-                    DiagnosticLogger.LogError("GHUB device missing required fields - PROTOCOL CHANGE DETECTED");
+                    DiagnosticLogger.LogError("Missing required fields in payload: id, extendedDisplayName  - PROTOCOL CHANGE DETECTED");
                     DiagnosticLogger.LogError($"Device data: {deviceObj.ToString(Formatting.None)}");
                     RecordProtocolError("LoadDevices - device missing required fields");
                     continue;
@@ -279,7 +279,7 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
                 // Safe nested extraction for capabilities.hasBatteryStatus
                 bool hasBattery = GHubJsonHelpers.GetNestedBoolOrDefault(
                     deviceObj,
-                    new[] { "capabilities", "hasBatteryStatus" },
+                    ["capabilities", "hasBatteryStatus"],
                     false  // Default to false if field is missing
                 );
 
@@ -292,12 +292,7 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
                 }
 
                 // Extract deviceSignature (stable identifier from GHUB)
-                string? deviceSignature = GHubJsonHelpers.GetStringOrDefault(deviceObj, "deviceSignature", null!);
-                if (!string.IsNullOrEmpty(deviceSignature))
-                {
-                    // Prefix with "GHUB." to distinguish from Native HID
-                    deviceSignature = $"GHUB.{deviceSignature}";
-                }
+                string deviceSignature = GetDeviceSignature(deviceObj);
 
                 // Publish device with validated data
                 _deviceEventBus.Publish(new InitMessage(
@@ -339,6 +334,26 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
     }
 
     /// <summary>
+    /// Retrieves a device signature used to uniquely identify GHUB device for state persistence.
+    /// </summary>
+    /// <param name="deviceObj">A JSON object containing device information.</param>
+    /// <returns>deviceModel or extendedDisplayName</returns>
+    private static string GetDeviceSignature(JObject deviceObj)
+    {
+        string deviceSignature;
+
+        deviceSignature = GHubJsonHelpers.GetStringOrDefault(deviceObj, "deviceModel", "");
+        if (!string.IsNullOrEmpty(deviceSignature))
+        {
+            return deviceSignature;
+        }
+
+        // extendedDisplayName is already verified to exist
+        deviceSignature = GHubJsonHelpers.GetStringOrDefault(deviceObj, "extendedDisplayName", "");
+        return deviceSignature;
+    }
+
+    /// <summary>
     /// Process single device info response (for reconnected devices)
     /// </summary>
     protected void LoadDevice(JObject? payload)
@@ -367,7 +382,7 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
             // Safe nested extraction for capabilities.hasBatteryStatus
             bool hasBattery = GHubJsonHelpers.GetNestedBoolOrDefault(
                 payload,
-                new[] { "capabilities", "hasBatteryStatus" },
+                ["capabilities", "hasBatteryStatus"],
                 false  // Default to false if field is missing
             );
 
@@ -380,12 +395,7 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
             }
 
             // Extract deviceSignature (stable identifier from GHUB)
-            string? deviceSignature = GHubJsonHelpers.GetStringOrDefault(payload, "deviceSignature", null!);
-            if (!string.IsNullOrEmpty(deviceSignature))
-            {
-                // Prefix with "GHUB." to distinguish from Native HID
-                deviceSignature = $"GHUB.{deviceSignature}";
-            }
+            string deviceSignature = GetDeviceSignature(payload);        
 
             // Publish device with validated data
             _deviceEventBus.Publish(new InitMessage(
