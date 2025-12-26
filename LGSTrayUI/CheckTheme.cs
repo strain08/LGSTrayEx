@@ -1,4 +1,5 @@
-﻿using Microsoft.Win32;
+﻿using System;
+using Microsoft.Win32;
 using System.ComponentModel;
 using System.Globalization;
 using System.Management;
@@ -42,21 +43,49 @@ public static class CheckTheme
             watcher.Start();
             UpdateThemeStatus();
         }
-        catch
+        catch (Exception ex)
         {
-            // Fails on Win7
-            _lightTheme = false;
+            // WMI watcher may fail on Windows 10 due to permissions or WMI issues
+            // Default to light theme (more common)
+            _lightTheme = true;
+            LGSTrayPrimitives.DiagnosticLogger.LogWarning($"Failed to initialize theme watcher, defaulting to light theme: {ex.Message}");
+
+            // Still try to read current theme from registry even if watcher fails
+            try
+            {
+                UpdateThemeStatus();
+            }
+            catch (Exception regEx)
+            {
+                LGSTrayPrimitives.DiagnosticLogger.LogWarning($"Failed to read theme from registry: {regEx.Message}");
+            }
         }
 
     }
 
     private static void UpdateThemeStatus()
     {
-        var regPath = Registry.CurrentUser.OpenSubKey(RegistryKeyPath, false);
-        int regFlag = (int)regPath!.GetValue(RegistryValueName, 0);
+        try
+        {
+            var regPath = Registry.CurrentUser.OpenSubKey(RegistryKeyPath, false);
+            if (regPath == null)
+            {
+                LGSTrayPrimitives.DiagnosticLogger.LogWarning($"Registry key not found: {RegistryKeyPath}, defaulting to light theme");
+                _lightTheme = true;
+                return;
+            }
 
-        _lightTheme = regFlag != 0;
-        StaticPropertyChanged?.Invoke(typeof(CheckTheme), new(nameof(LightTheme)));
+            var regValue = regPath.GetValue(RegistryValueName, 1); // Default to 1 (light)
+            int regFlag = regValue is int intValue ? intValue : 1;
+
+            _lightTheme = regFlag != 0;
+            StaticPropertyChanged?.Invoke(typeof(CheckTheme), new(nameof(LightTheme)));
+        }
+        catch (Exception ex)
+        {
+            LGSTrayPrimitives.DiagnosticLogger.LogWarning($"Error reading theme registry value: {ex.Message}");
+            _lightTheme = true;
+        }
     }
 
     private static void Watcher_EventArrived(object sender, EventArrivedEventArgs e)

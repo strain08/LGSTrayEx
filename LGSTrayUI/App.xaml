@@ -6,8 +6,8 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="/Xaml/NotifyIconResources.xaml" />
-                <ResourceDictionary Source="pack://application:,,,/PresentationFramework.Fluent;component/Themes/Fluent.xaml" />
-            </ResourceDictionary.MergedDictionaries>            
-        </ResourceDictionary>        
+                <!-- Fluent theme loaded conditionally in App.xaml.cs for Windows 11 compatibility -->
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

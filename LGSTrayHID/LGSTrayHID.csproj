@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PublishSingleFile>true</PublishSingleFile>
@@ -18,8 +18,8 @@
   <ItemGroup>
     <PackageReference Include="MessagePack" Version="3.1.4" />
     <PackageReference Include="MessagePipe.Interprocess" Version="1.8.1" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.1" />
-    <PackageReference Include="System.Diagnostics.EventLog" Version="10.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+    <PackageReference Include="System.Diagnostics.EventLog" Version="9.0.0" />
     <PackageReference Include="Tommy.Extensions.Configuration" Version="6.2.0" />
   </ItemGroup>
 

@@ -38,25 +38,49 @@ public static partial class BatteryIconDrawing
     private static Bitmap Charging => CheckTheme.LightTheme ? Resources.Charging : Resources.Charging_dark;
 
    // private static int ImageSize;
-    private static float Scale;
+    private readonly static float Scale;
 
     static BatteryIconDrawing()
     {
-        int dpi;
+        Scale = DetectDpiScale();
+    }
+
+    private static float DetectDpiScale()
+    {
+        int dpi = 96; // Default DPI
 
         try
         {
-            var reg = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\ThemeManager", false);
-            var _dpi = (string?)reg?.GetValue("LastLoadedDPI");
-            if (!int.TryParse(_dpi, out dpi))
+            // Method 1: Try registry (may not exist on all Windows 10 configs)
+            try
             {
-                dpi = 96;
-            }
-        }
-        catch { dpi = 96; }
-        Scale = dpi / 96f;
+                using var reg = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\ThemeManager", false);
+                var dpiString = reg?.GetValue("LastLoadedDPI") as string;
 
-        
+                if (!string.IsNullOrEmpty(dpiString) && int.TryParse(dpiString, out int regDpi) && regDpi > 0)
+                {
+                    DiagnosticLogger.Log($"DPI from registry: {regDpi}");
+                    return regDpi / 96f;
+                }
+            }
+            catch (Exception regEx)
+            {
+                DiagnosticLogger.LogWarning($"Registry DPI detection failed: {regEx.Message}");
+            }
+
+            // Method 2: Use GDI GetDeviceCaps (works on all Windows versions)
+            using var graphics = Graphics.FromHwnd(IntPtr.Zero);
+            dpi = (int)graphics.DpiX;
+            DiagnosticLogger.Log($"DPI from GDI: {dpi}");
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.LogWarning($"DPI detection failed, using default: {ex.Message}");
+            dpi = 96;
+        }
+
+        DiagnosticLogger.Log($"Icon scale factor: {dpi / 96f}");
+        return dpi / 96f;
     }
 
     private static Bitmap GetDeviceIcon(LogiDevice device) => device.DeviceType switch
@@ -97,7 +121,7 @@ public static partial class BatteryIconDrawing
 
     public static void DrawIcon(TaskbarIcon taskbarIcon, LogiDevice device)
     {
-        var ImageSize = (int)(64 * Scale);
+        var ImageSize = (int)(96 * Scale);
         var destRect = new Rectangle(0, 0, ImageSize, ImageSize);
         using var b = new Bitmap(ImageSize, ImageSize);
         using var g = Graphics.FromImage(b);
@@ -105,7 +129,7 @@ public static partial class BatteryIconDrawing
         g.CompositingQuality = CompositingQuality.HighQuality;
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
         g.SmoothingMode = SmoothingMode.HighQuality;
-        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality; 
 
         using var wrapMode = new ImageAttributes();
         wrapMode.SetWrapMode(WrapMode.TileFlipXY);
@@ -170,11 +194,14 @@ public static partial class BatteryIconDrawing
 
     public static void DrawNumeric(TaskbarIcon taskbarIcon, LogiDevice device)
     {
-        var ImageSize = (int)(96 * Scale);
+        var ImageSize = (int)(92 * Scale);
         
         // Create WPF visual for high-quality text rendering
         DrawingVisual drawingVisual = new();
         // Better text rendering:       
+        TextOptions.SetTextRenderingMode(drawingVisual, TextRenderingMode.Aliased);
+        TextOptions.SetTextFormattingMode(drawingVisual, TextFormattingMode.Display);
+        TextOptions.SetTextHintingMode(drawingVisual, TextHintingMode.Fixed);
 
         using (DrawingContext drawingContext = drawingVisual.RenderOpen())
         {
@@ -197,7 +224,7 @@ public static partial class BatteryIconDrawing
             // Get device color
             var deviceColor = GetDeviceColor(device);
             var wpfColor = System.Windows.Media.Color.FromRgb(deviceColor.R, deviceColor.G, deviceColor.B);
-
+            
             // Create formatted text with WPF's superior text rendering
             FormattedText formattedText = new (
                 displayString,

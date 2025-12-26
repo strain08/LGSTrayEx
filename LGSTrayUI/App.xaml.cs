@@ -110,6 +110,9 @@ public partial class App : Application
             DiagnosticLogger.Log("Verbose logging enabled.");
         }
 
+        // Load Windows theme based on OS version
+        LoadWindowsTheme();
+
         // DI setup
         builder.Services.Configure<AppSettings>(config);
         builder.Services.AddSingleton(appSettings);
@@ -267,6 +270,38 @@ public partial class App : Application
 
         using StreamWriter writer = new($"./crashlog_{unixTime}.log", false);
         writer.WriteLine(e.ToString());
+    }
+
+    /// <summary>
+    /// Loads the appropriate WPF theme based on Windows version.
+    /// Windows 11: Fluent theme for modern UI
+    /// Windows 10: Classic WPF theme (no additional theme loaded)
+    /// </summary>
+    private void LoadWindowsTheme()
+    {
+        try
+        {
+            if (WindowsVersionHelper.IsWindows11OrGreater)
+            {
+                // Windows 11: Load Fluent theme
+                var fluentTheme = new ResourceDictionary
+                {
+                    Source = new Uri("pack://application:,,,/PresentationFramework.Fluent;component/Themes/Fluent.xaml")
+                };
+                Application.Current.Resources.MergedDictionaries.Add(fluentTheme);
+                DiagnosticLogger.Log("Loaded Fluent theme for Windows 11");
+            }
+            else
+            {
+                // Windows 10: Use classic WPF theme (no action needed)
+                DiagnosticLogger.Log("Using classic WPF theme for Windows 10 compatibility");
+            }
+        }
+        catch (Exception ex)
+        {
+            // Non-fatal: log error and continue with classic theme
+            DiagnosticLogger.LogWarning($"Failed to load Fluent theme, using classic theme: {ex.Message}");
+        }
     }
 }
 
