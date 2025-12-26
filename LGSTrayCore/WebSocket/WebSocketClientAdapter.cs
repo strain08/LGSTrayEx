@@ -1,5 +1,4 @@
 using LGSTrayCore.Interfaces;
-using LGSTrayPrimitives;
 using Websocket.Client;
 
 namespace LGSTrayCore.WebSocket;

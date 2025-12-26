@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace LGSTrayHID.Protocol;
+﻿namespace LGSTrayHID.Protocol;
 
 internal static class AppConstants
 {

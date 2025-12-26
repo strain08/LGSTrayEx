@@ -5,7 +5,6 @@ using MessagePipe;
 using Microsoft.Extensions.Hosting;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using Swan;
 using System.Text.RegularExpressions;
 using Websocket.Client;
 
