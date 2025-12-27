@@ -38,6 +38,17 @@ pollPeriod = 600
 disabledDevices = [
 ]
 
+# Keep battery polling active alongside event-driven updates
+# When false (default), polling stops after first battery event (saves resources)
+# When true, polling continues for validation and fallback (more reliable)
+keepPollingWithEvents = false
+
+# Delay battery event processing after device ON (in seconds)
+# Prevents spurious battery readings during device wake/initialization
+# Battery polls are not delayed (always processed immediately)
+# Set to 0 to disable (process all events immediately)
+batteryEventDelayAfterOn = 0
+
 [Notifications]
 # Enable toast style notifications
 enabled = true

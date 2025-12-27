@@ -32,6 +32,7 @@ public partial class App : Application
     private IHost? _host; // DI container for accessing services
     private IEnumerable<IDeviceManager>? _deviceManagers; // Cached device managers for wake handler
     private PowerNotificationWindow? _powerWindow; // Hidden window for Modern Standby notifications
+    private NotificationService? _notificationService; // Cached for power event handling
 
     /// <summary>
     /// Gets whether logging is enabled (--log flag).
@@ -98,7 +99,7 @@ public partial class App : Application
 
 #if DEBUG
         enableLogging = true;
-        enableVerbose = true;
+        enableVerbose = false;
 #endif
 
         // Initialize logging
@@ -158,11 +159,18 @@ public partial class App : Application
         switch (e.Mode)
         {
             case Microsoft.Win32.PowerModes.Resume:
-                DiagnosticLogger.Log("System resumed from sleep (SystemEvents.PowerModeChanged) - initiating device rediscovery");
+                DiagnosticLogger.Log("System resumed from sleep (SystemEvents.PowerModeChanged)");
+
+                // Resume notifications
+                GetNotificationService()?.Resume();
+
                 await HandleSystemResumeAsync();
                 break;
             case Microsoft.Win32.PowerModes.Suspend:
-                DiagnosticLogger.Log("System is suspending to sleep (SystemEvents.PowerModeChanged).");
+                DiagnosticLogger.Log("System is suspending to sleep (SystemEvents.PowerModeChanged)");
+
+                // Suspend notifications
+                GetNotificationService()?.Suspend();
                 break;
         }
     }
@@ -203,6 +211,18 @@ public partial class App : Application
         {
             DiagnosticLogger.LogError($"Error during system resume handling: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Gets the NotificationService instance from DI container (lazy cached).
+    /// </summary>
+    public NotificationService? GetNotificationService()
+    {
+        if (_notificationService == null && _host != null)
+        {
+            _notificationService = _host.Services.GetService<NotificationService>();
+        }
+        return _notificationService;
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -384,10 +404,16 @@ internal class PowerNotificationWindow : Window
             if (powerEvent == PBT_APMSUSPEND)
             {
                 DiagnosticLogger.Log("System suspending (WM_POWERBROADCAST)");
+
+                // Suspend notifications
+                _app.GetNotificationService()?.Suspend();
             }
             else if (powerEvent == PBT_APMRESUMEAUTOMATIC)
             {
-                DiagnosticLogger.Log("System resumed (WM_POWERBROADCAST) - initiating device rediscovery");
+                DiagnosticLogger.Log("System resumed (WM_POWERBROADCAST)");
+
+                // Resume notifications
+                _app.GetNotificationService()?.Resume();
 
                 // Call the app's resume handler asynchronously
                 _ = _app.HandleSystemResumeAsync();

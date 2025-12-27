@@ -27,6 +27,11 @@ public class HidppDevice : IDisposable
     private readonly BatteryUpdatePublisher _batteryPublisher = new(); // Handles deduplication and IPC
     private bool _forceNextUpdate = false; // Force next battery update to bypass deduplication
 
+    // Configuration settings
+    private readonly bool _keepPollingWithEvents;
+    private readonly int _batteryEventDelaySeconds;
+    private DateTimeOffset _deviceOnTime = DateTimeOffset.MinValue;
+
     // Semaphore to prevent concurrent InitAsync calls
     private readonly SemaphoreSlim _initSemaphore = new(1, 1);
 
@@ -39,10 +44,12 @@ public class HidppDevice : IDisposable
     private int _disposeCount = 0;
     public bool Disposed => _disposeCount > 0;
 
-    public HidppDevice(HidppReceiver parent, byte deviceIdx)
+    public HidppDevice(HidppReceiver parent, byte deviceIdx, bool keepPollingWithEvents = false, int batteryEventDelaySeconds = 0)
     {
         Parent = parent;
         DeviceIdx = deviceIdx;
+        _keepPollingWithEvents = keepPollingWithEvents;
+        _batteryEventDelaySeconds = batteryEventDelaySeconds;
     }
 
     public async Task InitAsync()
@@ -244,6 +251,19 @@ public class HidppDevice : IDisposable
     }
 
     /// <summary>
+    /// Notify device that it has been turned ON.
+    /// Starts the battery event delay window if configured.
+    /// </summary>
+    public void NotifyDeviceOn()
+    {
+        _deviceOnTime = DateTimeOffset.Now;
+        if (_batteryEventDelaySeconds > 0)
+        {
+            DiagnosticLogger.Log($"[{DeviceName}] Device ON - battery events will be ignored for {_batteryEventDelaySeconds} seconds");
+        }
+    }
+
+    /// <summary>
     /// Poll the battery status at regular intervals defined in settings RetryTime
     /// </summary>
     /// <param name="lifeCycle"></param>
@@ -255,14 +275,16 @@ public class HidppDevice : IDisposable
         {
             var now = DateTimeOffset.Now;
 #if DEBUG
-            var expectedUpdateTime = lastUpdate.AddSeconds(15);
+            var expectedUpdateTime = lastUpdate.AddSeconds(50);
 #else
             // clamp poll period between 20 seconds and 1 hour
             var expectedUpdateTime = lastUpdate.AddSeconds(Math.Clamp(GlobalSettings.settings.PollPeriod, 20, 3600));
 #endif
             if (now < expectedUpdateTime)
             {
-                await Task.Delay((int)(expectedUpdateTime - now).TotalMilliseconds);
+                var delay = expectedUpdateTime - now;
+                DiagnosticLogger.Log($"Polling battery for device {DeviceName} in {Math.Round(delay.TotalSeconds)}s...");
+                await Task.Delay((int)delay.TotalMilliseconds);
             }
             try
             {
@@ -275,7 +297,7 @@ public class HidppDevice : IDisposable
             // Hardcoded 10 second minimum delay between polls to prevent tight loop in case of immediate failures
             // TODO: implement retry on failure
            // await Task.Delay(10_000);
-            DiagnosticLogger.Log($"Polling battery for device {DeviceName}");
+            
         }
         DiagnosticLogger.Log($"Pooling stopped for {DeviceName}.");
     }
@@ -351,13 +373,36 @@ public class HidppDevice : IDisposable
         // TODO: Consider validating the batteryUpdate value here using similar logic to the polling update
 
         var batStatus = batteryUpdate.Value;
+
+        // Check if we're in the delay window after device ON (ignore EVENT data during this period)
+        if (_batteryEventDelaySeconds > 0 && _deviceOnTime != DateTimeOffset.MinValue)
+        {
+            var timeSinceDeviceOn = (now - _deviceOnTime).TotalSeconds;
+            if (timeSinceDeviceOn < _batteryEventDelaySeconds)
+            {
+                DiagnosticLogger.Log($"[{DeviceName}] Battery event ignored (device ON +{timeSinceDeviceOn:F1}s, " +
+                                   $"delay window {_batteryEventDelaySeconds}s): {batStatus.batteryPercentage}%");
+
+                // Event data suppressed - don't update lastUpdate or cancel polling
+                // Let polling continue during delay window for device stability
+                return true; // Event handled but data suppressed
+            }
+        }
+
+        // Normal event processing continues
         lastUpdate = now;
 
-        if (!_poolingCts.IsCancellationRequested)
+        // Check if we should stop polling when events arrive
+        if (!_keepPollingWithEvents && !_poolingCts.IsCancellationRequested)
         {
-            DiagnosticLogger.Log($"[{DeviceName}] Battery event received, stopping polling");
-            _poolingCts.Cancel(); // Stop polling when we get an event
+            DiagnosticLogger.Log($"[{DeviceName}] Battery event received, stopping polling (keepPollingWithEvents=false)");
+            _poolingCts.Cancel();
         }
+        else if (_keepPollingWithEvents)
+        {
+            DiagnosticLogger.Log($"[{DeviceName}] Battery event received, polling continues (keepPollingWithEvents=true)");
+        }
+
         // Publish update (handles deduplication, IPC, logging)
         _batteryPublisher.PublishUpdate(Identifier, DeviceName, batStatus, now, "event");
 

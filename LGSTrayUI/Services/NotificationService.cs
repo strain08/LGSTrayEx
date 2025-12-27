@@ -31,6 +31,14 @@ public class NotificationService : IHostedService
     // Track the last online state for each device
     private readonly Dictionary<string, bool> _lastOnlineState = [];
 
+    // Track system power state
+    private bool _systemSuspended = false;
+    private readonly object _powerStateLock = new();
+
+    // Track resume timestamp to suppress spurious offline notifications during device reconnection
+    private DateTimeOffset _lastResumeTime = DateTimeOffset.MinValue;
+    private static readonly TimeSpan ResumeGracePeriod = TimeSpan.FromSeconds(5);
+
     public NotificationService(
         INotificationManager notificationManager,
         ISubscriber<IPCMessage> subscriber,
@@ -67,6 +75,48 @@ public class NotificationService : IHostedService
         _subscription?.Dispose();
 
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Notify service that system is entering suspend/standby.
+    /// Suppresses notifications until Resume() is called.
+    /// </summary>
+    public void Suspend()
+    {
+        lock (_powerStateLock)
+        {
+            _systemSuspended = true;
+            DiagnosticLogger.Log("NotificationService: Notifications suspended (system entering standby)");
+        }
+    }
+
+    /// <summary>
+    /// Notify service that system has resumed from suspend/standby.
+    /// Resumes normal notification behavior after grace period.
+    /// Grace period prevents spurious "device offline" notifications during device reconnection.
+    /// </summary>
+    public void Resume()
+    {
+        lock (_powerStateLock)
+        {
+            _systemSuspended = false;
+            _lastResumeTime = DateTimeOffset.Now;
+            DiagnosticLogger.Log($"NotificationService: Notifications resumed (system wake) - " +
+                               $"offline notifications suppressed for {ResumeGracePeriod.TotalSeconds}s grace period");
+        }
+    }
+
+    /// <summary>
+    /// Check if we're in the grace period after system resume.
+    /// Used to suppress spurious offline notifications during device reconnection.
+    /// </summary>
+    private bool IsInResumeGracePeriod()
+    {
+        if (_lastResumeTime == DateTimeOffset.MinValue)
+            return false;
+
+        var timeSinceResume = DateTimeOffset.Now - _lastResumeTime;
+        return timeSinceResume < ResumeGracePeriod;
     }
 
     private int[] GetBatteryLowThresholds() =>
@@ -179,6 +229,16 @@ public class NotificationService : IHostedService
 
     private void ShowLowBatteryNotification(string deviceName, int batteryPercent, int threshold)
     {
+        // Check if notifications are suspended
+        lock (_powerStateLock)
+        {
+            if (_systemSuspended)
+            {
+                DiagnosticLogger.Log($"Notification suppressed (system suspended): {deviceName} - Low Battery {batteryPercent}%");
+                return;
+            }
+        }
+
         var notificationType = threshold <= 5 ? NotificationType.Error : NotificationType.Warning;
         var title = $"{deviceName} - Low Battery";
         var message = $"Battery level: {batteryPercent}%";
@@ -194,6 +254,16 @@ public class NotificationService : IHostedService
 
     private void ShowBatteryChargedNotification(string deviceName, int batteryPercent)
     {
+        // Check if notifications are suspended
+        lock (_powerStateLock)
+        {
+            if (_systemSuspended)
+            {
+                DiagnosticLogger.Log($"Notification suppressed (system suspended): {deviceName} - Battery Charged {batteryPercent}%");
+                return;
+            }
+        }
+
         var title = $"{deviceName} - Battery Charged";
         var message = $"Battery level: {batteryPercent}%";
 
@@ -208,6 +278,23 @@ public class NotificationService : IHostedService
 
     private void ShowDeviceOfflineNotification(string deviceName)
     {
+        // Check if notifications are suspended or in resume grace period
+        lock (_powerStateLock)
+        {
+            if (_systemSuspended)
+            {
+                DiagnosticLogger.Log($"Notification suppressed (system suspended): {deviceName} - Device Offline");
+                return;
+            }
+
+            if (IsInResumeGracePeriod())
+            {
+                var timeSinceResume = (DateTimeOffset.Now - _lastResumeTime).TotalSeconds;
+                DiagnosticLogger.Log($"Notification suppressed (resume grace period +{timeSinceResume:F1}s): {deviceName} - Device Offline");
+                return;
+            }
+        }
+
         if (!_notificationSettings.NotifyStateChange)
         {
             DiagnosticLogger.Log($"Skipping offline notification for {deviceName} as NotifyStateChange is disabled in settings.");
@@ -227,6 +314,16 @@ public class NotificationService : IHostedService
 
     private void ShowDeviceOnlineNotification(string deviceName, int batteryPercent)
     {
+        // Check if notifications are suspended
+        lock (_powerStateLock)
+        {
+            if (_systemSuspended)
+            {
+                DiagnosticLogger.Log($"Notification suppressed (system suspended): {deviceName} - Device Online");
+                return;
+            }
+        }
+
         if (!_notificationSettings.NotifyStateChange)
         {
             DiagnosticLogger.Log($"Skipping online notification for {deviceName} as NotifyStateChange is disabled in settings.");

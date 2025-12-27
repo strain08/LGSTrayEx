@@ -50,7 +50,15 @@ public class DeviceAnnouncementHandler
         DiagnosticLogger.Log($"[Device ON Event] Index: {deviceIdx}, " +
                             $"Params: [0x{buffer[3]:X02} 0x{buffer[4]:X02} 0x{buffer[5]:X02} 0x{buffer[6]:X02}]");
 
+        // Check if we should proceed with initialization (prevents duplicate init)
+        if (!_lifecycleManager.ShouldInitialize(deviceIdx))
+        {
+            DiagnosticLogger.Log($"[Device {deviceIdx}] Device ON event ignored (duplicate/cooldown)");
+            return;
+        }
+
         HidppDevice device = _lifecycleManager.CreateDevice(deviceIdx);
+        device.NotifyDeviceOn(); // Set device ON timestamp
 
         // Spawn initialization thread with sequential enforcement
         new Thread(async () =>

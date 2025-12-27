@@ -89,7 +89,7 @@ public sealed class HidppManagerContext
 
         if (!_deviceMap.TryGetValue(containerId, out HidppReceiver? hidppReceiver))
         {
-            hidppReceiver = new();
+            hidppReceiver = new(GlobalSettings.settings.KeepPollingWithEvents, GlobalSettings.settings.BatteryEventDelayAfterOn);
             _deviceMap[containerId] = hidppReceiver;
             _containerMap[devPath] = containerId;
             DiagnosticLogger.Log($"New container created - Path: {devPath}, Container: {containerId}");

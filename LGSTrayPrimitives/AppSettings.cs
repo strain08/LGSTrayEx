@@ -60,6 +60,24 @@ public class NativeDeviceManagerSettings : IDeviceManagerSettings
     /// </summary>
     public bool EnableBatteryEvents { get; set; } = true;
 
+    /// <summary>
+    /// Keep battery polling active even when event-driven updates are received (default: false).
+    /// When false, polling stops after first battery event (current behavior).
+    /// When true, polling continues as fallback for validation and devices that stop sending events.
+    /// Deduplication prevents redundant IPC messages when both sources report same state.
+    /// </summary>
+    public bool KeepPollingWithEvents { get; set; } = false;
+
+    /// <summary>
+    /// Delay in seconds before processing battery EVENT data after device ON (default: 0).
+    /// Prevents spurious battery readings during device wake/initialization.
+    /// Battery values from events during delay window are ignored (not published to UI).
+    /// Battery POLLS are not delayed (always processed).
+    /// Set to 0 to disable delay (process all events immediately).
+    /// Recommended: 5 seconds for devices with unstable wake behavior.
+    /// </summary>
+    public int BatteryEventDelayAfterOn { get; set; } = 0;
+
     public IEnumerable<string> DisabledDevices { get; set; } = [];
 }
 
