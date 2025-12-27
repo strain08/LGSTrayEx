@@ -182,7 +182,8 @@ public class HidppDevice : IDisposable
             {
                 serialNumber = await DeviceMetadataRetriever.GetSerialNumberAsync(this, featureId);
                 DiagnosticLogger.Log($"[{DeviceName}] Serial Number: {serialNumber}");
-            } else
+            }
+            else
             {
                 DiagnosticLogger.Log($"[{DeviceName}] Serial Number not supported by device firmware");
                 DiagnosticLogger.Log($"[{DeviceName}] Unit id: {fwInfo.UnitId} Model id: {fwInfo.ModelId}");
@@ -296,8 +297,8 @@ public class HidppDevice : IDisposable
             }
             // Hardcoded 10 second minimum delay between polls to prevent tight loop in case of immediate failures
             // TODO: implement retry on failure
-           // await Task.Delay(10_000);
-            
+            // await Task.Delay(10_000);
+
         }
         DiagnosticLogger.Log($"Pooling stopped for {DeviceName}.");
     }

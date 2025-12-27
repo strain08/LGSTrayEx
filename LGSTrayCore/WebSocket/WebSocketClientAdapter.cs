@@ -14,9 +14,9 @@ public class WebSocketClientAdapter : IWebSocketClient
     public WebSocketClientAdapter(WebsocketClient client)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
-        
+
     }
-    
+
     public IObservable<ResponseMessage> MessageReceived => _client.MessageReceived;
 
     public IObservable<DisconnectionInfo> DisconnectionHappened => _client.DisconnectionHappened;

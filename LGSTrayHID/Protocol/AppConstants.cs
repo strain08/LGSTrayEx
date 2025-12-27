@@ -6,7 +6,7 @@ internal static class AppConstants
 
     public const int INIT_PING_TIMEOUT_MS = 5000;
     public const int WRITE_READ_TIMEOUT_MS = 5000;
-    
+
     // Battery query timeouts
     public const int UNIFIED_QueryTimeout = 5000;
     public const int UNIFIED_LEVEL_QueryTimeout = 5000;

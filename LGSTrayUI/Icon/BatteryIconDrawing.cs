@@ -8,11 +8,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Text;
-using System.IO;
 using System.Runtime.InteropServices;
-using System.Windows;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
 
 namespace LGSTrayUI;
 /// <summary>
@@ -36,7 +32,7 @@ public static partial class BatteryIconDrawing
     private static Bitmap Missing => CheckTheme.LightTheme ? Resources.Missing : Resources.Missing_dark;
     private static Bitmap Charging => CheckTheme.LightTheme ? Resources.Charging : Resources.Charging_dark;
 
-   // private static int ImageSize;
+    // private static int ImageSize;
     private readonly static float Scale;
 
     static BatteryIconDrawing()
@@ -89,17 +85,17 @@ public static partial class BatteryIconDrawing
         _ => Mouse,
     };
 
-    private static System.Drawing.Color GetDeviceColor(LogiDevice device) => device.DeviceType switch
-    {
-        _ => CheckTheme.LightTheme ? System.Drawing.Color.FromArgb(0x11, 0x11, 0x11) : System.Drawing.Color.White
-
-    //return device.DeviceType switch
+    //private static System.Drawing.Color GetDeviceColor(LogiDevice device) => device.DeviceType switch
     //{
-    //    DeviceType.Keyboard => Color.FromArgb(0xA1, 0xE4, 0x4D),
-    //    DeviceType.Headset => Color.FromArgb(0xFA, 0x79, 0x21),
-    //    _ => Color.FromArgb(0xBB, 0x86, 0xFC),
+    //    _ => CheckTheme.LightTheme ? System.Drawing.Color.FromArgb(0x11, 0x11, 0x11) : System.Drawing.Color.White
+
+    ////return device.DeviceType switch
+    ////{
+    ////    DeviceType.Keyboard => Color.FromArgb(0xA1, 0xE4, 0x4D),
+    ////    DeviceType.Headset => Color.FromArgb(0xFA, 0x79, 0x21),
+    ////    _ => Color.FromArgb(0xBB, 0x86, 0xFC),
+    ////};
     //};
-    };
 
     private static Bitmap GetBatteryValue(LogiDevice device) => device.BatteryPercentage switch
     {
@@ -128,7 +124,7 @@ public static partial class BatteryIconDrawing
         g.CompositingQuality = CompositingQuality.HighQuality;
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
         g.SmoothingMode = SmoothingMode.HighQuality;
-        g.PixelOffsetMode = PixelOffsetMode.HighQuality; 
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
         using var wrapMode = new ImageAttributes();
         wrapMode.SetWrapMode(WrapMode.TileFlipXY);
@@ -221,7 +217,7 @@ public static partial class BatteryIconDrawing
 
             // 4. Background Logic
             bool isCharging = device.PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING;
-            
+
             //if (isCharging)
             //{
             //    // If charging, use Green background
@@ -265,7 +261,7 @@ public static partial class BatteryIconDrawing
             float y = (height - textSize.Height) / 2;
 
             // Fine-tune adjustment
-            y += 1 * dpiScale;            
+            y += 1 * dpiScale;
 
             using System.Drawing.Brush textBrush = new SolidBrush(textColor);
             g.DrawString(text, font, textBrush, x, y);
@@ -285,13 +281,13 @@ public static partial class BatteryIconDrawing
         oldIcon?.Dispose();
     }
 
-//private static Bitmap ConvertToBitmap(BitmapSource bitmapSource)
-//    {
-//        using MemoryStream memoryStream = new MemoryStream();
-//        BitmapEncoder encoder = new PngBitmapEncoder();
-//        encoder.Frames.Add(BitmapFrame.Create(bitmapSource));
-//        encoder.Save(memoryStream);
-//        memoryStream.Position = 0;
-//        return new Bitmap(memoryStream);
-//    }
+    //private static Bitmap ConvertToBitmap(BitmapSource bitmapSource)
+    //    {
+    //        using MemoryStream memoryStream = new MemoryStream();
+    //        BitmapEncoder encoder = new PngBitmapEncoder();
+    //        encoder.Frames.Add(BitmapFrame.Create(bitmapSource));
+    //        encoder.Save(memoryStream);
+    //        memoryStream.Position = 0;
+    //        return new Bitmap(memoryStream);
+    //    }
 }

@@ -1,5 +1,5 @@
-using Newtonsoft.Json.Linq;
 using LGSTrayPrimitives;
+using Newtonsoft.Json.Linq;
 
 namespace LGSTrayCore.Managers;
 

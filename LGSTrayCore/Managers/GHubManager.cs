@@ -394,7 +394,7 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
             }
 
             // Extract deviceSignature (stable identifier from GHUB)
-            string deviceSignature = GetDeviceSignature(payload);        
+            string deviceSignature = GetDeviceSignature(payload);
 
             // Publish device with validated data
             _deviceEventBus.Publish(new InitMessage(

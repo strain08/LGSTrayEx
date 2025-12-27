@@ -13,7 +13,7 @@ public class HidppReceiver : IDisposable
     public HidDevicePtr DevShort { get; private set; } = IntPtr.Zero;
     public HidDevicePtr DevLong { get; private set; } = IntPtr.Zero;
     public IReadOnlyDictionary<ushort, HidppDevice> DeviceCollection => _lifecycleManager.Devices;
-    
+
     private byte PING_PAYLOAD = 0x55;
 
     private readonly DeviceLifecycleManager _lifecycleManager;

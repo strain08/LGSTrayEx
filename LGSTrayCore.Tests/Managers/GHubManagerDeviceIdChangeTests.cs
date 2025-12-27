@@ -72,7 +72,7 @@ public class GHubManagerDeviceIdChangeTests
         var manager = new GHubManager(mockPublisher, mockFactory);
 
         await manager.StartAsync(CancellationToken.None);
-        
+
         await Task.Delay(50); // Let startup complete
         // Act
         mockWs.SimulateDeviceStateChange("dev00000001", "not_connected");
