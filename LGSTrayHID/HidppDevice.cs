@@ -348,6 +348,8 @@ public class HidppDevice : IDisposable
             return false;
         }
 
+        // TODO: Consider validating the batteryUpdate value here using similar logic to the polling update
+
         var batStatus = batteryUpdate.Value;
         lastUpdate = now;
 

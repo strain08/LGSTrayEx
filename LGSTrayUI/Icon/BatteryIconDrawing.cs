@@ -7,12 +7,10 @@ using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
-using System.Drawing.Text;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Controls;
 using System.IO;
 
 namespace LGSTrayUI;
@@ -194,12 +192,12 @@ public static partial class BatteryIconDrawing
 
     public static void DrawNumeric(TaskbarIcon taskbarIcon, LogiDevice device)
     {
-        var ImageSize = (int)(92 * Scale);
+        var ImageSize = (int)(64 * Scale);
         
         // Create WPF visual for high-quality text rendering
         DrawingVisual drawingVisual = new();
         // Better text rendering:       
-        TextOptions.SetTextRenderingMode(drawingVisual, TextRenderingMode.Aliased);
+        TextOptions.SetTextRenderingMode(drawingVisual, TextRenderingMode.ClearType);
         TextOptions.SetTextFormattingMode(drawingVisual, TextFormattingMode.Display);
         TextOptions.SetTextHintingMode(drawingVisual, TextHintingMode.Fixed);
 
@@ -231,17 +229,17 @@ public static partial class BatteryIconDrawing
                 System.Globalization.CultureInfo.CurrentCulture,
                 FlowDirection.LeftToRight,
                 new Typeface(
-                    new System.Windows.Media.FontFamily("Segoe UI Variable Display"),
+                    new System.Windows.Media.FontFamily(WindowsVersionHelper.IsWindows11OrGreater ? "Segoe UI Variable Display": "Segoe UI "),
                     FontStyles.Normal,
                     FontWeights.SemiBold,
                     FontStretches.Normal, 
                     fallbackFontFamily: new System.Windows.Media.FontFamily("Segoe UI")),
-                .7 * ImageSize,
+                .71 * ImageSize,
                 new SolidColorBrush(wpfColor),
                 VisualTreeHelper.GetDpi(drawingVisual).PixelsPerDip);
 
-            RenderOptions.SetClearTypeHint(drawingVisual, ClearTypeHint.Auto);
-            TextOptions.SetTextFormattingMode(drawingVisual, TextFormattingMode.Display);
+          //  RenderOptions.SetClearTypeHint(drawingVisual, ClearTypeHint.Auto);
+       //     TextOptions.SetTextFormattingMode(drawingVisual, TextFormattingMode.Display);
             // Center the text
             double x = (ImageSize - formattedText.Width) / 2.0;
             double y = (ImageSize - formattedText.Height) / 2.0;
