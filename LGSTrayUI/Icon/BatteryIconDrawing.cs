@@ -2,7 +2,6 @@
 using LGSTrayCore;
 using LGSTrayPrimitives;
 using LGSTrayUI.Properties;
-using Microsoft.Win32;
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -32,50 +31,15 @@ public static partial class BatteryIconDrawing
     private static Bitmap Missing => CheckTheme.LightTheme ? Resources.Missing : Resources.Missing_dark;
     private static Bitmap Charging => CheckTheme.LightTheme ? Resources.Charging : Resources.Charging_dark;
 
-    // private static int ImageSize;
-    private readonly static float Scale;
-
-    static BatteryIconDrawing()
+    private static float GetDpiScale()
     {
-        Scale = DetectDpiScale();
-    }
-
-    private static float DetectDpiScale()
-    {
-        int dpi = 96; // Default DPI
-
-        try
+        float dpiScale = 1.0f;
+        using (Graphics g = Graphics.FromHwnd(IntPtr.Zero))
         {
-            // Method 1: Try registry (may not exist on all Windows 10 configs)
-            try
-            {
-                using var reg = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\ThemeManager", false);
-                var dpiString = reg?.GetValue("LastLoadedDPI") as string;
-
-                if (!string.IsNullOrEmpty(dpiString) && int.TryParse(dpiString, out int regDpi) && regDpi > 0)
-                {
-                    DiagnosticLogger.Log($"DPI from registry: {regDpi}");
-                    return regDpi / 96f;
-                }
-            }
-            catch (Exception regEx)
-            {
-                DiagnosticLogger.LogWarning($"Registry DPI detection failed: {regEx.Message}");
-            }
-
-            // Method 2: Use GDI GetDeviceCaps (works on all Windows versions)
-            using var graphics = Graphics.FromHwnd(IntPtr.Zero);
-            dpi = (int)graphics.DpiX;
-            DiagnosticLogger.Log($"DPI from GDI: {dpi}");
-        }
-        catch (Exception ex)
-        {
-            DiagnosticLogger.LogWarning($"DPI detection failed, using default: {ex.Message}");
-            dpi = 96;
+            dpiScale = g.DpiX / 96.0f;
         }
 
-        DiagnosticLogger.Log($"Icon scale factor: {dpi / 96f}");
-        return dpi / 96f;
+        return dpiScale;
     }
 
     private static Bitmap GetDeviceIcon(LogiDevice device) => device.DeviceType switch
@@ -84,18 +48,6 @@ public static partial class BatteryIconDrawing
         DeviceType.Headset => Headset,
         _ => Mouse,
     };
-
-    //private static System.Drawing.Color GetDeviceColor(LogiDevice device) => device.DeviceType switch
-    //{
-    //    _ => CheckTheme.LightTheme ? System.Drawing.Color.FromArgb(0x11, 0x11, 0x11) : System.Drawing.Color.White
-
-    ////return device.DeviceType switch
-    ////{
-    ////    DeviceType.Keyboard => Color.FromArgb(0xA1, 0xE4, 0x4D),
-    ////    DeviceType.Headset => Color.FromArgb(0xFA, 0x79, 0x21),
-    ////    _ => Color.FromArgb(0xBB, 0x86, 0xFC),
-    ////};
-    //};
 
     private static Bitmap GetBatteryValue(LogiDevice device) => device.BatteryPercentage switch
     {
@@ -116,7 +68,7 @@ public static partial class BatteryIconDrawing
 
     public static void DrawIcon(TaskbarIcon taskbarIcon, LogiDevice device)
     {
-        var ImageSize = (int)(96 * Scale);
+        var ImageSize = (int)(96 * GetDpiScale());
         var destRect = new Rectangle(0, 0, ImageSize, ImageSize);
         using var b = new Bitmap(ImageSize, ImageSize);
         using var g = Graphics.FromImage(b);
@@ -191,11 +143,7 @@ public static partial class BatteryIconDrawing
     {
         // 1. Get the exact system DPI scaling
         // We use a dummy Graphics object to fetch the true system DPI
-        float dpiScale = 1.0f;
-        using (Graphics g = Graphics.FromHwnd(IntPtr.Zero))
-        {
-            dpiScale = g.DpiX / 96.0f;
-        }
+        float dpiScale = GetDpiScale();
 
         // 16x16 is standard, but we scale it up by DPI (e.g., 24x24 at 150%)
         int width = (int)(16 * dpiScale);
@@ -215,9 +163,10 @@ public static partial class BatteryIconDrawing
             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-            // 4. Background Logic
+            
             bool isCharging = device.PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING;
-
+            
+            // Background Logic
             //if (isCharging)
             //{
             //    // If charging, use Green background
@@ -235,35 +184,35 @@ public static partial class BatteryIconDrawing
 
             //bool device100Percent = device.BatteryPercentage == 100;
 
-            // Font style
-            System.Drawing.FontStyle fontStyle = isCharging ? System.Drawing.FontStyle.Underline : System.Drawing.FontStyle.Regular;
-            System.Drawing.Color textColor;
+            // Font style and color
+            FontStyle fontStyle = isCharging ? FontStyle.Bold : FontStyle.Regular;
+            Color textColor;
 
             if (CheckTheme.LightTheme)
             {
-                textColor = isCharging ? System.Drawing.Color.DarkGreen : System.Drawing.Color.Black;
+                textColor = isCharging ? Color.DarkGreen : Color.Black;
             }
             else
             {
-                textColor = isCharging ? System.Drawing.Color.LightGreen : System.Drawing.Color.White;
+                textColor = isCharging ? Color.LightGreen : Color.White;
             }
 
             // Font size 
-            // float emSize = height * (device.BatteryPercentage == 100 ? 0.7f : 0.8f);
+            //float emSize = height * (device.BatteryPercentage == 100 ? 0.7f : 0.8f);
             float emSize = height * 0.7f;
+            //emSize = height * 0.7f;
             using Font font = new("Segoe UI Variable", emSize, fontStyle, GraphicsUnit.Pixel);
-            string text = (device.BatteryPercentage < 0) ? "?" : $"{device.BatteryPercentage:f0}";
-            //text = "100";           
+            string text = (device.BatteryPercentage < 0) ? "?" : $"{device.BatteryPercentage:f0}";            
 
             // Text Centering
             SizeF textSize = g.MeasureString(text, font);
             float x = (width - textSize.Width) / 2;
             float y = (height - textSize.Height) / 2;
 
-            // Fine-tune adjustment
-            y += 1 * dpiScale;
+            // Fine-tune adjustment            
+            y += 1 * dpiScale;            
 
-            using System.Drawing.Brush textBrush = new SolidBrush(textColor);
+            using Brush textBrush = new SolidBrush(textColor);
             g.DrawString(text, font, textBrush, x, y);
         }
 
@@ -279,15 +228,6 @@ public static partial class BatteryIconDrawing
         // Cleanup
         DestroyIcon(iconHandle);
         oldIcon?.Dispose();
-    }
+    }  
 
-    //private static Bitmap ConvertToBitmap(BitmapSource bitmapSource)
-    //    {
-    //        using MemoryStream memoryStream = new MemoryStream();
-    //        BitmapEncoder encoder = new PngBitmapEncoder();
-    //        encoder.Frames.Add(BitmapFrame.Create(bitmapSource));
-    //        encoder.Save(memoryStream);
-    //        memoryStream.Position = 0;
-    //        return new Bitmap(memoryStream);
-    //    }
 }
