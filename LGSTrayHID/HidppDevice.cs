@@ -375,6 +375,15 @@ public class HidppDevice : IDisposable
 
         var batStatus = batteryUpdate.Value;
 
+        // Exceptional battery event, skip publish (some devices send spurious events)
+        if (batStatus.status == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING &&
+            batStatus.batteryPercentage == 15)
+        {
+            DiagnosticLogger.Log($"[{DeviceName}] Exceptional battery event detected (Charging at 15%), skipping update publish");
+            return true;
+
+        }
+
         // Check if we're in the delay window after device ON (ignore EVENT data during this period)
         if (_batteryEventDelaySeconds > 0 && _deviceOnTime != DateTimeOffset.MinValue)
         {
@@ -393,10 +402,12 @@ public class HidppDevice : IDisposable
         // Normal event processing continues
         lastUpdate = now;
 
+        DiagnosticLogger.Log($"[{DeviceName}] Battery event received: MVolt: {batStatus.batteryMVolt}, Percent: {batStatus.batteryPercentage}");
+
         // Check if we should stop polling when events arrive
         if (!_keepPollingWithEvents && !_poolingCts.IsCancellationRequested)
-        {
-            DiagnosticLogger.Log($"[{DeviceName}] Battery event received, stopping polling (keepPollingWithEvents=false)");
+        {            
+            DiagnosticLogger.Log($"[{DeviceName}] Battery event received, stopping polling (keepPollingWithEvents=false)");            
             _poolingCts.Cancel();
         }
         else if (_keepPollingWithEvents)
@@ -404,6 +415,7 @@ public class HidppDevice : IDisposable
             DiagnosticLogger.Log($"[{DeviceName}] Battery event received, polling continues (keepPollingWithEvents=true)");
         }
 
+        
         // Publish update (handles deduplication, IPC, logging)
         _batteryPublisher.PublishUpdate(Identifier, DeviceName, batStatus, now, "event");
 
