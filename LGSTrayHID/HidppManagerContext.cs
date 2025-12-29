@@ -143,6 +143,27 @@ public sealed class HidppManagerContext
                 DiagnosticLogger.Log(logMessage);
             }
 
+            // Send offline notifications to UI before disposal
+            foreach (var (deviceIdx, device) in deviceCollection)
+            {
+                // Only send for devices that completed initialization
+                if (!string.IsNullOrEmpty(device.Identifier))
+                {
+                    HidppManagerContext.Instance.SignalDeviceEvent(
+                        IPCMessageType.UPDATE,
+                        new UpdateMessage(
+                            deviceId: device.Identifier,
+                            batteryPercentage: -1,  // Convention: -1 = offline
+                            powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_UNKNOWN,
+                            batteryMVolt: 0,
+                            updateTime: DateTimeOffset.Now,
+                            mileage: -1
+                        )
+                    );
+                    DiagnosticLogger.Log($"[{device.DeviceName}] Receiver removal - offline notification sent to UI");
+                }
+            }
+
             // Original disposal logic
             _deviceMap[containerId].Dispose();
             _deviceMap.Remove(containerId);

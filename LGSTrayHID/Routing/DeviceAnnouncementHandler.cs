@@ -105,7 +105,8 @@ public class DeviceAnnouncementHandler
             deviceId = device.Identifier;
         }
 
-        DiagnosticLogger.Log($"[Device OFF Event] Index: {deviceIdx}, " +
+        string eventType = string.IsNullOrEmpty(deviceId) ? "Phantom OFF Event (ignored)" : "Device OFF Event";
+        DiagnosticLogger.Log($"[{eventType}] Index: {deviceIdx}, " +
                             $"Name: {deviceName}, " +
                             $"Params: [0x{buffer[3]:X02} 0x{buffer[4]:X02} 0x{buffer[5]:X02} 0x{buffer[6]:X02}]");
 
