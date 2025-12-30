@@ -103,8 +103,10 @@ public class DeviceAnnouncementHandler
         {
             deviceName = device!.DeviceName;
             deviceId = device.Identifier;
+            // Cancel any ongoing polling tasks after device OFF
+            device.CancelPooling();
         }
-
+        
         string eventType = string.IsNullOrEmpty(deviceId) ? "Phantom OFF Event (ignored)" : "Device OFF Event";
         DiagnosticLogger.Log($"[{eventType}] Index: {deviceIdx}, " +
                             $"Name: {deviceName}, " +
@@ -125,7 +127,7 @@ public class DeviceAnnouncementHandler
             );
             DiagnosticLogger.Log($"[{deviceName}] Device offline notification sent to UI");
         }
-
+        
         await Task.CompletedTask; // Suppress async warning
     }
 }

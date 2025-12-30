@@ -29,7 +29,7 @@ public class DeviceEnumerator
     /// </summary>
     public async Task EnumerateDevicesAsync()
     {
-        //Strategy 1: Query receiver for device count +force announcements
+        //force announcements
         await _parent.WriteRead10(
             _parent.DevShort,
             Hidpp10Commands.ForceDeviceAnnounce(),
@@ -39,15 +39,16 @@ public class DeviceEnumerator
         byte numDevicesFound = await QueryAndAnnounceAsync();
 
         if (numDevicesFound > 0)
-            {
-                return;
-            }
-            else
-            {
-                DiagnosticLogger.Log("No devices reported by receiver after query.");
-                await Task.Delay(FALLBACK_DELAY);
-                await FallbackPingEnumerationAsync();
-            }
+        {
+            DiagnosticLogger.Log($"Devices reported by receiver after query: {numDevicesFound}");
+            return;
+        }
+        else
+        {
+            DiagnosticLogger.Log("No devices reported by receiver after query.");
+            await Task.Delay(FALLBACK_DELAY);
+            await FallbackPingEnumerationAsync();
+        }
 
         //Strategy 2: Fallback ping-based enumeration(if no devices found)
         //if (_lifecycleManager.Count == 0)

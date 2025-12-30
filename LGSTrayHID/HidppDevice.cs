@@ -40,6 +40,8 @@ public class HidppDevice : IDisposable
 
     private Task? _pollingTask;
     private readonly CancellationTokenSource _poolingCts = new();
+    public void CancelPooling() => _poolingCts.Cancel();
+
 
     private int _disposeCount = 0;
     public bool Disposed => _disposeCount > 0;
@@ -243,8 +245,14 @@ public class HidppDevice : IDisposable
         // This ensures fresh timestamp even if battery % unchanged after reconnect
         _forceNextUpdate = true;
 
-        await Task.Delay(1000);
-        if (_batteryFeature == null) return;
+        
+        if (_batteryFeature == null)
+        {
+            await Task.Delay(1000);
+            return;
+        }        
+
+        await UpdateBattery();
 
         // Start battery polling loop with cancellation support
         _pollingTask = Task.Run(() => PollBattery(_cancellationSource.Token, _poolingCts.Token), _cancellationSource.Token);
@@ -272,11 +280,12 @@ public class HidppDevice : IDisposable
     /// <returns></returns>
     private async Task PollBattery(CancellationToken lifeCycle, CancellationToken pooling)
     {
+        DiagnosticLogger.Log($"[{DeviceName}] Pooling started.");
         while (!lifeCycle.IsCancellationRequested && !pooling.IsCancellationRequested)
         {
             var now = DateTimeOffset.Now;
 #if DEBUG
-            var expectedUpdateTime = lastUpdate.AddSeconds(50);
+            var expectedUpdateTime = lastUpdate.AddSeconds(10);
 #else
             // clamp poll period between 20 seconds and 1 hour
             var expectedUpdateTime = lastUpdate.AddSeconds(Math.Clamp(GlobalSettings.settings.PollPeriod, 20, 3600));
@@ -284,11 +293,12 @@ public class HidppDevice : IDisposable
             if (now < expectedUpdateTime)
             {
                 var delay = expectedUpdateTime - now;
-                DiagnosticLogger.Log($"Polling battery for device {DeviceName} in {Math.Round(delay.TotalSeconds)}s...");
+                DiagnosticLogger.Log($"[{DeviceName}]Polling battery in {Math.Round(delay.TotalSeconds)}s...");
                 await Task.Delay((int)delay.TotalMilliseconds);
             }
             try
             {
+                pooling.ThrowIfCancellationRequested();
                 await UpdateBattery();
             }
             catch
@@ -297,7 +307,7 @@ public class HidppDevice : IDisposable
             }
             // Hardcoded 10 second minimum delay between polls to prevent tight loop in case of immediate failures
             // TODO: implement retry on failure
-            // await Task.Delay(10_000);
+            await Task.Delay(10_000);
 
         }
         DiagnosticLogger.Log($"Pooling stopped for {DeviceName}.");
