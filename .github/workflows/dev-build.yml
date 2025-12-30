@@ -1,0 +1,64 @@
+name: Dev Build
+
+# Trigger on pushes to development and fix branches
+on:
+  push:
+    branches:
+      - 'dev/**'      # e.g., dev/fix-battery-polling
+      - 'fix/**'      # e.g., fix/battery-timeout
+      - 'feature/**'  # e.g., feature/new-device-support
+
+jobs:
+  dev-build:
+    runs-on: windows-latest
+
+    steps:
+    # Checkout the code
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Setup .NET 9
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+
+    # Setup Python for publish.py
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    # Generate version suffix with branch name and timestamp
+    - name: Generate dev version
+      id: version
+      run: |
+        $branch = "${{ github.ref_name }}" -replace '/', '-'
+        $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        $suffix = "dev-$branch-$timestamp"
+        echo "suffix=$suffix" >> $env:GITHUB_OUTPUT
+        echo "short_suffix=dev-$timestamp" >> $env:GITHUB_OUTPUT
+        Write-Host "Version suffix: $suffix"
+      shell: pwsh
+
+    # Build and publish packages
+    - name: Build dev packages
+      run: python publish.py --version-suffix="-${{ steps.version.outputs.suffix }}"
+
+    # Upload artifacts for download (retained for 7 days)
+    - name: Upload dev build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: LGSTrayBattery-${{ steps.version.outputs.short_suffix }}
+        path: publish/LGSTrayBattery-*.zip
+        retention-days: 7
+
+    # Add comment with download link (optional, requires write permissions)
+    - name: Comment build info
+      if: github.event_name == 'push'
+      run: |
+        Write-Host "✅ Dev build created successfully!"
+        Write-Host "Branch: ${{ github.ref_name }}"
+        Write-Host "Version suffix: ${{ steps.version.outputs.suffix }}"
+        Write-Host "Download artifacts from: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      shell: pwsh
