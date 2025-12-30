@@ -244,11 +244,22 @@ public class LogiDeviceCollection : ILogiDeviceCollection,
                     // Keep device in collection, update with offline state
                     DiagnosticLogger.Log($"Device offline, keeping in collection - {device.DeviceId} ({device.DeviceName})");
                     device.UpdateState(updateMessage);
+
+                    // Notify NotificationService that device battery was updated (offline state)
+                    // Device is guaranteed to be in collection and fully updated
+                    _messenger.Send(new DeviceBatteryUpdatedMessage(device));
                 }
                 else
                 {
-                    // Remove device from collection
+                    // Device going offline - update state and notify BEFORE removing
                     DiagnosticLogger.Log($"Device offline, removing from collection - {device.DeviceId} ({device.DeviceName})");
+                    device.UpdateState(updateMessage);
+
+                    // Notify NotificationService about offline state before removal
+                    // This ensures offline notification is shown
+                    _messenger.Send(new DeviceBatteryUpdatedMessage(device));
+
+                    // Now remove device from collection
                     RemoveDevice(device, "device_offline");
                 }
             }
@@ -256,6 +267,10 @@ public class LogiDeviceCollection : ILogiDeviceCollection,
             {
                 // Normal battery update (not offline)
                 device.UpdateState(updateMessage);
+
+                // Notify NotificationService that device battery was updated
+                // Device is guaranteed to be in collection and fully updated
+                _messenger.Send(new DeviceBatteryUpdatedMessage(device));
             }
         });
     }

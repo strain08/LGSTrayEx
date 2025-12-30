@@ -18,14 +18,12 @@ namespace LGSTrayUI.Services;
 
 public class NotificationService : IHostedService,
     IRecipient<SystemSuspendingMessage>,
-    IRecipient<SystemResumingMessage>
+    IRecipient<SystemResumingMessage>,
+    IRecipient<DeviceBatteryUpdatedMessage>
 {
     private readonly INotificationManager _notificationManager;
-    private readonly ISubscriber<IPCMessage> _subscriber;
-    private readonly ILogiDeviceCollection _deviceCollection;
     private readonly NotificationSettings _notificationSettings;
     private readonly IMessenger _messenger;
-    private IDisposable? _subscription;
 
     // Track the last threshold at which we notified for each device
     private readonly Dictionary<string, int> _lastNotifiedThreshold = [];
@@ -46,14 +44,10 @@ public class NotificationService : IHostedService,
 
     public NotificationService(
         INotificationManager notificationManager,
-        ISubscriber<IPCMessage> subscriber,
-        ILogiDeviceCollection deviceCollection,
         IOptions<AppSettings> appSettings,
         IMessenger messenger)
     {
         _notificationManager = notificationManager;
-        _subscriber = subscriber;
-        _deviceCollection = deviceCollection;
         _notificationSettings = appSettings.Value.Notifications;
         _messenger = messenger;
         // Customize notification colors
@@ -64,14 +58,8 @@ public class NotificationService : IHostedService,
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        // Subscribe to device update messages
-        _subscription = _subscriber.Subscribe(message =>
-        {
-            if (message is UpdateMessage updateMessage)
-            {
-                OnBatteryUpdate(updateMessage);
-            }
-        });
+        // Subscribe to device battery updates from LogiDeviceCollection
+        _messenger.Register<DeviceBatteryUpdatedMessage>(this);
 
         // Register for power state messages
         _messenger.Register<SystemSuspendingMessage>(this);
@@ -82,9 +70,6 @@ public class NotificationService : IHostedService,
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        // Clean up subscription
-        _subscription?.Dispose();
-
         // Unregister from messenger
         _messenger.UnregisterAll(this);
 
@@ -152,19 +137,15 @@ public class NotificationService : IHostedService,
     private int[] GetBatteryLowThresholds() =>
         [_notificationSettings.BatteryLowThreshold, 10, 5];
 
-    private void OnBatteryUpdate(UpdateMessage updateMessage)
+    public void Receive(DeviceBatteryUpdatedMessage message)
     {
-        var batteryPercent = (int)Math.Round(updateMessage.batteryPercentage);
-        var isCharging = updateMessage.powerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING;
-        var deviceId = updateMessage.deviceId;
+        var device = message.Device;  // Device guaranteed to exist!
+        var deviceId = device.DeviceId;
+        var deviceName = device.DeviceName;  // Always available, no "Unknown Device"
+        var batteryPercent = (int)Math.Round(device.BatteryPercentage);
+        var isCharging = device.PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING;
+
         DiagnosticLogger.Log($"Received battery update for device {deviceId}: {batteryPercent}%, Charging: {isCharging}");
-        // Get device name once
-        string deviceName = "Unknown Device";
-        var device = _deviceCollection.GetDevices().FirstOrDefault(d => d.DeviceId == deviceId);
-        if (device != null)
-        {
-            deviceName = device.DeviceName;
-        }
 
         // Check device online/offline state transitions
         var isOnline = batteryPercent >= 0;
