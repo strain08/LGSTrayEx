@@ -1,0 +1,61 @@
+name: Release
+
+# Run when a version tag is pushed (e.g., v3.0.4, v3.1.0)
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  create-release:
+    runs-on: windows-latest
+
+    steps:
+    # Checkout the code
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Setup .NET 9
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+
+    # Setup Python for publish.py script
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    # Extract version from tag (v3.0.4 -> 3.0.4)
+    - name: Get version from tag
+      id: get_version
+      run: |
+        $version = "${{ github.ref_name }}" -replace '^v', ''
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+      shell: pwsh
+
+    # Run the publish script to create release packages
+    - name: Build and publish
+      run: python publish.py
+
+    # Create GitHub Release and upload artifacts
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        name: Release ${{ steps.get_version.outputs.version }}
+        draft: false
+        prerelease: false
+        generate_release_notes: true  # Auto-generates changelog from commits
+        files: |
+          publish/LGSTrayBattery-*.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # Optional: Upload artifacts for manual inspection
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-packages
+        path: publish/LGSTrayBattery-*.zip
+        retention-days: 30

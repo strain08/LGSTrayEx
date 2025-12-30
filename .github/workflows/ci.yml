@@ -1,0 +1,52 @@
+name: CI
+
+# Run on pushes to any branch and all pull requests
+on:
+  push:
+    branches: [ '**' ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    # Checkout the code
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Setup .NET 9
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+
+    # Restore NuGet packages
+    - name: Restore dependencies
+      run: dotnet restore LGSTrayBattery.sln
+
+    # Build the solution
+    - name: Build solution
+      run: dotnet build LGSTrayBattery.sln -c Release --no-restore
+
+    # Run tests (if you have any test projects)
+    - name: Run tests
+      run: dotnet test LGSTrayBattery.sln -c Release --no-build --verbosity normal
+      continue-on-error: true  # Remove this line once you add test projects
+
+    # Optional: Build publish artifacts to verify publish.py would work
+    - name: Verify publish script
+      run: python publish.py --no-zip
+      continue-on-error: true  # Don't fail CI if publish has issues
+
+    # Upload build artifacts for inspection (optional)
+    - name: Upload build artifacts
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-output
+        path: |
+          LGSTrayUI/bin/Release/
+          LGSTrayHID/bin/Release/
+        retention-days: 7
