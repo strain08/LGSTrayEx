@@ -4,9 +4,12 @@ name: Dev Build
 on:
   push:
     branches:
-      - 'dev/**'      # e.g., dev/fix-battery-polling
+      - 'dev/**'      # e.g., dev/fix-battery-polling (requires no 'dev' branch)
       - 'fix/**'      # e.g., fix/battery-timeout
       - 'feature/**'  # e.g., feature/new-device-support
+      - 'test/**'     # e.g., test/workflow-verify
+      - 'wip/**'      # e.g., wip/battery-polling (work in progress)
+      - 'bugfix/**'   # e.g., bugfix/timeout-issue
 
 jobs:
   dev-build:
