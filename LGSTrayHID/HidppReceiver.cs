@@ -78,19 +78,53 @@ public class HidppReceiver : IDisposable
         await _enumerator.EnumerateDevicesAsync();
     }
 
+    /// <summary>
+    /// Sends a HID++ 1.0 command to the specified HID device and waits asynchronously for a matching response.
+    /// </summary>
+    /// <remarks>The method matches responses based on the command and sub-address fields in the buffer. For
+    /// SET_REGISTER commands (0x80), it expects a GET_REGISTER (0x81) response with the same sub-address. 
+    /// <br>The method throws an exception if the object has been disposed.</br>
+    /// </remarks>
+    /// <param name="hidDevicePtr">A pointer to the HID device to which the command is sent.</param>
+    /// <param name="buffer">The byte array containing the HID++ 1.0 command to send. Cannot be null.</param>
+    /// <param name="timeout">The maximum time, in milliseconds, to wait for a response before the operation times out. The default is 100
+    /// milliseconds. Must be greater than zero.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains the response bytes received from the
+    /// device. The returned array may be empty if no response is received within the specified timeout.</returns>
     public async Task<byte[]> WriteRead10(HidDevicePtr hidDevicePtr, byte[] buffer, int timeout = 100)
     {
         ObjectDisposedException.ThrowIf(_disposeCount > 0, this);
 
+          //  OLD (buggy):
+          //  matcher: response => response[2] == buffer[2]
+
+          // Issues:
+          // 1. Can't distinguish between different 0x81 responses (QueryDeviceCount vs EnableAllReports)
+          // 2. Doesn't handle SET_REGISTER (0x80) → GET_REGISTER (0x81) response transformation
         return await _correlator.SendHidpp10AndWaitAsync(
             hidDevicePtr,
             buffer,
-            matcher: response => response[2] == buffer[2],
+            matcher: response => (response[2] == buffer[2] && response[3] == buffer[3]) ||
+                                 (buffer[2] == 0x80 && response[2] == 0x81 && response[3] == buffer[3]), // SET_REGISTER (0x80) → GET_REGISTER (0x81), same sub-address
             timeout: timeout,
             earlyExit: null
         );
     }
 
+    /// <summary>
+    /// Sends a HID++ 2.0 request to the specified HID device and asynchronously waits for the corresponding response.
+    /// </summary>
+    /// <remarks>The response is matched based on feature index, device index, and software ID. If the device
+    /// does not respond within the specified timeout, the operation will fail. This method throws an exception if the
+    /// object has been disposed.</remarks>
+    /// <param name="hidDevicePtr">A pointer to the HID device to which the request is sent.</param>
+    /// <param name="buffer">The HID++ 2.0 message to send to the device. Must not be null.</param>
+    /// <param name="timeout">The maximum time, in milliseconds, to wait for a response before the operation times out. The default is 100
+    /// milliseconds.</param>
+    /// <param name="ignoreHID10">If <see langword="true"/>, HID++ 1.0 error responses are ignored; otherwise, the operation completes early if
+    /// such an error is received. The default is <see langword="true"/>.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains the HID++ 2.0 response message from
+    /// the device.</returns>
     public async Task<Hidpp20> WriteRead20(HidDevicePtr hidDevicePtr, Hidpp20 buffer, int timeout = 100, bool ignoreHID10 = true)
     {
         ObjectDisposedException.ThrowIf(_disposeCount > 0, this);
@@ -146,7 +180,10 @@ public class HidppReceiver : IDisposable
             byte[] enableAllReports = Hidpp10Commands.EnableAllReports(0xFF);
             byte[] ret = await WriteRead10(DevShort, enableAllReports, 1000);
             DiagnosticLogger.Log($"Receiver EnableAllReports response: {BitConverter.ToString(ret)}");
-
+            if (ret.Length == 0)
+            {
+                throw new Exception("Received empty array.");
+            }
             DiagnosticLogger.Log("Receiver device on/off notifications enabled");
         }
         catch (Exception ex)

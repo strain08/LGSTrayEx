@@ -66,11 +66,18 @@ public class DeviceEnumerator
                 1000
             );
 
+            DiagnosticLogger.Log($"[QueryDeviceCount] Response: {BitConverter.ToString(response)} (Length={response.Length})");
+
             byte numDevicesFound = 0;
-            if ((response[2] == ReceiverCommand.QUERY_DEVICE_COUNT) &&
+            if (response.Length >= 6 &&
+                (response[2] == ReceiverCommand.QUERY_DEVICE_COUNT) &&
                 (response[3] == ReceiverCommand.SUB_COMMAND))
             {
                 numDevicesFound = response[5];
+            }
+            else if (response.Length > 0)
+            {
+                DiagnosticLogger.Log($"[QueryDeviceCount] Parser rejected: byte[2]={response[2]:X2} (expected {ReceiverCommand.QUERY_DEVICE_COUNT:X2}), byte[3]={response[3]:X2} (expected {ReceiverCommand.SUB_COMMAND:X2})");
             }
 
             if (numDevicesFound > 0)
