@@ -19,6 +19,10 @@ public class DeviceLifecycleManager
     private readonly bool _keepPollingWithEvents;
     private readonly int _batteryEventDelaySeconds;
 
+    // Enumeration completion tracking
+    private TaskCompletionSource<int>? _enumerationCompletion;
+    private int _expectedDeviceCount;
+
     public DeviceLifecycleManager(HidppReceiver parent, bool keepPollingWithEvents, int batteryEventDelaySeconds)
     {
         _parent = parent;
@@ -40,7 +44,19 @@ public class DeviceLifecycleManager
     public HidppDevice CreateDevice(byte deviceIdx)
     {
         var device = new HidppDevice(_parent, deviceIdx, _keepPollingWithEvents, _batteryEventDelaySeconds);
-        _devices[deviceIdx] = device;
+
+        lock (_devices)
+        {
+            _devices[deviceIdx] = device;
+
+            // Check if we've reached expected count during enumeration
+            if (_enumerationCompletion != null && Count >= _expectedDeviceCount)
+            {
+                _enumerationCompletion.TrySetResult(Count);
+                _enumerationCompletion = null;
+            }
+        }
+
         return device;
     }
 
@@ -91,6 +107,28 @@ public class DeviceLifecycleManager
     public int Count => _devices.Count;
 
     /// <summary>
+    /// Sets the expected device count for enumeration and the completion source to signal.
+    /// Used for event-driven device enumeration synchronization.
+    /// </summary>
+    /// <param name="count">Expected number of devices to announce</param>
+    /// <param name="completion">TaskCompletionSource to signal when expected count is reached</param>
+    public void SetExpectedDeviceCount(int count, TaskCompletionSource<int> completion)
+    {
+        lock (_devices)
+        {
+            _expectedDeviceCount = count;
+            _enumerationCompletion = completion;
+
+            // Check if we've already reached the count (race condition edge case)
+            if (Count >= _expectedDeviceCount)
+            {
+                _enumerationCompletion.TrySetResult(Count);
+                _enumerationCompletion = null;
+            }
+        }
+    }
+
+    /// <summary>
     /// Disposes all devices in the collection and clears the collection.
     /// Called during HidppReceiver disposal to ensure proper cleanup.
     /// </summary>
@@ -98,6 +136,11 @@ public class DeviceLifecycleManager
     {
         lock (_devices)
         {
+            // Complete any pending enumeration with current count
+            _enumerationCompletion?.TrySetResult(Count);
+            _enumerationCompletion = null;
+            _expectedDeviceCount = 0;
+
             foreach (var device in _devices.Values)
             {
                 device.Dispose();
