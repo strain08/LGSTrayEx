@@ -216,12 +216,19 @@ public class HidppDevice : IDisposable
             try
             {
                 var enableCmd = Hidpp10Commands.EnableBatteryReports(DeviceIdx);
-                await Parent.WriteRead10(Parent.DevShort, enableCmd, timeout: 1000);
-                DiagnosticLogger.Log($"[{DeviceName}] Battery events enabled");
+                var ret = await Parent.WriteRead10(Parent.DevShort, enableCmd, timeout: 1000);
+                if (ret.Length == 0)
+                {
+                    DiagnosticLogger.Log($"[{DeviceName}] EnableBatteryReports not supported (modern device - events enabled by default)");
+                }
+                else
+                {
+                    DiagnosticLogger.Log($"[{DeviceName}] Battery events enabled via HID++ 1.0 command");
+                }
             }
             catch (Exception ex)
             {
-                DiagnosticLogger.LogWarning($"[{DeviceName}] Failed to enable battery events (device may not support): {ex.Message}");
+                DiagnosticLogger.LogWarning($"[{DeviceName}] Exception enabling battery events: {ex.Message}");
                 // Non-fatal - device will fall back to polling
             }
         }
