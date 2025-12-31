@@ -381,18 +381,18 @@ public class HidppDevice : IDisposable
             return false;
         }
 
-        // TODO: Consider validating the batteryUpdate value here using similar logic to the polling update
-
         var batStatus = batteryUpdate.Value;
 
         // Exceptional battery event, skip publish (some devices send spurious events)
-        if (batStatus.batteryPercentage == 15)
-        {
-            DiagnosticLogger.Log($"[{DeviceName}] Exceptional battery event detected (Charging at 15%), skipping update publish");
-            DiagnosticLogger.Log($"[{DeviceName}] Exceptional battery event message: {message}");
-            return true;
+        // :: band-aid fix disabled for now as we improved IsBatteryEvent
 
-        }
+        //if (batStatus.batteryPercentage == 15)
+        //{
+        //    DiagnosticLogger.Log($"[{DeviceName}] Exceptional battery event detected (Charging at 15%), skipping update publish");
+        //    DiagnosticLogger.Log($"[{DeviceName}] Exceptional battery event message: {message}");
+        //    return true;
+
+        //}
 
         // Check if we're in the delay window after device ON (ignore EVENT data during this period)
         if (_batteryEventDelaySeconds > 0 && _deviceOnTime != DateTimeOffset.MinValue)

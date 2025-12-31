@@ -1,4 +1,6 @@
-﻿namespace LGSTrayHID.Protocol;
+﻿using System.Diagnostics.Metrics;
+
+namespace LGSTrayHID.Protocol;
 
 public readonly struct Hidpp20
 {
@@ -56,10 +58,17 @@ public readonly struct Hidpp20
     /// 1. Function ID is 0x00 (BATTERY_STATUS_BROADCAST)
     /// 2. Not matched to a pending WriteRead20 request (caller's responsibility)
     /// 3. Feature index matches a known battery feature (0x1000, 0x1001, 0x1004)
+    /// 
+    /// Critical Requirements
+    /// 1. Always Use Non-Zero Software ID
+    ///  - Never use 0x00 in requests
+    ///  - Recommended: Use 0x01 or incrementing counter(0x01-0x0F)
+    ///  - Device events always have Software ID = 0x00
     /// </remarks>
     public bool IsBatteryEvent(byte featureIndex) =>
                     GetFeatureIndex() == featureIndex && 
-                    GetFunctionId() == BatteryEventFunction.BATTERY_STATUS_BROADCAST;
+                    GetFunctionId() == BatteryEventFunction.BATTERY_STATUS_BROADCAST && 
+                    GetSoftwareId() == 0x00;
 
     /// <summary>
     /// Check if this is a DJ protocol notification (not HID++ message).
