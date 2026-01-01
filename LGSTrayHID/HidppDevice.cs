@@ -67,58 +67,20 @@ public class HidppDevice : IDisposable
             Hidpp20 ret;
 
             // Sync Ping with retry logic for sleeping devices
-            // Use exponential backoff for device initialization
-            var backoff = GlobalSettings.InitBackoff;
-            bool pingSuccess = false;
-            int lastSuccessCount = 0;
+            // Requires 3 consecutive successful pings with exponential backoff
+            DiagnosticLogger.Log($"Starting ping test for HID device index {DeviceIdx}");
 
-            await foreach (var attempt in backoff.GetAttemptsAsync(_cancellationSource.Token))
+            bool pingSuccess = await Parent.PingUntilConsecutiveSuccess(
+                deviceId: DeviceIdx,
+                successThreshold: 3,
+                maxPingsPerAttempt: 10,
+                backoffStrategy: GlobalSettings.InitBackoff,
+                cancellationToken: _cancellationSource.Token);
+
+            if (!pingSuccess)
             {
-                // Add delay before retry attempts (not on first attempt)
-                if (attempt.AttemptNumber > 1)
-                {
-                    DiagnosticLogger.Log($"Retrying HID device index {DeviceIdx} after {attempt.Delay.TotalMilliseconds}ms delay (attempt {attempt.AttemptNumber}/{backoff.MaxAttempts})");
-                    await Task.Delay(attempt.Delay, _cancellationSource.Token);
-                }
-
-                // Ping test with progressive timeout
-                int successCount = 0;
-                const int successThresh = 3;
-                DiagnosticLogger.Log($"Starting ping test for HID device index {DeviceIdx} (timeout: {attempt.Timeout.TotalMilliseconds}ms)");
-
-                for (int i = 0; i < 10; i++)
-                {
-                    var ping = await Parent.Ping20(DeviceIdx, (int)attempt.Timeout.TotalMilliseconds);
-                    if (ping)
-                    {
-                        successCount++;
-                    }
-                    else
-                    {
-                        successCount = 0;
-                    }
-
-                    if (successCount >= successThresh)
-                    {
-                        pingSuccess = true;
-                        break;
-                    }
-                }
-
-                lastSuccessCount = successCount;
-
-                // Success - break out of retry loop
-                if (pingSuccess)
-                {
-                    break;
-                }
-
-                // Log result if this is the last attempt and still failing
-                if (attempt.AttemptNumber == backoff.MaxAttempts)
-                {
-                    DiagnosticLogger.LogWarning($"HID device index {DeviceIdx} failed ping test after {backoff.MaxAttempts} attempts ({lastSuccessCount}/{successThresh} successes)");
-                    return;
-                }
+                DiagnosticLogger.LogWarning($"HID device index {DeviceIdx} failed ping test after {GlobalSettings.InitBackoff.MaxAttempts} attempts");
+                return;
             }
 
             DiagnosticLogger.Log($"HID device index {DeviceIdx} passed ping test");

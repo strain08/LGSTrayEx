@@ -201,6 +201,70 @@ public class HidppReceiver : IDisposable
     }
 
     /// <summary>
+    /// Pings a device until achieving the required number of consecutive successful pings.
+    /// Uses exponential backoff between retry attempts with progressive timeout.
+    /// </summary>
+    /// <param name="deviceId">The device index to ping (1-6 for receiver slots)</param>
+    /// <param name="successThreshold">Number of consecutive successful pings required (default: 3)</param>
+    /// <param name="maxPingsPerAttempt">Maximum ping attempts per retry iteration (default: 10)</param>
+    /// <param name="backoffStrategy">Backoff strategy for retry delays and progressive timeout</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>True if the device achieved consecutive successes; false if all retries exhausted</returns>
+    public async Task<bool> PingUntilConsecutiveSuccess(
+        byte deviceId,
+        int successThreshold = 3,
+        int maxPingsPerAttempt = 10,
+        LGSTrayPrimitives.Retry.BackoffStrategy? backoffStrategy = null,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposeCount > 0, this);
+
+        // If no backoff strategy provided, do single attempt with default timeout
+        if (backoffStrategy == null)
+        {
+            int consecutiveSuccesses = 0;
+            for (int i = 0; i < maxPingsPerAttempt; i++)
+            {
+                bool success = await Ping20(deviceId, timeout: 100);
+                consecutiveSuccesses = success ? consecutiveSuccesses + 1 : 0;
+
+                if (consecutiveSuccesses >= successThreshold)
+                    return true;
+            }
+            return false;
+        }
+
+        // Execute with retry logic using backoff strategy
+        await foreach (var attempt in backoffStrategy.GetAttemptsAsync(cancellationToken))
+        {
+            // Add delay before retry attempts (not on first attempt)
+            if (attempt.AttemptNumber > 1)
+            {
+                await Task.Delay(attempt.Delay, cancellationToken);
+            }
+
+            // Try to achieve consecutive successful pings with progressive timeout
+            int consecutiveSuccesses = 0;
+            for (int i = 0; i < maxPingsPerAttempt; i++)
+            {
+                bool success = await Ping20(deviceId, timeout: (int)attempt.Timeout.TotalMilliseconds);
+                consecutiveSuccesses = success ? consecutiveSuccesses + 1 : 0;
+
+                // Success - achieved required consecutive pings
+                if (consecutiveSuccesses >= successThreshold)
+                {
+                    return true;
+                }
+            }
+
+            // Failed this attempt - will retry with longer delay/timeout
+        }
+
+        // All retry attempts exhausted
+        return false;
+    }
+
+    /// <summary>
     /// Enables receiver-level notifications for device connection/disconnection events.
     /// Sends EnableBatteryReports (0x00) and EnableAllReports (0x0F) to receiver (0xFF).
     /// Non-fatal - continues initialization if this fails.
