@@ -84,18 +84,18 @@ verbose = false
 [Backoff.Init]
 # Device initialization retry settings
 # Progressive backoff with 60s max delay cap
-initialDelayMs = 500      # 2s - delay before second attempt
-maxDelayMs = 60000         # 60s - maximum delay cap
-initialTimeoutMs = 500    # 1s - timeout for first attempt
-maxTimeoutMs = 5000        # 5s - maximum timeout cap
+initialDelayMs = 1000      # 1s - delay before second attempt
+maxDelayMs = 60_000        # 60s - maximum delay cap
+initialTimeoutMs = 100     # 1s - timeout for first attempt
+maxTimeoutMs = 5_000       # 5s - maximum timeout cap
 multiplier = 2.0           # Exponential multiplier (doubling)
 maxAttempts = 10           # Maximum retry attempts
 
 [Backoff.Battery]
 # Battery query retry settings
 # Quick retry with lower delay cap
-initialDelayMs = 0         # No delay on first retry
-maxDelayMs = 10000         # 10s - maximum delay cap
+initialDelayMs = 2000      # 2s delay on first retry
+maxDelayMs = 10_000        # 10s - maximum delay cap
 initialTimeoutMs = 1000    # 1s - timeout for first attempt
 maxTimeoutMs = 5000        # 5s - maximum timeout cap
 multiplier = 2.0           # Exponential multiplier (doubling)
@@ -105,7 +105,7 @@ maxAttempts = 3            # Quick retry (3 attempts total)
 # Device metadata retrieval retry settings
 # Moderate backoff for sleeping devices
 initialDelayMs = 500       # 500ms - delay before second attempt
-maxDelayMs = 30000         # 30s - maximum delay cap
+maxDelayMs = 5_000         # 5s - maximum delay cap
 initialTimeoutMs = 100     # 500ms - timeout for first attempt
 maxTimeoutMs = 3000        # 3s - maximum timeout cap
 multiplier = 2.0           # Exponential multiplier (doubling)
@@ -115,8 +115,8 @@ maxAttempts = 5            # Moderate retry attempts
 # Feature enumeration retry settings
 # Moderate retry for slow devices
 initialDelayMs = 1000      # 1s - delay before second attempt
-maxDelayMs = 30000         # 30s - maximum delay cap
-initialTimeoutMs = 100    # 1s - timeout for first attempt
+maxDelayMs = 5_000         # 5s - maximum delay cap
+initialTimeoutMs = 100     # 1s - timeout for first attempt
 maxTimeoutMs = 5000        # 5s - maximum timeout cap
 multiplier = 2.0           # Exponential multiplier (doubling)
 maxAttempts = 3            # Quick retry for each feature
@@ -124,6 +124,7 @@ maxAttempts = 3            # Quick retry for each feature
 [Backoff.Ping]
 # Ping operation retry settings
 # Fast retry with short timeouts
+# :: NOT YET IMPLEMENTED ::
 initialDelayMs = 500       # 100ms - delay before second attempt
 maxDelayMs = 5000          # 5s - maximum delay cap
 initialTimeoutMs = 500     # 100ms - timeout for first attempt

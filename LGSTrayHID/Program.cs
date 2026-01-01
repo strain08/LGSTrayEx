@@ -1,5 +1,6 @@
 ﻿using LGSTrayPrimitives;
 using LGSTrayPrimitives.IPC;
+using LGSTrayPrimitives.Retry;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -13,11 +14,11 @@ internal static class GlobalSettings
     public static NativeDeviceManagerSettings settings = new();
 
     // Backoff strategies for retry operations
-    public static LGSTrayPrimitives.Retry.BackoffStrategy InitBackoff = BackoffProfile.DefaultInit.ToStrategy();
-    public static LGSTrayPrimitives.Retry.BackoffStrategy BatteryBackoff = BackoffProfile.DefaultBattery.ToStrategy();
-    public static LGSTrayPrimitives.Retry.BackoffStrategy MetadataBackoff = BackoffProfile.DefaultMetadata.ToStrategy();
-    public static LGSTrayPrimitives.Retry.BackoffStrategy FeatureEnumBackoff = BackoffProfile.DefaultFeatureEnum.ToStrategy();
-    public static LGSTrayPrimitives.Retry.BackoffStrategy PingBackoff = BackoffProfile.DefaultPing.ToStrategy();
+    public static BackoffStrategy InitBackoff { get; set; } = BackoffProfile.DefaultInit.ToStrategy();
+    public static BackoffStrategy BatteryBackoff { get; set; } = BackoffProfile.DefaultBattery.ToStrategy();
+    public static BackoffStrategy MetadataBackoff { get; set; } = BackoffProfile.DefaultMetadata.ToStrategy();
+    public static BackoffStrategy FeatureEnumBackoff { get; set; } = BackoffProfile.DefaultFeatureEnum.ToStrategy();
+    public static BackoffStrategy PingBackoff { get; set; } = BackoffProfile.DefaultPing.ToStrategy();
 }
 
 internal class Program

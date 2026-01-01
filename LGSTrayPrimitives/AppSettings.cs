@@ -120,6 +120,7 @@ public class BackoffSettings
 
 public class BackoffProfile
 {
+    public required string Name { get; init; }
     public int InitialDelayMs { get; set; }
     public int MaxDelayMs { get; set; }
     public int InitialTimeoutMs { get; set; }
@@ -129,14 +130,65 @@ public class BackoffProfile
 
     /// <summary>
     /// Converts this profile to a BackoffStrategy instance.
+    /// Auto-corrects invalid configurations and logs warnings.
     /// </summary>
-    public Retry.BackoffStrategy ToStrategy() => new(
-        initialDelay: TimeSpan.FromMilliseconds(InitialDelayMs),
-        maxDelay: TimeSpan.FromMilliseconds(MaxDelayMs),
-        initialTimeout: TimeSpan.FromMilliseconds(InitialTimeoutMs),
-        maxTimeout: TimeSpan.FromMilliseconds(MaxTimeoutMs),
-        multiplier: Multiplier,
-        maxAttempts: MaxAttempts);
+    public Retry.BackoffStrategy ToStrategy()
+    {
+        // Validate and auto-correct configuration
+        int correctedMaxDelayMs = MaxDelayMs;
+        int correctedMaxTimeoutMs = MaxTimeoutMs;
+        bool hadErrors = false;
+
+        // Ensure maxDelay >= initialDelay
+        if (MaxDelayMs < InitialDelayMs)
+        {
+            correctedMaxDelayMs = InitialDelayMs;
+            DiagnosticLogger.LogWarning($"[BackoffProfile] Invalid config: maxDelayMs ({MaxDelayMs}) < initialDelayMs ({InitialDelayMs}). Auto-corrected to {correctedMaxDelayMs}ms.");
+            hadErrors = true;
+        }
+
+        // Ensure maxTimeout >= initialTimeout
+        if (MaxTimeoutMs < InitialTimeoutMs)
+        {
+            correctedMaxTimeoutMs = InitialTimeoutMs;
+            DiagnosticLogger.LogWarning($"[BackoffProfile] Invalid config: maxTimeoutMs ({MaxTimeoutMs}) < initialTimeoutMs ({InitialTimeoutMs}). Auto-corrected to {correctedMaxTimeoutMs}ms.");
+            hadErrors = true;
+        }
+
+        // Ensure multiplier > 1.0
+        double correctedMultiplier = Multiplier;
+        if (Multiplier <= 1.0)
+        {
+            correctedMultiplier = 2.0;
+            DiagnosticLogger.LogWarning($"[BackoffProfile] Invalid config: multiplier ({Multiplier}) <= 1.0. Auto-corrected to {correctedMultiplier}.");
+            hadErrors = true;
+        }
+
+        // Ensure maxAttempts >= 1
+        int correctedMaxAttempts = MaxAttempts;
+        if (MaxAttempts < 1)
+        {
+            correctedMaxAttempts = 1;
+            DiagnosticLogger.LogWarning($"[BackoffProfile] Invalid config: maxAttempts ({MaxAttempts}) < 1. Auto-corrected to {correctedMaxAttempts}.");
+            hadErrors = true;
+        }
+
+        if (hadErrors)
+        {
+            DiagnosticLogger.LogWarning("[BackoffProfile] Configuration errors detected and auto-corrected. Please review appsettings.toml [Backoff.*] sections.");
+        }
+
+        return new Retry.BackoffStrategy(
+            initialDelay: TimeSpan.FromMilliseconds(InitialDelayMs),
+            maxDelay: TimeSpan.FromMilliseconds(correctedMaxDelayMs),
+            initialTimeout: TimeSpan.FromMilliseconds(InitialTimeoutMs),
+            maxTimeout: TimeSpan.FromMilliseconds(correctedMaxTimeoutMs),
+            multiplier: correctedMultiplier
+        )
+        {
+            ProfileName = Name
+        };
+    }
 
     /// <summary>
     /// Default profile for device initialization.
@@ -144,6 +196,7 @@ public class BackoffProfile
     /// </summary>
     public static BackoffProfile DefaultInit => new()
     {
+        Name = "Init",
         InitialDelayMs = 2000,      // 2s
         MaxDelayMs = 60000,         // 60s cap
         InitialTimeoutMs = 1000,    // 1s
@@ -158,6 +211,7 @@ public class BackoffProfile
     /// </summary>
     public static BackoffProfile DefaultBattery => new()
     {
+        Name= "Battery",
         InitialDelayMs = 0,         // No delay on first retry
         MaxDelayMs = 10000,         // 10s cap
         InitialTimeoutMs = 1000,    // 1s
@@ -172,6 +226,7 @@ public class BackoffProfile
     /// </summary>
     public static BackoffProfile DefaultMetadata => new()
     {
+        Name= "Metadata",
         InitialDelayMs = 500,       // 500ms
         MaxDelayMs = 30000,         // 30s cap
         InitialTimeoutMs = 500,     // 500ms
@@ -186,6 +241,7 @@ public class BackoffProfile
     /// </summary>
     public static BackoffProfile DefaultFeatureEnum => new()
     {
+        Name= "FeatureEnum",
         InitialDelayMs = 1000,      // 1s
         MaxDelayMs = 30000,         // 30s cap
         InitialTimeoutMs = 1000,    // 1s
@@ -200,6 +256,7 @@ public class BackoffProfile
     /// </summary>
     public static BackoffProfile DefaultPing => new()
     {
+        Name= "Ping",
         InitialDelayMs = 100,       // 100ms
         MaxDelayMs = 5000,          // 5s cap
         InitialTimeoutMs = 100,     // 100ms

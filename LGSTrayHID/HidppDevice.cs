@@ -87,28 +87,32 @@ public class HidppDevice : IDisposable
 
             // Find IFeatureSet (0x0001) - get its feature index
             ret = await Parent.WriteRead20(Parent.DevShort,
-                Hidpp20Commands.GetFeatureIndex(DeviceIdx, HidppFeature.FEATURE_SET));
+                                           Hidpp20Commands.GetFeatureIndex(DeviceIdx, HidppFeature.FEATURE_SET),                                           
+                                           backoffStrategy: GlobalSettings.FeatureEnumBackoff);
             FeatureMap[HidppFeature.FEATURE_SET] = ret.GetParam(0);
 
             // Get Feature Count
             ret = await Parent.WriteRead20(Parent.DevShort,
-                Hidpp20Commands.GetFeatureCount(DeviceIdx, FeatureMap[HidppFeature.FEATURE_SET]));
+                                           Hidpp20Commands.GetFeatureCount(DeviceIdx, FeatureMap[HidppFeature.FEATURE_SET]),
+                                           backoffStrategy: GlobalSettings.FeatureEnumBackoff,
+                                           cancellationToken: _cancellationSource.Token);
             int featureCount = ret.GetParam(0);
 
             // Enumerate Features with retry logic
             for (byte i = 0; i <= featureCount; i++)
             {
                 // Query feature with retry (backoff strategy handles retries)
-                ret = await Parent.WriteRead20(
-                    Parent.DevShort,
-                    Hidpp20Commands.EnumerateFeature(DeviceIdx, FeatureMap[HidppFeature.FEATURE_SET], i),
-                    backoffStrategy: GlobalSettings.FeatureEnumBackoff,
-                    cancellationToken: _cancellationSource.Token);
+                ret = await Parent.WriteRead20(Parent.DevShort,
+                                               Hidpp20Commands.EnumerateFeature(DeviceIdx, FeatureMap[HidppFeature.FEATURE_SET], i),
+                                               backoffStrategy: GlobalSettings.FeatureEnumBackoff,
+                                               cancellationToken: _cancellationSource.Token);
 
                 // Check if we got a valid response after all retries
                 if (ret.Length == 0)
                 {
-                    DiagnosticLogger.LogWarning($"[Device {DeviceIdx}] Feature enumeration timeout at index {i} after {GlobalSettings.FeatureEnumBackoff.MaxAttempts} attempts, stopping enumeration");
+                    DiagnosticLogger.LogWarning($"[Device {DeviceIdx}] Feature enumeration timeout at index {i} " +
+                                                $"after {GlobalSettings.FeatureEnumBackoff.MaxAttempts} attempts, " +
+                                                $"stopping enumeration");
                     break;
                 }
 
@@ -168,7 +172,7 @@ public class HidppDevice : IDisposable
             else
             {
                 DiagnosticLogger.Log($"[{DeviceName}] Serial Number not supported by device firmware");
-                DiagnosticLogger.Log($"[{DeviceName}] Unit id: {fwInfo.UnitId} Model id: {fwInfo.ModelId}");
+                DiagnosticLogger.Log($"[{DeviceName}] UnitId: {fwInfo.UnitId} ModelId: {fwInfo.ModelId}");
             }
 
 
@@ -305,7 +309,8 @@ public class HidppDevice : IDisposable
                 {
                     _consecutivePollFailures++;
                     var retryDelay = GlobalSettings.BatteryBackoff.GetDelay(_consecutivePollFailures);
-                    DiagnosticLogger.Log($"[{DeviceName}] Adding {retryDelay.TotalSeconds}s retry delay after failure (consecutive failures: {_consecutivePollFailures})");
+                    DiagnosticLogger.Log($"[{DeviceName}] Adding {retryDelay.TotalSeconds}s retry delay after failure " +
+                                         $"(consecutive failures: {_consecutivePollFailures})");
                     await Task.Delay(retryDelay, linkedToken);
                 }
             }

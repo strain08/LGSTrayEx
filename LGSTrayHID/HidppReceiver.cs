@@ -4,6 +4,7 @@ using LGSTrayHID.Lifecycle;
 using LGSTrayHID.Protocol;
 using LGSTrayHID.Routing;
 using LGSTrayPrimitives;
+using LGSTrayPrimitives.Retry;
 using System.Threading.Channels;
 
 namespace LGSTrayHID;
@@ -130,7 +131,7 @@ public class HidppReceiver : IDisposable
         Hidpp20 buffer,
         int timeout = 100,
         bool ignoreHID10 = true,
-        LGSTrayPrimitives.Retry.BackoffStrategy? backoffStrategy = null,
+        BackoffStrategy? backoffStrategy = null,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposeCount > 0, this);
@@ -147,14 +148,16 @@ public class HidppReceiver : IDisposable
                 timeout: timeout,
                 earlyExit: ignoreHID10 ? null : response => response.IsError()
             );
-        }
-
+        }        
         // Execute with retry logic using backoff strategy
         Hidpp20? result = null;
         await foreach (var attempt in backoffStrategy.GetAttemptsAsync(cancellationToken))
         {
             if (attempt.AttemptNumber > 1)
             {
+                DiagnosticLogger.Log($"//{backoffStrategy.ProfileName}// retry attempt {attempt.AttemptNumber} " +                                     
+                                     $"with timeout {attempt.Timeout.TotalMilliseconds} " +
+                                     $"after delay {attempt.Delay.TotalMilliseconds} ms");
                 await Task.Delay(attempt.Delay, cancellationToken);
             }
 
@@ -214,7 +217,8 @@ public class HidppReceiver : IDisposable
         byte deviceId,
         int successThreshold = 3,
         int maxPingsPerAttempt = 10,
-        LGSTrayPrimitives.Retry.BackoffStrategy? backoffStrategy = null,
+        bool ignoreHIDPP10 = true,
+        BackoffStrategy? backoffStrategy = null,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposeCount > 0, this);
@@ -225,7 +229,7 @@ public class HidppReceiver : IDisposable
             int consecutiveSuccesses = 0;
             for (int i = 0; i < maxPingsPerAttempt; i++)
             {
-                bool success = await Ping20(deviceId, timeout: 100);
+                bool success = await Ping20(deviceId, timeout: 100, ignoreHIDPP10);
                 consecutiveSuccesses = success ? consecutiveSuccesses + 1 : 0;
 
                 if (consecutiveSuccesses >= successThreshold)

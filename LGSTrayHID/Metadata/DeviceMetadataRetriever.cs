@@ -19,7 +19,8 @@ public static class DeviceMetadataRetriever
     {
         // Get device name length
         var ret = await device.Parent.WriteRead20(device.Parent.DevShort,
-            Hidpp20Commands.GetDeviceNameLength(device.DeviceIdx, featureIndex));
+                                                  Hidpp20Commands.GetDeviceNameLength(device.DeviceIdx, featureIndex), 
+                                                  backoffStrategy: GlobalSettings.MetadataBackoff);
 
         if (ret.Length == 0)
         {
@@ -34,7 +35,8 @@ public static class DeviceMetadataRetriever
         while (name.Length < nameLength)
         {
             ret = await device.Parent.WriteRead20(device.Parent.DevShort,
-                Hidpp20Commands.GetDeviceNameChunk(device.DeviceIdx, featureIndex, (byte)name.Length));
+                                                  Hidpp20Commands.GetDeviceNameChunk(device.DeviceIdx, featureIndex, (byte)name.Length), 
+                                                  backoffStrategy: GlobalSettings.MetadataBackoff);
 
             if (ret.Length == 0)
             {
@@ -56,7 +58,8 @@ public static class DeviceMetadataRetriever
     public static async Task<int> GetDeviceTypeAsync(HidppDevice device, byte featureIndex)
     {
         var ret = await device.Parent.WriteRead20(device.Parent.DevShort,
-            Hidpp20Commands.GetDeviceType(device.DeviceIdx, featureIndex));
+                                                  Hidpp20Commands.GetDeviceType(device.DeviceIdx, featureIndex),
+                                                  backoffStrategy: GlobalSettings.MetadataBackoff);
 
         if (ret.Length == 0)
         {
@@ -80,7 +83,8 @@ public static class DeviceMetadataRetriever
     public static async Task<FirmwareInfo> GetFirmwareInfoAsync(HidppDevice device, byte featureIndex)
     {
         var ret = await device.Parent.WriteRead20(device.Parent.DevShort,
-            Hidpp20Commands.GetDeviceFwInfo(device.DeviceIdx, featureIndex));
+                                                  Hidpp20Commands.GetDeviceFwInfo(device.DeviceIdx, featureIndex),
+                                                  backoffStrategy: GlobalSettings.MetadataBackoff);
 
         if (ret.Length == 0 || ret.GetParams().Length < 15)
         {
@@ -103,7 +107,8 @@ public static class DeviceMetadataRetriever
     public static async Task<string> GetSerialNumberAsync(HidppDevice device, byte featureIndex)
     {
         var ret = await device.Parent.WriteRead20(device.Parent.DevShort,
-            Hidpp20Commands.GetSerialNumber(device.DeviceIdx, featureIndex));
+                                                  Hidpp20Commands.GetSerialNumber(device.DeviceIdx, featureIndex),
+                                                  backoffStrategy: GlobalSettings.MetadataBackoff);
 
         if (ret.Length == 0 || ret.GetParams().Length < 11)
         {

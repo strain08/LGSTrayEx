@@ -14,6 +14,7 @@ public record BackoffAttempt(int AttemptNumber, TimeSpan Delay, TimeSpan Timeout
 /// </summary>
 public class BackoffStrategy
 {
+    public required string ProfileName{ get; init; }
     /// <summary>
     /// Initial delay before the second attempt (first retry).
     /// First attempt has zero delay.
