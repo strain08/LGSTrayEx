@@ -14,7 +14,7 @@ public class DeviceEnumerator
     private readonly HidppReceiver _parent;
     private readonly DeviceLifecycleManager _lifecycleManager;
     private const int FALLBACK_DELAY = 2000;
-    private const int PING_ENUMERATE_DELAY = 2000;
+    private const int PING_TIMEOUT = 2000;
 
     public DeviceEnumerator(HidppReceiver parent, DeviceLifecycleManager lifecycleManager)
     {
@@ -133,21 +133,29 @@ public class DeviceEnumerator
         // Ping device indices 1-6 (standard receiver slots)
         for (byte i = 1; i <= 6; i++)
         {
-            bool pingSuccess = await _parent.Ping20(i, PING_ENUMERATE_DELAY, ignoreHIDPP10: false);
+            try
+            {                
+                bool pingSuccess = await _parent.Ping20(i, PING_TIMEOUT, ignoreHIDPP10: false);            
 
-            if (pingSuccess)
+                if (pingSuccess)
+                {
+                    // Check if device already exists (from Device ON event)
+                    if (!_lifecycleManager.TryGetDevice(i, out _))
+                    {
+                        DiagnosticLogger.Log($"Fallback discovered new device at index {i}");
+                        var device = _lifecycleManager.CreateDevice(i);
+                        devicesToInitialize.Add(device);
+                    }
+                    else
+                    {
+                        DiagnosticLogger.Log($"Device {i} already exists (from Device ON event), skipping fallback init");
+                    }
+                }
+            }
+            catch (Exception ex)
             {
-                // Check if device already exists (from Device ON event)
-                if (!_lifecycleManager.TryGetDevice(i, out _))
-                {
-                    DiagnosticLogger.Log($"Fallback discovered new device at index {i}");
-                    var device = _lifecycleManager.CreateDevice(i);
-                    devicesToInitialize.Add(device);
-                }
-                else
-                {
-                    DiagnosticLogger.Log($"Device {i} already exists (from Device ON event), skipping fallback init");
-                }
+                DiagnosticLogger.LogError($"Ping to device index {i} failed: {ex.Message} {ex.Source}");
+                break;
             }
         }
 
