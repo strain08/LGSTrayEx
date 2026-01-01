@@ -125,19 +125,58 @@ public class HidppReceiver : IDisposable
     /// such an error is received. The default is <see langword="true"/>.</param>
     /// <returns>A task that represents the asynchronous operation. The task result contains the HID++ 2.0 response message from
     /// the device.</returns>
-    public async Task<Hidpp20> WriteRead20(HidDevicePtr hidDevicePtr, Hidpp20 buffer, int timeout = 100, bool ignoreHID10 = true)
+    public async Task<Hidpp20> WriteRead20(
+        HidDevicePtr hidDevicePtr,
+        Hidpp20 buffer,
+        int timeout = 100,
+        bool ignoreHID10 = true,
+        LGSTrayPrimitives.Retry.BackoffStrategy? backoffStrategy = null,
+        CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposeCount > 0, this);
 
-        return await _correlator.SendHidpp20AndWaitAsync(
-            hidDevicePtr,
-            buffer,
-            matcher: response => (response.GetFeatureIndex() == buffer.GetFeatureIndex()) &&
-                                 (response.GetDeviceIdx() == buffer.GetDeviceIdx()) &&
-                                 (response.GetSoftwareId() == HidppSoftwareId.DEFAULT),
-            timeout: timeout,
-            earlyExit: ignoreHID10 ? null : response => response.IsError()
-        );
+        // If no backoff strategy provided, execute single attempt with specified timeout
+        if (backoffStrategy == null)
+        {
+            return await _correlator.SendHidpp20AndWaitAsync(
+                hidDevicePtr,
+                buffer,
+                matcher: response => (response.GetFeatureIndex() == buffer.GetFeatureIndex()) &&
+                                     (response.GetDeviceIdx() == buffer.GetDeviceIdx()) &&
+                                     (response.GetSoftwareId() == HidppSoftwareId.DEFAULT),
+                timeout: timeout,
+                earlyExit: ignoreHID10 ? null : response => response.IsError()
+            );
+        }
+
+        // Execute with retry logic using backoff strategy
+        Hidpp20? result = null;
+        await foreach (var attempt in backoffStrategy.GetAttemptsAsync(cancellationToken))
+        {
+            if (attempt.AttemptNumber > 1)
+            {
+                await Task.Delay(attempt.Delay, cancellationToken);
+            }
+
+            result = await _correlator.SendHidpp20AndWaitAsync(
+                hidDevicePtr,
+                buffer,
+                matcher: response => (response.GetFeatureIndex() == buffer.GetFeatureIndex()) &&
+                                     (response.GetDeviceIdx() == buffer.GetDeviceIdx()) &&
+                                     (response.GetSoftwareId() == HidppSoftwareId.DEFAULT),
+                timeout: (int)attempt.Timeout.TotalMilliseconds,
+                earlyExit: ignoreHID10 ? null : response => response.IsError()
+            );
+
+            // Success - got valid response
+            if (result?.Length > 0)
+            {
+                break;
+            }
+        }
+
+        // Return result (empty if all retries failed)
+        return result ?? new Hidpp20();
     }
 
     public async Task<bool> Ping20(byte deviceId, int timeout = 100, bool ignoreHIDPP10 = true)

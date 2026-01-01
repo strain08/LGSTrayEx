@@ -134,38 +134,23 @@ public class HidppDevice : IDisposable
             int featureCount = ret.GetParam(0);
 
             // Enumerate Features with retry logic
-            var featureBackoff = GlobalSettings.FeatureEnumBackoff;
             for (byte i = 0; i <= featureCount; i++)
             {
-                Hidpp20? enumResult = null;
-
-                // Retry feature enumeration with exponential backoff
-                await foreach (var attempt in featureBackoff.GetAttemptsAsync(_cancellationSource.Token))
-                {
-                    if (attempt.AttemptNumber > 1)
-                    {
-                        await Task.Delay(attempt.Delay, _cancellationSource.Token);
-                    }
-
-                    enumResult = await Parent.WriteRead20(Parent.DevShort,
-                        Hidpp20Commands.EnumerateFeature(DeviceIdx, FeatureMap[HidppFeature.FEATURE_SET], i),
-                        (int)attempt.Timeout.TotalMilliseconds);
-
-                    // Success - got valid response
-                    if (enumResult?.Length > 0)
-                    {
-                        break;
-                    }
-                }
+                // Query feature with retry (backoff strategy handles retries)
+                ret = await Parent.WriteRead20(
+                    Parent.DevShort,
+                    Hidpp20Commands.EnumerateFeature(DeviceIdx, FeatureMap[HidppFeature.FEATURE_SET], i),
+                    backoffStrategy: GlobalSettings.FeatureEnumBackoff,
+                    cancellationToken: _cancellationSource.Token);
 
                 // Check if we got a valid response after all retries
-                if (enumResult?.Length == 0 || enumResult == null)
+                if (ret.Length == 0)
                 {
-                    DiagnosticLogger.LogWarning($"[Device {DeviceIdx}] Feature enumeration timeout at index {i} after {featureBackoff.MaxAttempts} attempts, stopping enumeration");
+                    DiagnosticLogger.LogWarning($"[Device {DeviceIdx}] Feature enumeration timeout at index {i} after {GlobalSettings.FeatureEnumBackoff.MaxAttempts} attempts, stopping enumeration");
                     break;
                 }
 
-                ushort featureId = enumResult.Value.GetFeatureId();
+                ushort featureId = ret.GetFeatureId();
 
                 FeatureMap[featureId] = i;
 
