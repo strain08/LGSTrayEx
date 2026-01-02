@@ -111,9 +111,11 @@ public class HidMessageChannel : IDisposable
     /// </summary>
     private static void LogRawMessage(byte[] buffer, int bytesRead, int bufferSize)
     {
-        string hex = string.Join(" ", buffer.Take(Math.Min(7, bytesRead)).Select(b => $"{b:X02}"));
-        if (buffer[0] != 0x10 || buffer[2] != 0x00) // Skip common ping responses
+        // Skip common ping responses AND check if verbose enabled before allocating
+        if ((buffer[0] != 0x10 || buffer[2] != 0x00) && DiagnosticLogger.IsVerboseEnabled)
         {
+            // Only allocate string if we're actually going to log it
+            string hex = string.Join(" ", buffer.Take(Math.Min(7, bytesRead)).Select(b => $"{b:X02}"));
             DiagnosticLogger.Verbose($"DEBUG RAW [{bufferSize}b]: {hex}");
         }
     }
