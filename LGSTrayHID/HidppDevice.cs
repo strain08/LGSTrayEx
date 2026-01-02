@@ -249,7 +249,8 @@ public class HidppDevice : IDisposable
         await UpdateBattery();
 
         // Start battery polling loop with cancellation support
-        _pollingTask = Task.Run(PollBattery, _cancellationSource.Token);
+        // Pass pooling token as parameter to avoid disposal race
+        _pollingTask = Task.Run(() => PollBattery(_poolingCts.Token), _cancellationSource.Token);
 
     }
 
@@ -269,9 +270,11 @@ public class HidppDevice : IDisposable
     /// <summary>
     /// Poll the battery status at regular intervals defined in settings
     /// </summary>
-    private async Task PollBattery()
+    /// <param name="poolingToken">Cancellation token for stopping polling operations</param>
+    private async Task PollBattery(CancellationToken poolingToken)
     {
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationSource.Token, _poolingCts.Token);
+        // Token is captured at Task.Run() call time, preventing disposal race
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationSource.Token, poolingToken);
         var linkedToken = linkedCts.Token;
 
         var pollInterval = GetPollInterval();
@@ -474,11 +477,15 @@ public class HidppDevice : IDisposable
                 {
                     try
                     {
-                        // Wait up to 5 seconds for task to exit gracefully
-                        bool completed = _pollingTask.Wait(TimeSpan.FromSeconds(5));
+                        // Wait up to 10 seconds for task to exit gracefully (increased for safer disposal)
+                        bool completed = _pollingTask.Wait(TimeSpan.FromSeconds(10));
                         if (!completed)
                         {
-                            DiagnosticLogger.LogWarning($"[{DeviceName}] Battery polling task did not exit within timeout");
+                            DiagnosticLogger.LogWarning($"[{DeviceName}] Battery polling task did not exit within 10s timeout");
+                        }
+                        else
+                        {
+                            DiagnosticLogger.Log($"[{DeviceName}] Battery polling task exited successfully");
                         }
                     }
                     catch (Exception ex)
