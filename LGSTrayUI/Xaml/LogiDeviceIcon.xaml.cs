@@ -46,7 +46,19 @@ public partial class LogiDeviceIcon : UserControl, IDisposable
         {
             if (disposing)
             {
-                // Unsubscribe from static event to prevent memory leak
+                // Unsubscribe from all event handlers to prevent memory leaks
+                if (_subscribedDevice != null)
+                {
+                    _subscribedDevice.PropertyChanged -= LogiDevicePropertyChanged;
+                    _subscribedDevice = null;
+                }
+
+                if (_subscribedSettings != null)
+                {
+                    _subscribedSettings.PropertyChanged -= NotifyIconViewModelPropertyChanged;
+                    _subscribedSettings = null;
+                }
+
                 if (_themeChangedHandler != null)
                 {
                     CheckTheme.StaticPropertyChanged -= _themeChangedHandler;
@@ -103,6 +115,10 @@ public partial class LogiDeviceIcon : UserControl, IDisposable
     private Action<TaskbarIcon, LogiDevice> _drawBatteryIcon;
     private PropertyChangedEventHandler? _themeChangedHandler;
 
+    // Store references to subscribed objects for later unsubscription
+    private LogiDevice? _subscribedDevice;
+    private UserSettingsWrapper? _subscribedSettings;
+
     public LogiDeviceIcon(LogiDevice device, AppSettings appSettings, UserSettingsWrapper userSettings)
     {
         InitializeComponent();
@@ -113,6 +129,10 @@ public partial class LogiDeviceIcon : UserControl, IDisposable
         AddRef();
 
         DataContext = device;
+
+        // Store references for later unsubscription (prevents memory leaks)
+        _subscribedDevice = device;
+        _subscribedSettings = userSettings;
 
         device.PropertyChanged += LogiDevicePropertyChanged;
         userSettings.PropertyChanged += NotifyIconViewModelPropertyChanged;

@@ -365,6 +365,9 @@ public class LogiDeviceCollection : ILogiDeviceCollection,
             device.IsChecked = false;
         }
 
+        // Dispose the ViewModel to clean up event subscriptions (prevents memory leak)
+        device.Dispose();
+
         // Note: With signature-based matching, we preserve settings for ALL disconnect reasons
         // Settings are only removed when user manually unchecks the device
         // This allows devices to seamlessly reconnect with new IDs (GHUB) or after being offline

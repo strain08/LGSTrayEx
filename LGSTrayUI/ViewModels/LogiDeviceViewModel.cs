@@ -4,6 +4,7 @@ using LGSTrayPrimitives;
 using LGSTrayPrimitives.MessageStructs;
 using LGSTrayUI.Interfaces;
 using System;
+using System.ComponentModel;
 using System.Text;
 
 namespace LGSTrayUI;
@@ -26,9 +27,10 @@ public class LogiDeviceViewModelFactory
     }
 }
 
-public partial class LogiDeviceViewModel : LogiDevice
+public partial class LogiDeviceViewModel : LogiDevice, IDisposable
 {
     private readonly ILogiDeviceIconFactory _logiDeviceIconFactory;
+    private readonly PropertyChangedEventHandler _propertyChangedHandler;
 
     [ObservableProperty]
     private bool _isChecked = false;
@@ -40,32 +42,39 @@ public partial class LogiDeviceViewModel : LogiDevice
     private string _deviceSignature = string.Empty;
 
     private LogiDeviceIcon? taskbarIcon;
+    private string? _cachedDetailedTooltip;
 
     public LogiDeviceViewModel(ILogiDeviceIconFactory logiDeviceIconFactory)
     {
         _logiDeviceIconFactory = logiDeviceIconFactory;
 
         // Subscribe to property changes from base class to update computed properties
-        PropertyChanged += (sender, e) =>
+        // Store handler reference for later unsubscription (prevents memory leak)
+        _propertyChangedHandler = OnPropertyChangedInternal;
+        PropertyChanged += _propertyChangedHandler;
+    }
+
+    private void OnPropertyChangedInternal(object? sender, PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
         {
-            switch (e.PropertyName)
-            {
-                case nameof(DataSource):
-                    OnPropertyChanged(nameof(DataSourceDisplayName));
-                    OnPropertyChanged(nameof(BadgeLetter));
-                    OnPropertyChanged(nameof(DetailedMenuTooltip));
-                    break;
-                case nameof(DeviceName):
-                case nameof(DeviceId):
-                case nameof(DeviceSignature):
-                case nameof(BatteryPercentage):
-                case nameof(BatteryVoltage):
-                case nameof(BatteryMileage):
-                case nameof(LastUpdate):
-                    OnPropertyChanged(nameof(DetailedMenuTooltip));
-                    break;
-            }
-        };
+            case nameof(DataSource):
+                _cachedDetailedTooltip = null;  // Invalidate tooltip cache
+                OnPropertyChanged(nameof(DataSourceDisplayName));
+                OnPropertyChanged(nameof(BadgeLetter));
+                OnPropertyChanged(nameof(DetailedMenuTooltip));
+                break;
+            case nameof(DeviceName):
+            case nameof(DeviceId):
+            case nameof(DeviceSignature):
+            case nameof(BatteryPercentage):
+            case nameof(BatteryVoltage):
+            case nameof(BatteryMileage):
+            case nameof(LastUpdate):
+                _cachedDetailedTooltip = null;  // Invalidate tooltip cache
+                OnPropertyChanged(nameof(DetailedMenuTooltip));
+                break;
+        }
     }
 
     partial void OnIsCheckedChanged(bool oldValue, bool newValue)
@@ -135,31 +144,49 @@ public partial class LogiDeviceViewModel : LogiDevice
     };
 
     /// <summary>
-    /// Detailed tooltip for menu items
+    /// Detailed tooltip for menu items (cached for performance)
     /// </summary>
     public string DetailedMenuTooltip
     {
         get
         {
-            var sb = new StringBuilder();
-            sb.AppendLine($"Device: {DeviceName}");
-            sb.AppendLine($"Source: {DataSourceDisplayName}");
-            sb.AppendLine($"ID: {DeviceId}");
+            if (_cachedDetailedTooltip == null)
+            {
+                var sb = new StringBuilder();
+                sb.AppendLine($"Device: {DeviceName}");
+                sb.AppendLine($"Source: {DataSourceDisplayName}");
+                sb.AppendLine($"ID: {DeviceId}");
 
-            // Show signature for debugging/troubleshooting
-            if (!string.IsNullOrEmpty(DeviceSignature))
-                sb.AppendLine($"Signature: {DeviceSignature}");
+                // Show signature for debugging/troubleshooting
+                if (!string.IsNullOrEmpty(DeviceSignature))
+                    sb.AppendLine($"Signature: {DeviceSignature}");
 
-            if (LastUpdate != DateTimeOffset.MinValue)
-                sb.AppendLine($"Last Update: {LastUpdate:g}");
+                if (LastUpdate != DateTimeOffset.MinValue)
+                    sb.AppendLine($"Last Update: {LastUpdate:g}");
 
-            if (DataSource == DataSource.Native && BatteryVoltage > 0)
-                sb.AppendLine($"Voltage: {BatteryVoltage:F2}V");
+                if (DataSource == DataSource.Native && BatteryVoltage > 0)
+                    sb.AppendLine($"Voltage: {BatteryVoltage:F2}V");
 
-            if (DataSource == DataSource.GHub && BatteryMileage > 0)
-                sb.AppendLine($"Mileage: {BatteryMileage:F1}h");
+                if (DataSource == DataSource.GHub && BatteryMileage > 0)
+                    sb.AppendLine($"Mileage: {BatteryMileage:F1}h");
 
-            return sb.ToString().TrimEnd();
+                _cachedDetailedTooltip = sb.ToString().TrimEnd();
+            }
+
+            return _cachedDetailedTooltip;
+        }
+    }
+
+    public void Dispose()
+    {
+        // Unsubscribe from PropertyChanged event to prevent memory leak
+        PropertyChanged -= _propertyChangedHandler;
+
+        // Dispose icon if it was created
+        if (IsChecked)
+        {
+            taskbarIcon?.Dispose();
+            taskbarIcon = null;
         }
     }
 }
