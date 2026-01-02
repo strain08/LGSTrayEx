@@ -249,6 +249,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         Microsoft.Win32.SystemEvents.PowerModeChanged -= AppExtensions_PowerModeChanged;
+        AppDomain.CurrentDomain.UnhandledException -= CrashHandler;
 
         // Close power notification window (cleans up WndProc hook and unregisters notifications)
         _powerWindow?.Close();
