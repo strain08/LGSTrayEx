@@ -66,7 +66,8 @@ public class HidppReceiver : IDisposable
         _messageChannel.StartReading(DevShort, DevLong);
 
         // Wait for read threads to be ready before sending commands
-        await Task.Delay(500);
+        await _messageChannel.WaitUntilReadyAsync();
+        DiagnosticLogger.Log("HID read threads ready");
 
         // Note: DJ protocol (0x20/0x21) does not work with BOLT receivers.
         // BOLT uses HID++ 2.0 Feature 0x1D4B (Wireless Device Status) for connection events.
