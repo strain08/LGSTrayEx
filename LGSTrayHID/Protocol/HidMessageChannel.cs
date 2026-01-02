@@ -92,7 +92,13 @@ public class HidMessageChannel : IDisposable
 
             LogRawMessage(buffer, bytesRead, bufferSize);
 
-            await _router.RouteMessageAsync(buffer);
+            // Create a copy of the message to prevent data corruption
+            // Channel data  may be overwritten before being read by the router !
+            // as the router await only wait for the write to complete, not the read.
+            byte[] messageCopy = new byte[bytesRead];
+            Array.Copy(buffer, messageCopy, bytesRead);
+
+            await _router.RouteMessageAsync(messageCopy);
         }
 
         HidClose(device);
