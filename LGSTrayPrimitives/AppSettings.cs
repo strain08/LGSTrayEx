@@ -116,6 +116,7 @@ public class BackoffSettings
     public BackoffProfile Metadata { get; set; } = BackoffProfile.DefaultMetadata;
     public BackoffProfile FeatureEnum { get; set; } = BackoffProfile.DefaultFeatureEnum;
     public BackoffProfile Ping { get; set; } = BackoffProfile.DefaultPing;
+    public BackoffProfile ReceiverInit { get; set; } = BackoffProfile.DefaultReceiverInit;
 }
 
 public class BackoffProfile
@@ -263,5 +264,20 @@ public class BackoffProfile
         MaxTimeoutMs = 1000,        // 1s
         Multiplier = 2.0,
         MaxAttempts = 5
+    };
+
+    /// <summary>
+    /// Default profile for HID++ 1.0 receiver operations.
+    /// Quick retry for initialization commands (QueryDeviceCount, EnableAllReports).
+    /// </summary>
+    public static BackoffProfile DefaultReceiverInit => new()
+    {
+        Name = "ReceiverInit",
+        InitialDelayMs = 500,       // 500ms - delay before second attempt
+        MaxDelayMs = 5000,          // 5s cap - keep total time bounded
+        InitialTimeoutMs = 1000,    // 1s - standard HID++ 1.0 timeout
+        MaxTimeoutMs = 3000,        // 3s - allow more time on retries
+        Multiplier = 2.0,           // Standard exponential backoff
+        MaxAttempts = 3             // Quick retry (3 attempts total: ~9s max)
     };
 }

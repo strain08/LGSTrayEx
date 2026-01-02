@@ -63,7 +63,7 @@ public class DeviceEnumerator
             byte[] response = await _parent.WriteRead10(
                 _parent.DevShort,
                 Hidpp10Commands.QueryDeviceCount(),
-                1000
+                backoffStrategy: GlobalSettings.ReceiverInitBackoff
             );
 
             DiagnosticLogger.Log($"[QueryDeviceCount] Response: {BitConverter.ToString(response)} (Length={response.Length})");

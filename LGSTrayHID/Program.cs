@@ -19,6 +19,7 @@ internal static class GlobalSettings
     public static BackoffStrategy MetadataBackoff { get; set; } = BackoffProfile.DefaultMetadata.ToStrategy();
     public static BackoffStrategy FeatureEnumBackoff { get; set; } = BackoffProfile.DefaultFeatureEnum.ToStrategy();
     public static BackoffStrategy PingBackoff { get; set; } = BackoffProfile.DefaultPing.ToStrategy();
+    public static BackoffStrategy ReceiverInitBackoff { get; set; } = BackoffProfile.DefaultReceiverInit.ToStrategy();
 }
 
 internal class Program
@@ -56,6 +57,7 @@ internal class Program
         GlobalSettings.MetadataBackoff = backoffSettings.Metadata.ToStrategy();
         GlobalSettings.FeatureEnumBackoff = backoffSettings.FeatureEnum.ToStrategy();
         GlobalSettings.PingBackoff = backoffSettings.Ping.ToStrategy();
+        GlobalSettings.ReceiverInitBackoff = backoffSettings.ReceiverInit.ToStrategy();
 
         builder.Services.AddLGSMessagePipe();
         builder.Services.AddHostedService<HidppManagerService>();
