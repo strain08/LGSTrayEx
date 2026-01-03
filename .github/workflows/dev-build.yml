@@ -79,7 +79,7 @@ jobs:
 
           **Share link:** `https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.tag }}`
         files: |
-          publish/LGSTrayBattery-*.zip
+          ./bin/Release/publish/Release_v*.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
