@@ -14,6 +14,19 @@ jobs:
     # Checkout the code
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for branch verification
+
+    # Verify tag is on master branch
+    - name: Verify tag is on master
+      run: |
+        $branch = git branch -r --contains ${{ github.ref }} | Select-String -Pattern 'origin/master'
+        if (-not $branch) {
+          Write-Error "❌ Error: Tag ${{ github.ref_name }} is not on master branch. Releases must be created from master only."
+          exit 1
+        }
+        Write-Host "✅ Tag ${{ github.ref_name }} is on master branch. Proceeding with release..."
+      shell: pwsh
 
     # Setup .NET 9
     - name: Setup .NET
@@ -48,7 +61,7 @@ jobs:
         prerelease: false
         generate_release_notes: true  # Auto-generates changelog from commits
         files: |
-          publish/LGSTrayBattery-*.zip
+          ./bin/Release/publish/Release_v*.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -57,5 +70,5 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: release-packages
-        path: publish/LGSTrayBattery-*.zip
+        path: ./bin/Release/publish/Release_v*.zip
         retention-days: 30
