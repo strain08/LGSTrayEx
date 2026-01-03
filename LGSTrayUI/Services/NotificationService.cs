@@ -175,14 +175,28 @@ public class NotificationService : IHostedService,
             return;
         }
 
-        // Check if we need to show battery charged notification
-        if (isCharging && _notificationSettings.NotifyOnBatteryHigh)
+        // Check if we need to show battery almost full notification
+        if (isCharging && _notificationSettings.NotifyOnBatteryHigh && batteryPercent < 100)
         {
             // Check if this is a charging state transition (wasn't charging before)
             var wasCharging = _lastChargingState.TryGetValue(deviceId, out var lastCharging) && lastCharging;
 
             // Show notification if battery reached threshold and wasn't charging before
             if (!wasCharging && batteryPercent >= _notificationSettings.BatteryHighThreshold)
+            {
+                ShowBatteryChargedNotification(deviceName, batteryPercent);
+            }
+        }
+
+        // Show battery fully charged notification if notifications enabled, even if NotifyOnBatteryHigh is disabled
+        // _notificationSettings.Enabled check is redundant (service will not be loaded if false) but keeps logic clear
+        if (isCharging && _notificationSettings.Enabled)
+        {
+            // Check if this is a charging state transition (wasn't charging before)
+            var wasCharging = _lastChargingState.TryGetValue(deviceId, out var lastCharging) && lastCharging;
+
+            // Show notification if battery reached threshold and wasn't charging before
+            if (!wasCharging && batteryPercent == 100)
             {
                 ShowBatteryChargedNotification(deviceName, batteryPercent);
             }
@@ -251,7 +265,7 @@ public class NotificationService : IHostedService,
         }
 
         var notificationType = threshold <= 5 ? NotificationType.Error : NotificationType.Warning;
-        var title = $"{deviceName} - Low Battery";
+        var title = $"{deviceName} - Battery Low";
         var message = $"Battery level: {batteryPercent}%";
 
         _notificationManager.Show(
@@ -259,7 +273,7 @@ public class NotificationService : IHostedService,
             message,
             notificationType,
             areaName: "",
-            expirationTime: TimeSpan.FromSeconds(5)
+            expirationTime: TimeSpan.MaxValue
         );
     }
 
@@ -274,8 +288,8 @@ public class NotificationService : IHostedService,
                 return;
             }
         }
-
-        var title = $"{deviceName} - Battery Charged";
+        // distinct message for fully charged vs almost full (high threshold)
+        var title = batteryPercent == 100 ? $"{deviceName} - Battery Full" : $"{deviceName} - Battery almost full (charging)";
         var message = $"Battery level: {batteryPercent}%";
 
         _notificationManager.Show(
