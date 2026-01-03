@@ -4,6 +4,7 @@ using LGSTrayHID.Metadata;
 using LGSTrayHID.Protocol;
 using LGSTrayPrimitives;
 using LGSTrayPrimitives.MessageStructs;
+using LGSTrayPrimitives.Retry;
 
 
 namespace LGSTrayHID;
@@ -31,6 +32,7 @@ public class HidppDevice : IDisposable
     // Configuration settings
     private readonly bool _keepPollingWithEvents;
     private readonly int _batteryEventDelaySeconds;
+    private readonly bool _isWiredModeDevice; // Fast-track init for wired mode devices
     private DateTimeOffset _deviceOnTime = DateTimeOffset.MinValue;
 
     // Semaphore to prevent concurrent InitAsync calls
@@ -51,12 +53,13 @@ public class HidppDevice : IDisposable
     private int _disposeCount = 0;
     public bool Disposed => _disposeCount > 0;
 
-    public HidppDevice(HidppReceiver parent, byte deviceIdx, bool keepPollingWithEvents = false, int batteryEventDelaySeconds = 0)
+    public HidppDevice(HidppReceiver parent, byte deviceIdx, bool keepPollingWithEvents = false, int batteryEventDelaySeconds = 0, bool isWiredModeDevice = false)
     {
         Parent = parent;
         DeviceIdx = deviceIdx;
         _keepPollingWithEvents = keepPollingWithEvents;
         _batteryEventDelaySeconds = batteryEventDelaySeconds;
+        _isWiredModeDevice = isWiredModeDevice;
     }
 
     public async Task InitAsync()
@@ -67,13 +70,18 @@ public class HidppDevice : IDisposable
             Hidpp20 ret;
 
             // Sync Ping with retry logic for sleeping devices
-            // Requires 3 consecutive successful pings with exponential backoff
-            DiagnosticLogger.Log($"Starting ping test for HID device index {DeviceIdx}");
+            // Wired mode devices: faster ping (1 consecutive, 3 max attempts)
+            // Wireless devices: standard ping (3 consecutive, 10 max attempts)
+            int pingThreshold = _isWiredModeDevice ? 1 : 3;
+            int maxPings = _isWiredModeDevice ? 3 : 10;
+
+            DiagnosticLogger.Log($"Starting ping test for HID device index {DeviceIdx}" +
+                                (_isWiredModeDevice ? " (wired mode - fast ping)" : ""));
 
             bool pingSuccess = await Parent.PingUntilConsecutiveSuccess(
                 deviceId: DeviceIdx,
-                successThreshold: 3,
-                maxPingsPerAttempt: 10,
+                successThreshold: pingThreshold,
+                maxPingsPerAttempt: maxPings,
                 backoffStrategy: GlobalSettings.InitBackoff,
                 cancellationToken: _cancellationSource.Token);
 
@@ -99,19 +107,32 @@ public class HidppDevice : IDisposable
             int featureCount = ret.GetParam(0);
 
             // Enumerate Features with retry logic
+            // Wired mode devices use reduced retries for faster initialization
+            var enumBackoff = _isWiredModeDevice
+                ? new BackoffStrategy(
+                    initialDelay: TimeSpan.FromMilliseconds(100),
+                    maxDelay: TimeSpan.FromMilliseconds(200),
+                    initialTimeout: TimeSpan.FromMilliseconds(500),
+                    maxTimeout: TimeSpan.FromMilliseconds(500),
+                    multiplier: 1.5,
+                    maxAttempts: 2)
+                { ProfileName = "WiredFeatureEnum" }
+                : GlobalSettings.FeatureEnumBackoff;
+
             for (byte i = 0; i <= featureCount; i++)
             {
                 // Query feature with retry (backoff strategy handles retries)
                 ret = await Parent.WriteRead20(Parent.DevShort,
                                                Hidpp20Commands.EnumerateFeature(DeviceIdx, FeatureMap[HidppFeature.FEATURE_SET], i),
-                                               backoffStrategy: GlobalSettings.FeatureEnumBackoff,
+                                               backoffStrategy: enumBackoff,
                                                cancellationToken: _cancellationSource.Token);
 
                 // Check if we got a valid response after all retries
                 if (ret.Length == 0)
                 {
+                    string wiredMsg = _isWiredModeDevice ? " (wired mode - continuing with partial features)" : "";
                     DiagnosticLogger.LogWarning($"[Device {DeviceIdx}] Feature enumeration timeout at index {i} " +
-                                                $"after {GlobalSettings.FeatureEnumBackoff.MaxAttempts} attempts, " +
+                                                $"after {enumBackoff.MaxAttempts} attempts{wiredMsg}, " +
                                                 $"stopping enumeration");
                     break;
                 }

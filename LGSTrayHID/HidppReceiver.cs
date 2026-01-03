@@ -48,7 +48,7 @@ public class HidppReceiver : IDisposable
     }
 
 
-    public async Task SetUp(HidppMessageType messageType, nint dev)
+    public async Task SetUp(HidppMessageType messageType, nint dev, bool isWiredModeDevice = false)
     {
         switch (messageType)
         {
@@ -88,10 +88,10 @@ public class HidppReceiver : IDisposable
         }
         else
         {
-            DiagnosticLogger.Log("Initializing as DIRECT device");
+            DiagnosticLogger.Log($"Initializing as DIRECT device{(isWiredModeDevice ? " (WIRED MODE - fast-track)" : "")}");
 
             // Initialize single device at index 0xFF
-            await InitializeDirectDeviceAsync();
+            await InitializeDirectDeviceAsync(isWiredModeDevice);
         }
     }
 
@@ -402,16 +402,18 @@ public class HidppReceiver : IDisposable
     /// Direct devices use device index 0xFF (receiver broadcast address).
     /// Examples: G515 keyboard in wired mode, G PRO X SUPERLIGHT wired.
     /// </summary>
-    private async Task InitializeDirectDeviceAsync()
+    /// <param name="isWiredModeDevice">True if this is a wired mode device (enables fast-track init)</param>
+    private async Task InitializeDirectDeviceAsync(bool isWiredModeDevice = false)
     {
         const byte DIRECT_DEVICE_INDEX = 0xFF;
 
         try
         {
-            DiagnosticLogger.Log("Starting direct device initialization at index 0xFF");
+            string initMode = isWiredModeDevice ? "WIRED MODE (fast-track)" : "standard";
+            DiagnosticLogger.Log($"Starting direct device initialization at index 0xFF ({initMode})");
 
             // Create device at index 0xFF (direct device uses receiver address)
-            var device = _lifecycleManager.CreateDevice(DIRECT_DEVICE_INDEX);
+            var device = _lifecycleManager.CreateDevice(DIRECT_DEVICE_INDEX, isWiredModeDevice);
 
             // Initialize device (ping test, feature enumeration, battery setup)
             // This reuses the exact same initialization path as receiver devices

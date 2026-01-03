@@ -97,6 +97,14 @@ public sealed class HidppManagerContext
         // Track USB arrival for mode-switch detection
         TrackUsbArrival(deviceInfo.ProductId, containerId, devPath);
 
+        // Check if this is likely a wired mode device (recent mode switch detected)
+        bool isWiredModeDevice = CheckForRecentUsbArrival(out ushort wiredPid);
+        if (isWiredModeDevice)
+        {
+            DiagnosticLogger.Log($"[Mode-Switch] Wired device detected - PID: 0x{wiredPid:X04}, " +
+                                $"will use fast-track initialization");
+        }
+
         if (!_deviceMap.TryGetValue(containerId, out HidppReceiver? hidppReceiver))
         {
             hidppReceiver = new(GlobalSettings.settings.KeepPollingWithEvents, GlobalSettings.settings.BatteryEventDelayAfterOn);
@@ -109,7 +117,7 @@ public sealed class HidppManagerContext
             DiagnosticLogger.Log($"Existing container found - Path: {devPath}, Container: {containerId}");
         }
 
-        await hidppReceiver.SetUp(messageType, dev);
+        await hidppReceiver.SetUp(messageType, dev, isWiredModeDevice);
 
         return 0;
     }

@@ -41,10 +41,11 @@ public class DeviceLifecycleManager
     /// If a device with the same index already exists, it will be replaced.
     /// </summary>
     /// <param name="deviceIdx">Device index (1-6 for standard receivers)</param>
+    /// <param name="isWiredModeDevice">True if this is a wired mode device (fast-track init)</param>
     /// <returns>The newly created HidppDevice instance</returns>
-    public HidppDevice CreateDevice(byte deviceIdx)
+    public HidppDevice CreateDevice(byte deviceIdx, bool isWiredModeDevice = false)
     {
-        var device = new HidppDevice(_parent, deviceIdx, _keepPollingWithEvents, _batteryEventDelaySeconds);
+        var device = new HidppDevice(_parent, deviceIdx, _keepPollingWithEvents, _batteryEventDelaySeconds, isWiredModeDevice);
 
         lock (_devices)
         {
