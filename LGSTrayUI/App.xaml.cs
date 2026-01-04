@@ -1,4 +1,5 @@
 ﻿using CommunityToolkit.Mvvm.Messaging;
+using LGSTrayCore;
 using LGSTrayCore.Interfaces;
 using LGSTrayCore.Managers;
 using LGSTrayPrimitives;
