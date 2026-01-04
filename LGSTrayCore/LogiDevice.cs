@@ -55,7 +55,7 @@ public partial class LogiDevice : ObservableObject
             if (IsWiredMode)
             {
                 string sourceText = DataSource == DataSource.GHub ? " (G)" : "(N)";
-                return $"{sourceText} {DeviceName}, Wired Mode (charging, monitoring unavailable)";
+                return $"{sourceText} {DeviceName}, Wired Mode (charging)";
             }
 
             string statusText = BatteryPercentage < 0 ? "Offline" : $"{BatteryPercentage}%";
