@@ -4,6 +4,7 @@ using LGSTrayHID.Metadata;
 using LGSTrayHID.Protocol;
 using LGSTrayPrimitives;
 using LGSTrayPrimitives.MessageStructs;
+using LGSTrayPrimitives.Retry;
 
 
 namespace LGSTrayHID;
@@ -31,6 +32,7 @@ public class HidppDevice : IDisposable
     // Configuration settings
     private readonly bool _keepPollingWithEvents;
     private readonly int _batteryEventDelaySeconds;
+    private readonly bool _isWiredModeDevice; // Fast-track init for wired mode devices
     private DateTimeOffset _deviceOnTime = DateTimeOffset.MinValue;
 
     // Semaphore to prevent concurrent InitAsync calls
@@ -51,12 +53,13 @@ public class HidppDevice : IDisposable
     private int _disposeCount = 0;
     public bool Disposed => _disposeCount > 0;
 
-    public HidppDevice(HidppReceiver parent, byte deviceIdx, bool keepPollingWithEvents = false, int batteryEventDelaySeconds = 0)
+    public HidppDevice(HidppReceiver parent, byte deviceIdx, bool keepPollingWithEvents = false, int batteryEventDelaySeconds = 0, bool isWiredModeDevice = false)
     {
         Parent = parent;
         DeviceIdx = deviceIdx;
         _keepPollingWithEvents = keepPollingWithEvents;
         _batteryEventDelaySeconds = batteryEventDelaySeconds;
+        _isWiredModeDevice = isWiredModeDevice;
     }
 
     public async Task InitAsync()
@@ -67,13 +70,18 @@ public class HidppDevice : IDisposable
             Hidpp20 ret;
 
             // Sync Ping with retry logic for sleeping devices
-            // Requires 3 consecutive successful pings with exponential backoff
-            DiagnosticLogger.Log($"Starting ping test for HID device index {DeviceIdx}");
+            // Wired mode devices: faster ping (1 consecutive, 3 max attempts)
+            // Wireless devices: standard ping (3 consecutive, 10 max attempts)
+            int pingThreshold = _isWiredModeDevice ? 1 : 3;
+            int maxPings = _isWiredModeDevice ? 3 : 10;
+
+            DiagnosticLogger.Log($"Starting ping test for HID device index {DeviceIdx}" +
+                                (_isWiredModeDevice ? " (wired mode - fast ping)" : ""));
 
             bool pingSuccess = await Parent.PingUntilConsecutiveSuccess(
                 deviceId: DeviceIdx,
-                successThreshold: 3,
-                maxPingsPerAttempt: 10,
+                successThreshold: pingThreshold,
+                maxPingsPerAttempt: maxPings,
                 backoffStrategy: GlobalSettings.InitBackoff,
                 cancellationToken: _cancellationSource.Token);
 
@@ -99,19 +107,32 @@ public class HidppDevice : IDisposable
             int featureCount = ret.GetParam(0);
 
             // Enumerate Features with retry logic
+            // Wired mode devices use reduced retries for faster initialization
+            var enumBackoff = _isWiredModeDevice
+                ? new BackoffStrategy(
+                    initialDelay: TimeSpan.FromMilliseconds(100),
+                    maxDelay: TimeSpan.FromMilliseconds(200),
+                    initialTimeout: TimeSpan.FromMilliseconds(500),
+                    maxTimeout: TimeSpan.FromMilliseconds(500),
+                    multiplier: 1.5,
+                    maxAttempts: 2)
+                { ProfileName = "WiredFeatureEnum" }
+                : GlobalSettings.FeatureEnumBackoff;
+
             for (byte i = 0; i <= featureCount; i++)
             {
                 // Query feature with retry (backoff strategy handles retries)
                 ret = await Parent.WriteRead20(Parent.DevShort,
                                                Hidpp20Commands.EnumerateFeature(DeviceIdx, FeatureMap[HidppFeature.FEATURE_SET], i),
-                                               backoffStrategy: GlobalSettings.FeatureEnumBackoff,
+                                               backoffStrategy: enumBackoff,
                                                cancellationToken: _cancellationSource.Token);
 
                 // Check if we got a valid response after all retries
                 if (ret.Length == 0)
                 {
+                    string wiredMsg = _isWiredModeDevice ? " (wired mode - continuing with partial features)" : "";
                     DiagnosticLogger.LogWarning($"[Device {DeviceIdx}] Feature enumeration timeout at index {i} " +
-                                                $"after {GlobalSettings.FeatureEnumBackoff.MaxAttempts} attempts, " +
+                                                $"after {enumBackoff.MaxAttempts} attempts{wiredMsg}, " +
                                                 $"stopping enumeration");
                     break;
                 }
@@ -295,9 +316,8 @@ public class HidppDevice : IDisposable
 
                 bool updateSucceeded = false;
                 try
-                {
-                    await UpdateBattery();
-                    updateSucceeded = true;
+                {                    
+                    updateSucceeded = await UpdateBattery();
                     _consecutivePollFailures = 0; // Reset on success
                 }
                 catch (Exception ex)
@@ -329,26 +349,45 @@ public class HidppDevice : IDisposable
     private int GetPollInterval()
     {
 #if DEBUG
-        return 10;
+                return 10;
 #else
-        return Math.Clamp(GlobalSettings.settings.PollPeriod, 20, 3600);
+        // Wired mode devices use a fixed poll interval of 60 seconds
+        return _isWiredModeDevice ? 60 : Math.Clamp(GlobalSettings.settings.PollPeriod, 20, 3600);
 #endif
     }
-
-    public async Task UpdateBattery(bool forceIpcUpdate = false)
+    /// <summary>
+    /// HID++ 2.0 Battery update logic
+    /// </summary>
+    /// <param name="forceIpcUpdate"></param>
+    /// <returns></returns>
+    public async Task<bool> UpdateBattery(bool forceIpcUpdate = false)
     {
         if (_batteryFeature == null)
         {
             DiagnosticLogger.Log($"[{DeviceName}] No battery feature available, skipping battery update.");
-            return;
+            return false;
         }
+        
+        // Ping device before battery read to ensure it's awake
+        var ping = await Parent.PingUntilConsecutiveSuccess(
+            deviceId: DeviceIdx,
+            successThreshold: 1,
+            maxPingsPerAttempt: 3,
+            backoffStrategy: GlobalSettings.PingBackoff,
+            cancellationToken: _cancellationSource.Token);
 
+        if (!ping)
+        {
+            DiagnosticLogger.LogWarning($"[{DeviceName}] Device unresponsive during battery update ping, skipping battery read.");
+            return false;
+        }
+        
         var ret = await _batteryFeature.GetBatteryAsync(this);
 
         if (ret == null)
         {
             DiagnosticLogger.Log($"[{DeviceName}] Battery update returned null, skipping.");
-            return;
+            return false;
         }
 
         var batStatus = ret.Value;
@@ -365,6 +404,7 @@ public class HidppDevice : IDisposable
 
         // Publish update (handles deduplication, IPC, logging)
         _batteryPublisher.PublishUpdate(Identifier, DeviceName, batStatus, now, "poll", shouldForce);
+        return true;
     }
 
     /// <summary>
@@ -405,17 +445,6 @@ public class HidppDevice : IDisposable
 
         var batStatus = batteryUpdate.Value;
 
-        // Exceptional battery event, skip publish (some devices send spurious events)
-        // :: band-aid fix disabled for now as we improved IsBatteryEvent
-
-        //if (batStatus.batteryPercentage == 15)
-        //{
-        //    DiagnosticLogger.Log($"[{DeviceName}] Exceptional battery event detected (Charging at 15%), skipping update publish");
-        //    DiagnosticLogger.Log($"[{DeviceName}] Exceptional battery event message: {message}");
-        //    return true;
-
-        //}
-
         // Check if we're in the delay window after device ON (ignore EVENT data during this period)
         if (_batteryEventDelaySeconds > 0 && _deviceOnTime != DateTimeOffset.MinValue)
         {
@@ -454,7 +483,7 @@ public class HidppDevice : IDisposable
         return true; // Event handled successfully
     }
 
-
+    #region DISPOSE
     public void Dispose()
     {
         Dispose(disposing: true);
@@ -508,4 +537,5 @@ public class HidppDevice : IDisposable
     {
         Dispose(disposing: false);
     }
+    #endregion
 }

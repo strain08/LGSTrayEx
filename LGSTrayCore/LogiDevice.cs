@@ -43,17 +43,28 @@ public partial class LogiDevice : ObservableObject
     [NotifyPropertyChangedFor(nameof(ToolTipString))]
     private DateTimeOffset _lastUpdate = DateTimeOffset.MinValue;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ToolTipString))]
+    private bool _isWiredMode = false;
+
     public string ToolTipString
     {
         get
         {
+            // Handle wired mode display
+            if (IsWiredMode)
+            {
+                string sourceText = DataSource == DataSource.GHub ? " (G)" : "(N)";
+                return $"{sourceText} {DeviceName}, Wired Mode (charging)";
+            }
+
             string statusText = BatteryPercentage < 0 ? "Offline" : $"{BatteryPercentage}%";
             string chargingText = PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING ? " (Charging)" : "";
-            string sourceText = DataSource == DataSource.GHub ? " (G)" : "(N)";
+            string sourceText2 = DataSource == DataSource.GHub ? " (G)" : "(N)";
 #if DEBUG
-            return $"{sourceText} {DeviceName}{chargingText}, {statusText} - {LastUpdate}";
+            return $"{sourceText2} {DeviceName}{chargingText}, {statusText} - {LastUpdate}";
 #else
-            return $"{sourceText} {DeviceName}, {statusText}{chargingText}";
+            return $"{sourceText2} {DeviceName}, {statusText}{chargingText}";
 #endif
         }
     }

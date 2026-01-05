@@ -1,4 +1,5 @@
 ﻿using LGSTrayCore.HttpServer;
+using LGSTrayCore.Interfaces;
 using LGSTrayCore.Managers;
 using LGSTrayCore.WebSocket;
 using LGSTrayPrimitives;
@@ -6,9 +7,9 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-namespace LGSTrayCore.Interfaces;
+namespace LGSTrayCore;
 
-public static class IServiceExtension
+public static class ServiceCollectionExtensions
 {
     public static void AddWebserver(this IServiceCollection services, IConfiguration configs)
     {

@@ -121,6 +121,7 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
         BatteryVoltage = updateMessage.batteryMVolt / 1000.0;
         BatteryMileage = updateMessage.Mileage;
         LastUpdate = updateMessage.updateTime;
+        IsWiredMode = updateMessage.IsWiredMode;
     }
 
     /// <summary>
@@ -156,6 +157,8 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
                 sb.AppendLine($"Device: {DeviceName}");
                 sb.AppendLine($"Source: {DataSourceDisplayName}");
                 sb.AppendLine($"ID: {DeviceId}");
+                var wiredString = IsWiredMode ? "Wired" : "Wireless";
+                sb.AppendLine ($"Mode: {wiredString}");
 
                 // Show signature for debugging/troubleshooting
                 if (!string.IsNullOrEmpty(DeviceSignature))

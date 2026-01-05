@@ -47,7 +47,8 @@ public class UpdateMessage(
     PowerSupplyStatus powerSupplyStatus,
     int batteryMVolt,
     DateTimeOffset updateTime,
-    double mileage = -1
+    double mileage = -1,
+    bool isWiredMode = false
 ) : IPCMessage(deviceId)
 {
     [Key(1)]
@@ -64,6 +65,9 @@ public class UpdateMessage(
 
     [Key(5)]
     public double Mileage = mileage;
+
+    [Key(6)]
+    public bool IsWiredMode = isWiredMode;
 }
 
 [MessagePackObject]

@@ -41,10 +41,11 @@ public class DeviceLifecycleManager
     /// If a device with the same index already exists, it will be replaced.
     /// </summary>
     /// <param name="deviceIdx">Device index (1-6 for standard receivers)</param>
+    /// <param name="isWiredModeDevice">True if this is a wired mode device (fast-track init)</param>
     /// <returns>The newly created HidppDevice instance</returns>
-    public HidppDevice CreateDevice(byte deviceIdx)
+    public HidppDevice CreateDevice(byte deviceIdx, bool isWiredModeDevice = false)
     {
-        var device = new HidppDevice(_parent, deviceIdx, _keepPollingWithEvents, _batteryEventDelaySeconds);
+        var device = new HidppDevice(_parent, deviceIdx, _keepPollingWithEvents, _batteryEventDelaySeconds, isWiredModeDevice);
 
         lock (_devices)
         {
@@ -77,10 +78,7 @@ public class DeviceLifecycleManager
     /// <param name="deviceIdx">Device index to look up</param>
     /// <param name="device">The found device, or null if not found</param>
     /// <returns>True if device was found, false otherwise</returns>
-    public bool TryGetDevice(byte deviceIdx, out HidppDevice? device)
-    {
-        return _devices.TryGetValue(deviceIdx, out device);
-    }
+    public bool TryGetDevice(byte deviceIdx, out HidppDevice? device) => _devices.TryGetValue(deviceIdx, out device);
 
     /// <summary>
     /// Check if a device initialization should proceed.

@@ -29,11 +29,11 @@ public class DeviceAnnouncementHandler
     public async Task HandleAnnouncementAsync(byte[] buffer)
     {
         byte deviceIdx = buffer[1];
-        bool isDeviceOn = (buffer[4] & 0x40) == 0;  // Bit 6 clear = ON, set = OFF
+        bool isDeviceOff = (buffer[4] & 0x40) != 0;  // Bit 6 clear = ON, set = OFF
 
         try
         {
-            if (isDeviceOn)
+            if (!isDeviceOff)
             {
                 await HandleDeviceOnAsync(deviceIdx, buffer);
                 DiagnosticLogger.Log($"[HandleAnnouncement] Device {deviceIdx} ON handler completed");
@@ -166,44 +166,61 @@ public class DeviceAnnouncementHandler
 
     /// <summary>
     /// Handles device OFF announcement.
-    /// Sends UpdateMessage with offline status to UI via IPC.
+    /// Detects mode switch (wireless→wired) and sends appropriate UpdateMessage to UI via IPC.
     /// Device remains in collection (as per user requirement).
     /// </summary>
     private async Task HandleDeviceOffAsync(byte deviceIdx, byte[] buffer)
     {
         string deviceName = "Unknown";
-        string deviceId = "";
+        string deviceIdentifier = "";
 
         if (_lifecycleManager.TryGetDevice(deviceIdx, out HidppDevice? device))
         {
-            deviceName = device!.DeviceName;
-            deviceId = device.Identifier;
+            deviceName = device?.DeviceName ?? "";
+            deviceIdentifier = device?.Identifier ?? "";
             // Mark device as offline and cancel any ongoing polling tasks
-            device.SetOffline();
-            device.CancelPooling();
+            device?.SetOffline();
+            device?.CancelPooling();
         }
-        
-        string eventType = string.IsNullOrEmpty(deviceId) ? "Phantom OFF Event (ignored)" : "Device OFF Event";
+
+        string eventType = string.IsNullOrEmpty(deviceIdentifier) ? "Phantom OFF Event (ignored)" : "Device OFF Event";
         DiagnosticLogger.Log($"[{eventType}] Index: {deviceIdx}, " +
                             $"Name: {deviceName}, " +
                             $"Params: [0x{buffer[3]:X02} 0x{buffer[4]:X02} 0x{buffer[5]:X02} 0x{buffer[6]:X02}]");
 
-        if (!string.IsNullOrEmpty(deviceId))
+        if (!string.IsNullOrEmpty(deviceIdentifier))
         {
+            // Check if a new USB device appeared recently (mode switch detection)
+            bool isModeSwitch = HidppManagerContext.Instance.CheckForRecentUsbArrival(out ushort newProductId);
+
+            if (isModeSwitch)
+            {
+                DiagnosticLogger.Log($"[{deviceName}] MODE SWITCH DETECTED - " +
+                    $"Wireless disconnected, new USB device PID 0x{newProductId:X04} appeared recently. " +
+                    $"Likely switched to wired mode (charging).");
+            }
+
             HidppManagerContext.Instance.SignalDeviceEvent(
                 IPCMessageType.UPDATE,
                 new UpdateMessage(
-                    deviceId: deviceId,
+                    deviceId: deviceIdentifier,
                     batteryPercentage: -1,  // Convention: -1 = offline/unknown
-                    powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_UNKNOWN,
+                    powerSupplyStatus: isModeSwitch
+                        ? PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING
+                        : PowerSupplyStatus.POWER_SUPPLY_STATUS_UNKNOWN,
                     batteryMVolt: 0,
                     updateTime: DateTimeOffset.Now,
-                    mileage: -1
+                    mileage: -1,
+                    isWiredMode: isModeSwitch  // Flag indicating wired mode
                 )
             );
-            DiagnosticLogger.Log($"[{deviceName}] Device offline notification sent to UI");
+
+            string statusMessage = isModeSwitch
+                ? $"[{deviceName}] Wired mode notification sent to UI"
+                : $"[{deviceName}] Device offline notification sent to UI";
+            DiagnosticLogger.Log(statusMessage);
         }
-        
+
         await Task.CompletedTask; // Suppress async warning
     }
 }

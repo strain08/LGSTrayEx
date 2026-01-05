@@ -230,7 +230,17 @@ public class LogiDeviceCollection : ILogiDeviceCollection,
             // Check if device is going offline (batteryPercentage = -1)
             if (updateMessage.batteryPercentage < 0)
             {
-                if (_appSettings.UI.KeepOfflineDevices)
+                // Check if this is a mode switch (wired mode)
+                if (updateMessage.IsWiredMode)
+                {
+                    // Mode switch detected - keep device in collection with wired mode status
+                    DiagnosticLogger.Log($"Device switched to wired mode (charging) - {device.DeviceId} ({device.DeviceName})");
+                    device.UpdateState(updateMessage);
+
+                    // Notify NotificationService about mode switch
+                    _messenger.Send(new DeviceBatteryUpdatedMessage(device));
+                }
+                else if (_appSettings.UI.KeepOfflineDevices)
                 {
                     // Keep device in collection, update with offline state
                     DiagnosticLogger.Log($"Device offline, keeping in collection - {device.DeviceId} ({device.DeviceName})");
@@ -257,6 +267,12 @@ public class LogiDeviceCollection : ILogiDeviceCollection,
             else
             {
                 // Normal battery update (not offline)
+                // If device was in wired mode and now has battery data, it returned to wireless
+                if (device.IsWiredMode)
+                {
+                    DiagnosticLogger.Log($"Device returned to wireless mode - {device.DeviceId} ({device.DeviceName})");
+                }
+
                 device.UpdateState(updateMessage);
 
                 // Notify NotificationService that device battery was updated

@@ -5,11 +5,11 @@
 enableRichToolTips = true
 
 # Keep selected devices in taskbar when they go offline
-keepOfflineDevices = false
+keepOfflineDevices = true
 
 [HTTPServer]
 # Enable built-in HTTP server for status and control
-enabled = true
+enabled = false
 
 addr = "localhost"
 port = 12321
@@ -25,18 +25,15 @@ enabled = false
 # Also works with most G series devices
 enabled = true
 
-# Time in seconds to retry a device poll on failure
-# ::Deprecated, will be removed in future versions
-retryTime = 10
-
 # Time in seconds to next device poll on sucess
 # Pooling will automatically disabled when device is event-capable
 # Value is clamped between 20 and 3600 seconds
 pollPeriod = 600
 
 # List of disabled devices
-disabledDevices = [
-]
+# Use device name listed in menu
+# disabledDevices = ["G403", "G502"]
+disabledDevices = [ ]
 
 # Keep battery polling active alongside event-driven updates
 # When false (default), polling stops after first battery event (saves resources)
@@ -94,9 +91,9 @@ maxAttempts = 10           # Maximum retry attempts
 [Backoff.Battery]
 # Battery query retry settings
 # Quick retry with lower delay cap
-initialDelayMs = 2000      # 2s delay on first retry
+initialDelayMs = 0         # 0s delay on first retry
 maxDelayMs = 10_000        # 10s - maximum delay cap
-initialTimeoutMs = 1000    # 1s - timeout for first attempt
+initialTimeoutMs = 100     # 100ms - timeout for first attempt
 maxTimeoutMs = 5000        # 5s - maximum timeout cap
 multiplier = 2.0           # Exponential multiplier (doubling)
 maxAttempts = 3            # Quick retry (3 attempts total)
@@ -123,11 +120,11 @@ maxAttempts = 3            # Quick retry for each feature
 
 [Backoff.Ping]
 # Ping operation retry settings
+# Used to wake the device before polling
 # Fast retry with short timeouts
-# :: NOT YET IMPLEMENTED ::
-initialDelayMs = 500       # 100ms - delay before second attempt
+initialDelayMs = 500       # 500ms - delay before second attempt
 maxDelayMs = 5000          # 5s - maximum delay cap
 initialTimeoutMs = 500     # 100ms - timeout for first attempt
 maxTimeoutMs = 1000        # 1s - maximum timeout cap
-multiplier = 2.0           # Exponential multiplier (doubling)
+multiplier = 1.5           # Exponential multiplier (doubling)
 maxAttempts = 5            # Multiple quick attempts
