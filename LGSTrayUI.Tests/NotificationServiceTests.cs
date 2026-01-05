@@ -19,13 +19,14 @@ public class NotificationServiceTests
         var messenger = new StrongReferenceMessenger();
         var iconFactory = new Mock<ILogiDeviceIconFactory>();
         var appSettings = settingsMock;
+        var userSettings = new UserSettingsWrapper();
 
         settings.Setup(s => s.Value).Returns(appSettings);
 
         var service = new NotificationService(manager.Object, settings.Object, messenger);
         await service.StartAsync(CancellationToken.None);
 
-        var device = new LogiDeviceViewModel(iconFactory.Object);
+        var device = new LogiDeviceViewModel(iconFactory.Object, appSettings, userSettings);
         device.UpdateState(new InitMessage(
             deviceId: "test-device-001",
             deviceName: "Test Device",

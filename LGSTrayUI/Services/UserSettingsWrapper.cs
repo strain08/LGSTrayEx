@@ -23,25 +23,16 @@ public partial class UserSettingsWrapper : ObservableObject
         }
     }
 
-    public void AddDevice(string deviceId)
+    public bool KeepOfflineDevices
     {
-        if (Properties.Settings.Default.SelectedDevices.Contains(deviceId))
+        get => Properties.Settings.Default.KeepOfflineDevices;
+        set
         {
-            return;
+            Properties.Settings.Default.KeepOfflineDevices = value;
+            Properties.Settings.Default.Save();
+
+            OnPropertyChanged();
         }
-
-        Properties.Settings.Default.SelectedDevices.Add(deviceId);
-        Properties.Settings.Default.Save();
-
-        OnPropertyChanged(nameof(SelectedDevices));
-    }
-
-    public void RemoveDevice(string deviceId)
-    {
-        Properties.Settings.Default.SelectedDevices.Remove(deviceId);
-        Properties.Settings.Default.Save();
-
-        OnPropertyChanged(nameof(SelectedDevices));
     }
 
     public void AddSignature(string signature)

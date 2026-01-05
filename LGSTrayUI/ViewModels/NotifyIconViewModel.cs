@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LGSTrayCore.Interfaces;
 using LGSTrayPrimitives;
@@ -8,12 +8,14 @@ using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 
 namespace LGSTrayUI;
 
@@ -26,6 +28,26 @@ public partial class NotifyIconViewModel : ObservableObject, IHostedService
 
     private readonly UserSettingsWrapper _userSettings;
     private readonly AppSettings _appSettings;
+    private readonly ISettingsManager _settingsManager;
+
+    public ICollectionView FilteredDevices { get; }
+
+    public bool KeepOfflineDevices
+    {
+        get => _userSettings.KeepOfflineDevices;
+        set
+        {
+            _userSettings.KeepOfflineDevices = value;
+            OnPropertyChanged();
+            FilteredDevices.Refresh();
+
+            foreach (var device in LogiDevices)
+            {
+                device.UpdateIconVisibility();
+            }
+        }
+    }
+
     public bool NumericDisplay
     {
         get
@@ -95,7 +117,8 @@ public partial class NotifyIconViewModel : ObservableObject, IHostedService
         ILogiDeviceCollection logiDeviceCollection,
         UserSettingsWrapper userSettings,
         IEnumerable<IDeviceManager> deviceManagers,
-        AppSettings appSettings
+        AppSettings appSettings,
+        ISettingsManager settingsManager
     )
     {
         _mainTaskbarIconWrapper = mainTaskbarIconWrapper;
@@ -105,6 +128,34 @@ public partial class NotifyIconViewModel : ObservableObject, IHostedService
         _userSettings = userSettings;
         _deviceManagers = deviceManagers;
         _appSettings = appSettings;
+        _settingsManager = settingsManager;
+
+        FilteredDevices = CollectionViewSource.GetDefaultView(_logiDevices);
+        
+        // Enable live filtering so devices appear/disappear when BatteryPercentage changes
+        if (FilteredDevices is ICollectionViewLiveShaping liveShaping && liveShaping.CanChangeLiveFiltering)
+        {
+            liveShaping.LiveFilteringProperties.Add(nameof(LogiDeviceViewModel.BatteryPercentage));
+            liveShaping.IsLiveFiltering = true;
+        }
+
+        FilteredDevices.Filter = FilterDevice;
+    }
+
+    private bool FilterDevice(object item)
+    {
+        if (KeepOfflineDevices)
+        {
+            return true;
+        }
+
+        if (item is LogiDeviceViewModel device)
+        {
+            // Assuming -1 indicates offline/unknown status as per LogiDevice.cs
+            return device.BatteryPercentage >= 0; 
+        }
+
+        return true;
     }
 
     [RelayCommand]

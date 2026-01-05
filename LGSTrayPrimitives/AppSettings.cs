@@ -6,7 +6,7 @@ public class AppSettings
 
     public HttpServerSettings HTTPServer { get; set; } = null!;
 
-    public IDeviceManagerSettings GHub { get; set; } = null!;
+    public GHubManagerSettings GHub { get; set; } = null!;
 
     public NativeDeviceManagerSettings Native { get; set; } = null!;
 
@@ -20,12 +20,6 @@ public class AppSettings
 public class UISettings
 {
     public bool EnableRichToolTips { get; set; }
-
-    /// <summary>
-    /// Keep offline devices visible in tray menu (marked with BatteryPercentage = -1).
-    /// When false (default), devices are removed from menu when disconnected.
-    /// </summary>
-    public bool KeepOfflineDevices { get; set; } = false;
 }
 
 public class HttpServerSettings
@@ -45,12 +39,12 @@ public class HttpServerSettings
     public string UrlPrefix => $"http://{Addr}:{Port}";
 }
 
-public class IDeviceManagerSettings
+public class GHubManagerSettings
 {
     public bool Enabled { get; set; }
 }
 
-public class NativeDeviceManagerSettings : IDeviceManagerSettings
+public class NativeDeviceManagerSettings : GHubManagerSettings
 {
     public int RetryTime { get; set; } = 10;
     public int PollPeriod { get; set; } = 600;

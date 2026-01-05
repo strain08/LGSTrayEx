@@ -4,9 +4,6 @@
 # Enable tooltips for additional info, also for devices menu items
 enableRichToolTips = true
 
-# Keep selected devices in taskbar when they go offline
-keepOfflineDevices = true
-
 [HTTPServer]
 # Enable built-in HTTP server for status and control
 enabled = false

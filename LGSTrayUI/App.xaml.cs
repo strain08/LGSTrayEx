@@ -73,8 +73,8 @@ public partial class App : Application
         Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         AppDomain.CurrentDomain.UnhandledException += new UnhandledExceptionEventHandler(CrashHandler);
-        Microsoft.Win32.SystemEvents.PowerModeChanged += AppExtensions_PowerModeChanged
-            ;
+        Microsoft.Win32.SystemEvents.PowerModeChanged += AppExtensions_PowerModeChanged;
+
         EnableEfficiencyMode();
 
         // Load configuration 
@@ -128,6 +128,7 @@ public partial class App : Application
         builder.Services.AddLGSMessagePipe(true);
         builder.Services.AddWebSocketClientFactory();
         builder.Services.AddSingleton<UserSettingsWrapper>();
+        builder.Services.AddSingleton<ISettingsManager, SettingsManager>();
 
         builder.Services.AddSingleton<ILogiDeviceIconFactory, LogiDeviceIconFactory>();
         builder.Services.AddSingleton<LogiDeviceViewModelFactory>();
@@ -250,7 +251,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         Microsoft.Win32.SystemEvents.PowerModeChanged -= AppExtensions_PowerModeChanged;
-        AppDomain.CurrentDomain.UnhandledException -= CrashHandler;
+       // AppDomain.CurrentDomain.UnhandledException -= CrashHandler;
 
         // Close power notification window (cleans up WndProc hook and unregisters notifications)
         _powerWindow?.Close();
@@ -281,7 +282,26 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            if (ex is FileNotFoundException || ex is InvalidDataException)
+            // Try to repair duplicate keys (common issue with legacy settings)
+            // Duplicate keys cause FormatException during TOML parsing
+            if (ex is FormatException)
+            {
+                try
+                {
+                    DiagnosticLogger.Log("Attempting to repair duplicate keys in appsettings.toml...");
+                    new SettingsManager().Repair();
+                    config.AddTomlFile(Path.Combine(AppContext.BaseDirectory, "appsettings.toml"));
+                    DiagnosticLogger.Log("Repair successful.");
+                    return;
+                }
+                catch (Exception repairEx)
+                {
+                    DiagnosticLogger.LogError($"Settings repair failed: {repairEx.Message}");
+                    // Fall through to user prompt
+                }
+            }
+
+            if (ex is FileNotFoundException || ex is InvalidDataException || ex is FormatException)
             {
                 var msgBoxRet = MessageBox.Show(
                     "Failed to read settings, do you want reset to default?",

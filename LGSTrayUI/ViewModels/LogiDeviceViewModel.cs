@@ -3,6 +3,7 @@ using LGSTrayCore;
 using LGSTrayPrimitives;
 using LGSTrayPrimitives.MessageStructs;
 using LGSTrayUI.Interfaces;
+using LGSTrayUI.Services;
 using System;
 using System.ComponentModel;
 using System.Text;
@@ -12,15 +13,19 @@ namespace LGSTrayUI;
 public class LogiDeviceViewModelFactory
 {
     private readonly ILogiDeviceIconFactory _logiDeviceIconFactory;
+    private readonly AppSettings _appSettings;
+    private readonly UserSettingsWrapper _userSettings;
 
-    public LogiDeviceViewModelFactory(ILogiDeviceIconFactory logiDeviceIconFactory)
+    public LogiDeviceViewModelFactory(ILogiDeviceIconFactory logiDeviceIconFactory, AppSettings appSettings, UserSettingsWrapper userSettings)
     {
         _logiDeviceIconFactory = logiDeviceIconFactory;
+        _appSettings = appSettings;
+        _userSettings = userSettings;
     }
 
     public LogiDeviceViewModel CreateViewModel(Action<LogiDeviceViewModel>? config = null)
     {
-        LogiDeviceViewModel output = new(_logiDeviceIconFactory);
+        LogiDeviceViewModel output = new(_logiDeviceIconFactory, _appSettings, _userSettings);
         config?.Invoke(output);
 
         return output;
@@ -30,6 +35,8 @@ public class LogiDeviceViewModelFactory
 public partial class LogiDeviceViewModel : LogiDevice, IDisposable
 {
     private readonly ILogiDeviceIconFactory _logiDeviceIconFactory;
+    private readonly AppSettings _appSettings;
+    private readonly UserSettingsWrapper _userSettings;
     private readonly PropertyChangedEventHandler _propertyChangedHandler;
 
     [ObservableProperty]
@@ -44,9 +51,11 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
     private LogiDeviceIcon? taskbarIcon;
     private string? _cachedDetailedTooltip;
 
-    public LogiDeviceViewModel(ILogiDeviceIconFactory logiDeviceIconFactory)
+    public LogiDeviceViewModel(ILogiDeviceIconFactory logiDeviceIconFactory, AppSettings appSettings, UserSettingsWrapper userSettings)
     {
         _logiDeviceIconFactory = logiDeviceIconFactory;
+        _appSettings = appSettings;
+        _userSettings = userSettings;
 
         // Subscribe to property changes from base class to update computed properties
         // Store handler reference for later unsubscription (prevents memory leak)
@@ -67,19 +76,31 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
             case nameof(DeviceName):
             case nameof(DeviceId):
             case nameof(DeviceSignature):
-            case nameof(BatteryPercentage):
             case nameof(BatteryVoltage):
             case nameof(BatteryMileage):
             case nameof(LastUpdate):
                 _cachedDetailedTooltip = null;  // Invalidate tooltip cache
                 OnPropertyChanged(nameof(DetailedMenuTooltip));
                 break;
+            case nameof(BatteryPercentage):
+                _cachedDetailedTooltip = null;
+                OnPropertyChanged(nameof(DetailedMenuTooltip));
+                UpdateIconVisibility();
+                break;
         }
     }
 
     partial void OnIsCheckedChanged(bool oldValue, bool newValue)
     {
-        if (newValue)
+        UpdateIconVisibility();
+    }
+
+    public void UpdateIconVisibility()
+    {
+        bool isOffline = BatteryPercentage < 0;
+        bool shouldShow = IsChecked && (!isOffline || _userSettings.KeepOfflineDevices);
+
+        if (shouldShow)
         {
             taskbarIcon ??= _logiDeviceIconFactory.CreateDeviceIcon(this);
         }

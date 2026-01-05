@@ -2,6 +2,8 @@ using LGSTrayPrimitives;
 using LGSTrayPrimitives.MessageStructs;
 using LGSTrayUI.Services;
 using LGSTrayUI.Tests.Mocks;
+using System.Linq;
+using Xunit;
 
 namespace LGSTrayUI.Tests;
 
@@ -30,20 +32,20 @@ public class LogiDeviceCollectionTests
             }
         }
 
-        // Use mock icon factory that doesn't create WPF controls (avoids STA thread requirement)
-        var iconFactory = new MockLogiDeviceIconFactory();
-        var viewModelFactory = new LogiDeviceViewModelFactory(iconFactory);
-
         // Create mock AppSettings with default values
         var appSettings = new AppSettings
         {
-            UI = new UISettings { KeepOfflineDevices = false },
+            UI = new UISettings { /* KeepOfflineDevices removed */ },
             Logging = new LoggingSettings { Enabled = false, Verbose = false },
             HTTPServer = new HttpServerSettings { Enabled = false, Addr = "localhost", Port = 12321 },
-            GHub = new IDeviceManagerSettings { Enabled = false },
+            GHub = new GHubManagerSettings { Enabled = false },
             Native = new NativeDeviceManagerSettings { Enabled = false },
             Notifications = new NotificationSettings()
         };
+
+        // Use mock icon factory that doesn't create WPF controls (avoids STA thread requirement)
+        var iconFactory = new MockLogiDeviceIconFactory();
+        var viewModelFactory = new LogiDeviceViewModelFactory(iconFactory, appSettings, settings);
 
         // Create mock messenger
         var messenger = new MockMessenger();
@@ -60,10 +62,10 @@ public class LogiDeviceCollectionTests
     }
 
     [Fact]
-    public void OnRemoveMessage_RemovesDeviceFromCollection()
+    public void OnRemoveMessage_MarksDeviceOffline()
     {
         // This test verifies that when a RemoveMessage is received,
-        // the device is removed from the collection
+        // the device is marked offline but kept in the collection
 
         // Arrange
         var collection = CreateTestCollection();
@@ -76,14 +78,15 @@ public class LogiDeviceCollectionTests
         collection.OnRemoveMessage(new RemoveMessage("dev001", "test"));
 
         // Assert
-        Assert.Empty(collection.Devices);
+        Assert.Single(collection.Devices);
+        Assert.Equal(-1, collection.Devices.First().BatteryPercentage);
     }
 
     [Fact]
-    public void OnRemoveMessage_WildcardGHUB_RemovesOnlyGHubDevices()
+    public void OnRemoveMessage_WildcardGHUB_MarksOfflineOnlyGHubDevices()
     {
-        // This test verifies that wildcard removal (*GHUB*) removes all GHUB devices
-        // but leaves native HID devices intact
+        // This test verifies that wildcard removal (*GHUB*) marks all GHUB devices offline
+        // but leaves native HID devices intact (and online/unchanged)
 
         // Arrange
         var collection = CreateTestCollection();
@@ -92,52 +95,26 @@ public class LogiDeviceCollectionTests
         collection.OnInitMessage(new InitMessage("dev002", "GHUB Device 2", true, DeviceType.Keyboard));
         collection.OnInitMessage(new InitMessage("ABC123", "HID Device", true, DeviceType.Mouse));
 
+        // Set initial battery levels
+        collection.OnUpdateMessage(new UpdateMessage(deviceId: "dev001", batteryPercentage: 100, powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_DISCHARGING, batteryMVolt: 4000, updateTime: System.DateTimeOffset.Now));
+        collection.OnUpdateMessage(new UpdateMessage(deviceId: "dev002", batteryPercentage: 100, powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_DISCHARGING, batteryMVolt: 4000, updateTime: System.DateTimeOffset.Now));
+        collection.OnUpdateMessage(new UpdateMessage(deviceId: "ABC123", batteryPercentage: 100, powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_DISCHARGING, batteryMVolt: 4000, updateTime: System.DateTimeOffset.Now));
+
         Assert.Equal(3, collection.Devices.Count);
 
         // Act
         collection.OnRemoveMessage(new RemoveMessage("*GHUB*", "rediscover"));
 
         // Assert
-        Assert.Single(collection.Devices);
-        Assert.Equal("ABC123", collection.Devices.First().DeviceId);
-    }
+        Assert.Equal(3, collection.Devices.Count); // All kept
+        
+        var dev1 = collection.Devices.FirstOrDefault(d => d.DeviceId == "dev001");
+        var dev2 = collection.Devices.FirstOrDefault(d => d.DeviceId == "dev002");
+        var dev3 = collection.Devices.FirstOrDefault(d => d.DeviceId == "ABC123");
 
-    [Fact]
-    public void OnRemoveMessage_UpdatesSettings()
-    {
-        // This test verifies that when a device is removed,
-        // it's also removed from the SelectedDevices settings
-
-        // Arrange
-        var collection = CreateTestCollection();
-
-        collection.OnInitMessage(new InitMessage("dev001", "Test Device", true, DeviceType.Mouse));
-
-        // Act
-        collection.OnRemoveMessage(new RemoveMessage("dev001", "test"));
-
-        // Assert - verify device removed from collection
-        Assert.Empty(collection.Devices);
-    }
-
-    [Fact]
-    public void OnRemoveMessage_ReleasesIconResources()
-    {
-        // This test verifies that when a device is removed,
-        // its icon resources are properly disposed by setting IsChecked = false
-
-        // Arrange
-        var collection = CreateTestCollection();
-
-        collection.OnInitMessage(new InitMessage("dev001", "Test Device", true, DeviceType.Mouse));
-        var device = collection.Devices.First();
-        device.IsChecked = true;
-
-        // Act
-        collection.OnRemoveMessage(new RemoveMessage("dev001", "test"));
-
-        // Assert - device is removed
-        Assert.Empty(collection.Devices);
+        Assert.Equal(-1, dev1?.BatteryPercentage);
+        Assert.Equal(-1, dev2?.BatteryPercentage);
+        Assert.NotEqual(-1, dev3?.BatteryPercentage); // Native device should be untouched (default 0 or initialized value)
     }
 
     [Fact]
@@ -161,16 +138,18 @@ public class LogiDeviceCollectionTests
         var dispatcher = new SynchronousDispatcher();
         var subscriber = new MockSubscriber();
         var iconFactory = new MockLogiDeviceIconFactory();
-        var viewModelFactory = new LogiDeviceViewModelFactory(iconFactory);
+        
         var appSettings = new AppSettings
         {
-            UI = new UISettings { KeepOfflineDevices = false },
+            UI = new UISettings { /* KeepOfflineDevices removed */ },
             Logging = new LoggingSettings { Enabled = false, Verbose = false },
             HTTPServer = new HttpServerSettings { Enabled = false, Addr = "localhost", Port = 12321 },
-            GHub = new IDeviceManagerSettings { Enabled = false },
+            GHub = new GHubManagerSettings { Enabled = false },
             Native = new NativeDeviceManagerSettings { Enabled = false },
             Notifications = new NotificationSettings()
         };
+        
+        var viewModelFactory = new LogiDeviceViewModelFactory(iconFactory, appSettings, settings);
 
         // Act - creating collection triggers deduplication
         var messenger = new MockMessenger();

@@ -240,7 +240,7 @@ public class LogiDeviceCollection : ILogiDeviceCollection,
                     // Notify NotificationService about mode switch
                     _messenger.Send(new DeviceBatteryUpdatedMessage(device));
                 }
-                else if (_appSettings.UI.KeepOfflineDevices)
+                else
                 {
                     // Keep device in collection, update with offline state
                     DiagnosticLogger.Log($"Device offline, keeping in collection - {device.DeviceId} ({device.DeviceName})");
@@ -249,19 +249,6 @@ public class LogiDeviceCollection : ILogiDeviceCollection,
                     // Notify NotificationService that device battery was updated (offline state)
                     // Device is guaranteed to be in collection and fully updated
                     _messenger.Send(new DeviceBatteryUpdatedMessage(device));
-                }
-                else
-                {
-                    // Device going offline - update state and notify BEFORE removing
-                    DiagnosticLogger.Log($"Device offline, removing from collection - {device.DeviceId} ({device.DeviceName})");
-                    device.UpdateState(updateMessage);
-
-                    // Notify NotificationService about offline state before removal
-                    // This ensures offline notification is shown
-                    _messenger.Send(new DeviceBatteryUpdatedMessage(device));
-
-                    // Now remove device from collection
-                    RemoveDevice(device, "device_offline");
                 }
             }
             else
@@ -300,10 +287,10 @@ public class LogiDeviceCollection : ILogiDeviceCollection,
 
                 foreach (var device in ghubDevices)
                 {
-                    RemoveDevice(device, removeMessage.reason);
+                    MarkAsOffline(device, removeMessage.reason);
                 }
 
-                DiagnosticLogger.Log($"Removed {ghubDevices.Count} GHUB device(s)");
+                DiagnosticLogger.Log($"Marked {ghubDevices.Count} GHUB device(s) offline");
                 return;
             }
 
@@ -317,10 +304,10 @@ public class LogiDeviceCollection : ILogiDeviceCollection,
 
                 foreach (var device in nativeDevices)
                 {
-                    RemoveDevice(device, removeMessage.reason);
+                    MarkAsOffline(device, removeMessage.reason);
                 }
 
-                DiagnosticLogger.Log($"Removed {nativeDevices.Count} Native HID device(s)");
+                DiagnosticLogger.Log($"Marked {nativeDevices.Count} Native HID device(s) offline");
                 return;
             }
 
@@ -333,62 +320,23 @@ public class LogiDeviceCollection : ILogiDeviceCollection,
                 return;
             }
 
-            // Check keepOfflineDevices setting
-            if (_appSettings.UI.KeepOfflineDevices)
-            {
-                // Mark device as offline instead of removing
-                DiagnosticLogger.Log($"Marking device offline (keepOfflineDevices=true) - {deviceToRemove.DeviceId} ({deviceToRemove.DeviceName}) - reason: {removeMessage.reason}");
-                deviceToRemove.BatteryPercentage = -1;
-                deviceToRemove.PowerSupplyStatus = PowerSupplyStatus.POWER_SUPPLY_STATUS_UNKNOWN;
-                // Icon will automatically update to show "?" or "Missing" icon
-            }
-            else
-            {
-                // Original behavior: Remove device entirely
-                RemoveDevice(deviceToRemove, removeMessage.reason);
-            }
+            // Always mark as offline (KeepOfflineDevices logic handled in UI)
+            MarkAsOffline(deviceToRemove, removeMessage.reason);
         });
     }
 
     /// <summary>
-    /// Remove a device from the collection and clean up resources
+    /// Mark a device as offline but keep it in the collection
     /// </summary>
-    private void RemoveDevice(LogiDeviceViewModel device, string reason)
+    private void MarkAsOffline(LogiDeviceViewModel device, string reason)
     {
-        // Check keepOfflineDevices setting for wildcard removals
-        if (_appSettings.UI.KeepOfflineDevices)
-        {
-            DiagnosticLogger.Log($"Marking device offline (wildcard, keepOfflineDevices=true) - {device.DeviceId}");
-            device.BatteryPercentage = -1;
-            device.PowerSupplyStatus = PowerSupplyStatus.POWER_SUPPLY_STATUS_UNKNOWN;
-            return; // Don't actually remove
-        }
+        DiagnosticLogger.Log($"Marking device offline - {device.DeviceId} ({device.DeviceName}) [Signature: {device.DeviceSignature}] - reason: {reason}");
 
-        DiagnosticLogger.Log($"Removing device - {device.DeviceId} ({device.DeviceName}) [Signature: {device.DeviceSignature}] - reason: {reason}");
-
-        // Uncheck to release icon resources
-        if (device.IsChecked)
-        {
-            device.IsChecked = false;
-        }
-
-        // Dispose the ViewModel to clean up event subscriptions (prevents memory leak)
-        device.Dispose();
-
-        // Note: With signature-based matching, we preserve settings for ALL disconnect reasons
-        // Settings are only removed when user manually unchecks the device
-        // This allows devices to seamlessly reconnect with new IDs (GHUB) or after being offline
-
-        DiagnosticLogger.Log($"Device settings preserved for reconnection - {device.DeviceSignature}");
-
-        // Remove from collection (triggers UI update via ObservableCollection)
-        Devices.Remove(device);
-
-        // Remove from signature mapping
-        if (_signatureToId.ContainsKey(device.DeviceSignature))
-        {
-            _signatureToId.Remove(device.DeviceSignature);
-        }
+        device.BatteryPercentage = -1;
+        device.PowerSupplyStatus = PowerSupplyStatus.POWER_SUPPLY_STATUS_UNKNOWN;
+        
+        // Notify NotificationService about offline state
+        _messenger.Send(new DeviceBatteryUpdatedMessage(device));
     }
 
     /// <summary>

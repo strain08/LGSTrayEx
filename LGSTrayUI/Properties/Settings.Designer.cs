@@ -61,4 +61,16 @@ internal sealed partial class Settings : global::System.Configuration.Applicatio
             this["SelectedSignatures"] = value;
         }
     }
+    
+    [global::System.Configuration.UserScopedSettingAttribute()]
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+    [global::System.Configuration.DefaultSettingValueAttribute("False")]
+    public bool KeepOfflineDevices {
+        get {
+            return ((bool)(this["KeepOfflineDevices"]));
+        }
+        set {
+            this["KeepOfflineDevices"] = value;
+        }
+    }
 }
