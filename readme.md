@@ -22,7 +22,7 @@ See included [settings file](https://github.com/strain08/LGSTrayBattery/blob/mas
 
 See [release notes](https://github.com/strain08/LGSTrayBattery/releases/latest)
 
-# Device compatibility
+## Device compatibility
 Currently tested and working with:
 - ✅(Bolt) MX Keys S
 - ✅(Bolt) MX Anywhere 3S
@@ -31,10 +31,10 @@ Currently tested and working with:
 - ✅(Lightspeed) G305 Mouse
 - 🟨(Lightspeed) G515 TKL (after closing https://github.com/strain08/LGSTrayBattery/issues/3)
 
-# OS Compatibility
+## OS Compatibility
 - currently Windows 11 only
 
-# Issue reporting
+## Issue reporting
 1. Edit `appsettings.toml`
 ```
 [Logging]
