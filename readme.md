@@ -44,5 +44,5 @@ verbose = true
 2. Reproduce issue
 3. Post the resulting `diagnostic.log` along with the issue description and repro.
      
-# Notes
+## Notes
 - hidapi.dll is same as andy's, SHA256: `38bda32f593c054cacaf95bebce36f9bacc7fbd0740f7b6f72f6d368fbc84b4d`
