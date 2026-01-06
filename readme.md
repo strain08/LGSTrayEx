@@ -34,6 +34,11 @@ Currently tested and working with:
 ## OS Compatibility
 - currently Windows 11 only
 
+## Known issues
+- `enableRichToolsips = true` coud result in tooltips not closing properly when using fullscreen apps<br>
+  Set this to `false` for classic windows tooltips. There is no specific functionality implemented for this.<br>
+  It will default to `false` in versions after v3.1.3
+
 ## Issue reporting
 1. Edit `appsettings.toml`
 ```
