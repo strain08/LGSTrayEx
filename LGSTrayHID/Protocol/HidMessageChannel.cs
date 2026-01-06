@@ -63,12 +63,15 @@ public class HidMessageChannel : IDisposable
 
     /// <summary>
     /// Reads HID messages in a loop until cancellation is requested.
-    /// Handles timeout (0 = retry), error (<0 = stop), and success (>0 = process).
+    /// Handles timeout (0 = retry), error (<0 = retry with backoff, then stop), and success (>0 = process).
     /// </summary>
     private async Task ReadThreadAsync(HidDevicePtr device, int bufferSize)
     {
         byte[] buffer = new byte[bufferSize];
         CancellationToken ct = _cancellationSource.Token;
+        int consecutiveErrors = 0;
+        const int MAX_CONSECUTIVE_ERRORS = 5;
+        const int ERROR_RETRY_DELAY_MS = 500;
 
         while (!ct.IsCancellationRequested)
         {
@@ -79,13 +82,42 @@ public class HidMessageChannel : IDisposable
 
             if (bytesRead < 0)
             {
-                // HID read error - log and stop thread
-                DiagnosticLogger.LogError(
-                    $"HID read error on {bufferSize}b thread " +
-                    $"(return code: {bytesRead}). Thread exiting. " +
-                    $"Device may be disconnected or driver issue."
+                consecutiveErrors++;
+
+                if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS)
+                {
+                    // Persistent error - device likely disconnected or unrecoverable issue
+                    DiagnosticLogger.LogError(
+                        $"HID read error on {bufferSize}b thread after {consecutiveErrors} attempts " +
+                        $"(return code: {bytesRead}). Thread exiting. " +
+                        $"Device may be disconnected or driver issue."
+                    );
+                    break;
+                }
+
+                // Transient error - retry with delay
+                DiagnosticLogger.LogWarning(
+                    $"HID read error on {bufferSize}b thread (return code: {bytesRead}), " +
+                    $"attempt {consecutiveErrors}/{MAX_CONSECUTIVE_ERRORS}. Retrying in {ERROR_RETRY_DELAY_MS}ms..."
                 );
-                break;
+
+                try
+                {
+                    await Task.Delay(ERROR_RETRY_DELAY_MS, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Cancellation requested during delay
+                    break;
+                }
+                continue;
+            }
+
+            // Reset error counter on successful read (including timeouts)
+            if (consecutiveErrors > 0)
+            {
+                DiagnosticLogger.Log($"HID read on {bufferSize}b thread recovered after {consecutiveErrors} errors");
+                consecutiveErrors = 0;
             }
 
             if (bytesRead == 0) continue;  // Timeout - retry
