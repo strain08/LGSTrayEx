@@ -136,8 +136,8 @@ public partial class App : Application
 
         builder.Services.AddWebserver(builder.Configuration);
 
-        builder.Services.AddIDeviceManager<LGSTrayHIDManager>(builder.Configuration);
-        builder.Services.AddIDeviceManager<GHubManager>(builder.Configuration);
+        builder.Services.AddDeviceManager<LGSTrayHIDManager>(builder.Configuration);
+        builder.Services.AddDeviceManager<GHubManager>(builder.Configuration);
         builder.Services.AddSingleton<ILogiDeviceCollection, LogiDeviceCollection>();
 
 
@@ -274,7 +274,7 @@ public partial class App : Application
         base.OnExit(e);
     }
 
-    static async Task LoadAppSettings(Microsoft.Extensions.Configuration.ConfigurationManager config)
+    static async Task LoadAppSettings(ConfigurationManager config)
     {
         try
         {
@@ -328,11 +328,48 @@ public partial class App : Application
 
     private void CrashHandler(object sender, UnhandledExceptionEventArgs args)
     {
-        Exception e = (Exception)args.ExceptionObject;
-        long unixTime = DateTimeOffset.Now.ToUnixTimeSeconds();
+        try
+        {
+            if (args.ExceptionObject is Exception ex)
+            {
+                string crashFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "LGSTrayUI_Crash.txt");
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"[{DateTime.Now}] CRASH OCCURRED");
+                
+                // Recursively log exceptions
+                Exception? currentEx = ex;
+                int depth = 0;
+                while (currentEx != null)
+                {
+                    string prefix = depth == 0 ? "Exception" : $"Inner Exception [{depth}]";
+                    sb.AppendLine($"{prefix}: {currentEx.GetType().Name}: {currentEx.Message}");
+                    sb.AppendLine($"Stack Trace:\n{currentEx.StackTrace}");
+                    
+                    if (currentEx is AggregateException aggEx)
+                    {
+                        sb.AppendLine($"Flattened AggregateException Details:");
+                        foreach (var inner in aggEx.Flatten().InnerExceptions)
+                        {
+                            sb.AppendLine($"- {inner.GetType().Name}: {inner.Message}");
+                        }
+                    }
 
-        using StreamWriter writer = new($"./crashlog_{unixTime}.log", false);
-        writer.WriteLine(e.ToString());
+                    currentEx = currentEx.InnerException;
+                    depth++;
+                    if (currentEx != null) sb.AppendLine();
+                }
+
+                sb.AppendLine("\nFull ToString():");
+                sb.AppendLine(ex.ToString());
+                sb.AppendLine("--------------------------------------------------");
+                
+                File.AppendAllText(crashFile, sb.ToString());
+            }
+        }
+        catch
+        {
+            // If logging fails, there's not much we can do.
+        }
     }
 
     /// <summary>

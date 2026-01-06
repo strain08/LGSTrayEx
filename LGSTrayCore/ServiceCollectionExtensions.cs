@@ -26,7 +26,7 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    public static void AddIDeviceManager<T>(this IServiceCollection services, IConfiguration configs) where T : class, IDeviceManager, IHostedService
+    public static void AddDeviceManager<T>(this IServiceCollection services, IConfiguration configs) where T : class, IDeviceManager, IHostedService
     {
         var settings = configs.Get<AppSettings>()!;
         string managerName = typeof(T).Name;

@@ -7,20 +7,55 @@ namespace LGSTrayUI
     internal class Program
     {
         [STAThread]
-        static void Main()
-        {
-            // TODO Whatever you want to do before starting
-            // the WPF application and loading all WPF dlls
-            try
+                        static void Main()
+                        {
+                            // TODO Whatever you want to do before starting
+                            // the WPF application and loading all WPF dlls
+                            try
+                            {
+                                RunApp();
+                            }            catch (Exception ex)
             {
-                RunApp();
-            }
-            catch (Exception e)
-            {
-                long unixTime = DateTimeOffset.Now.ToUnixTimeSeconds();
+                try
+                {
+                    var unixTime = DateTimeOffset.Now.ToUnixTimeSeconds();
+                    string crashFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"LGSTrayUI_Crash_{unixTime}.txt");
+                    var sb = new System.Text.StringBuilder();
+                    sb.AppendLine($"[{DateTime.Now}] STARTUP CRASH OCCURRED");
+                    
+                    // Recursively log exceptions
+                    Exception? currentEx = ex;
+                    int depth = 0;
+                    while (currentEx != null)
+                    {
+                        string prefix = depth == 0 ? "Exception" : $"Inner Exception [{depth}]";
+                        sb.AppendLine($"{prefix}: {currentEx.GetType().Name}: {currentEx.Message}");
+                        sb.AppendLine($"Stack Trace:\n{currentEx.StackTrace}");
+                        
+                        if (currentEx is AggregateException aggEx)
+                        {
+                            sb.AppendLine($"Flattened AggregateException Details:");
+                            foreach (var inner in aggEx.Flatten().InnerExceptions)
+                            {
+                                sb.AppendLine($"- {inner.GetType().Name}: {inner.Message}");
+                            }
+                        }
 
-                using StreamWriter writer = new($"./main_crashlog_{unixTime}.log", false);
-                writer.WriteLine(e.ToString());
+                        currentEx = currentEx.InnerException;
+                        depth++;
+                        if (currentEx != null) sb.AppendLine();
+                    }
+
+                    sb.AppendLine("\nFull ToString():");
+                    sb.AppendLine(ex.ToString());
+                    sb.AppendLine("--------------------------------------------------");
+                    
+                    File.AppendAllText(crashFile, sb.ToString());
+                }
+                catch
+                {
+                    // If logging fails, there's not much we can do.
+                }
             }
         }
 

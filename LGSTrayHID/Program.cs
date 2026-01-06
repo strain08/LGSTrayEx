@@ -26,16 +26,12 @@ internal class Program
 {
     static async Task Main(string[] args)
     {
-        DiagnosticLogger.Initialize(true, false);
-        // Load Logging config
+        AppDomain.CurrentDomain.UnhandledException += UnhandledExceptionTrapper;
+
         var builder = Host.CreateEmptyApplicationBuilder(null);
-        try
-        {
-            builder.Configuration.AddTomlFile("appsettings.toml", optional: false, reloadOnChange: false);
-        }catch (Exception ex)
-        {
-            DiagnosticLogger.LogError($"Failed to load configuration file: {ex.InnerException?.Message}");
-        }
+
+        // Load Logging config        
+        builder.Configuration.AddTomlFile("appsettings.toml", optional: false, reloadOnChange: false);
         var loggingSettings = builder.Configuration.GetSection("Logging").Get<LoggingSettings>();
 
         // Determine logging settings
@@ -93,5 +89,52 @@ internal class Program
             });
 
             await host.RunAsync();
+    }
+
+    private static void UnhandledExceptionTrapper(object sender, UnhandledExceptionEventArgs e)
+    {
+        try
+        {
+            if (e.ExceptionObject is Exception ex)
+            {
+                var unixTime = DateTimeOffset.Now.ToUnixTimeSeconds();
+                string crashFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"LGSTrayHID_Crash_{unixTime}.txt");
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"[{DateTime.Now}] CRASH OCCURRED");
+                
+                // Recursively log exceptions
+                Exception? currentEx = ex;
+                int depth = 0;
+                while (currentEx != null)
+                {
+                    string prefix = depth == 0 ? "Exception" : $"Inner Exception [{depth}]";
+                    sb.AppendLine($"{prefix}: {currentEx.GetType().Name}: {currentEx.Message}");
+                    sb.AppendLine($"Stack Trace:\n{currentEx.StackTrace}");
+                    
+                    if (currentEx is AggregateException aggEx)
+                    {
+                        sb.AppendLine($"Flattened AggregateException Details:");
+                        foreach (var inner in aggEx.Flatten().InnerExceptions)
+                        {
+                            sb.AppendLine($"- {inner.GetType().Name}: {inner.Message}");
+                        }
+                    }
+
+                    currentEx = currentEx.InnerException;
+                    depth++;
+                    if (currentEx != null) sb.AppendLine();
+                }
+
+                sb.AppendLine("\nFull ToString():");
+                sb.AppendLine(ex.ToString());
+                sb.AppendLine("--------------------------------------------------");
+                
+                File.AppendAllText(crashFile, sb.ToString());
+            }
+        }
+        catch
+        {
+            // If logging fails, there's not much we can do.
+        }
     }
 }
