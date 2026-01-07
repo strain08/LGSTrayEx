@@ -28,11 +28,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ContentWithTargetPath Include="libhidapi/*.dll">
+    <ContentWithTargetPath Include="HidApi/libhidapi/*.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>%(Filename)%(Extension)</TargetPath>
     </ContentWithTargetPath>
-    <None Include="libhidapi/*.dll" />
+    <None Include="HidApi/libhidapi/*.dll" />
   </ItemGroup>
 
 </Project>
