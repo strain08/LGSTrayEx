@@ -85,6 +85,29 @@ public class NotificationSettings
     public int BatteryLowThreshold { get; set; } = 30;
     public bool NotifyOnBatteryHigh { get; set; } = true;
     public int BatteryHighThreshold { get; set; } = 80;
+
+    /// <summary>
+    /// Suppress offline/online notification spam when devices switch between wired/wireless modes (default: true).
+    /// When enabled, offline notifications are delayed by ModeSwitchDetectionDelaySeconds.
+    /// If device comes back online within that window, both notifications are suppressed.
+    /// </summary>
+    public bool SuppressModeSwitchNotifications { get; set; } = true;
+
+    /// <summary>
+    /// Delay in seconds before showing offline notification (default: 3).
+    /// If device reconnects within this window, notifications are suppressed (mode switch detected).
+    /// Only applies when SuppressModeSwitchNotifications is enabled.
+    /// Recommended: 2-5 seconds for most devices.
+    /// </summary>
+    public int ModeSwitchDetectionDelaySeconds { get; set; } = 3;
+
+    /// <summary>
+    /// List of device names to apply mode switch suppression (default: empty = all devices).
+    /// If empty, suppression applies to all devices.
+    /// If specified, only listed devices will have suppressed notifications during mode switches.
+    /// Example: ["G502", "G915"]
+    /// </summary>
+    public IEnumerable<string> DevicesForModeSwitchSuppression { get; set; } = [];
 }
 
 public class LoggingSettings

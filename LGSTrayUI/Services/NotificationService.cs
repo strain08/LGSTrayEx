@@ -1,5 +1,6 @@
 ﻿using CommunityToolkit.Mvvm.Messaging;
 using LGSTrayPrimitives;
+using LGSTrayPrimitives.Interfaces;
 using LGSTrayUI.Messages;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -7,6 +8,7 @@ using Notification.Wpf;
 using Notification.Wpf.Constants;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -29,6 +31,10 @@ public class NotificationService : IHostedService,
 
     // Track the last online state for each device
     private readonly Dictionary<string, bool> _lastOnlineState = [];
+
+    // Track pending offline notifications for mode-switch detection
+    private readonly Dictionary<string, CancellationTokenSource> _pendingOfflineNotifications = [];
+    private readonly object _pendingOfflineLock = new();
 
     // Track system power state
     private bool _systemSuspended = false;
@@ -115,6 +121,28 @@ public class NotificationService : IHostedService,
     }
 
     /// <summary>
+    /// Check if mode switch suppression should be applied to this device.
+    /// Returns true if SuppressModeSwitchNotifications is enabled AND either:
+    /// - DevicesForModeSwitchSuppression list is empty (apply to all devices), OR
+    /// - Device name is in the DevicesForModeSwitchSuppression list
+    /// </summary>
+    private bool ShouldSuppressModeSwitchForDevice(string deviceName)
+    {
+        if (!_notificationSettings.SuppressModeSwitchNotifications)
+            return false;
+
+        var deviceList = _notificationSettings.DevicesForModeSwitchSuppression?.ToList() ?? [];
+
+        // Empty list means apply to all devices
+        if (deviceList.Count == 0)
+            return true;
+
+        // Check if device name is in the list (case-insensitive partial match)
+        return deviceList.Any(configuredDevice =>
+            deviceName.Contains(configuredDevice, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// Handles SystemSuspendingMessage - system is entering suspend/standby.
     /// </summary>
     public void Receive(SystemSuspendingMessage message)
@@ -144,7 +172,7 @@ public class NotificationService : IHostedService,
         DiagnosticLogger.Log($"Received battery update for device {deviceId}: {batteryPercent}%, Charging: {isCharging}");
 
         // Check device online/offline state transitions
-        var isOnline = batteryPercent >= 0;
+        var isOnline = device.IsOnline;
         var hasSeenDeviceBefore = _lastOnlineState.TryGetValue(deviceId, out var lastOnline);
 
         // Only show notifications for actual state transitions (not during first-time initialization)
@@ -321,12 +349,69 @@ public class NotificationService : IHostedService,
             DiagnosticLogger.Log($"Skipping offline notification for {deviceName} as NotifyStateChange is disabled in settings.");
             return;
         }
-        var title = $"{deviceName} - Device Offline";
-        var message = "Device has been turned off or disconnected";
+
+        // Check if mode switch suppression is enabled for this device
+        if (ShouldSuppressModeSwitchForDevice(deviceName))
+        {
+            var delaySeconds = _notificationSettings.ModeSwitchDetectionDelaySeconds;
+            DiagnosticLogger.Log($"[ModeSwitchDetection] {deviceName} went offline - delaying notification by {delaySeconds}s to detect mode switch");
+
+            lock (_pendingOfflineLock)
+            {
+                // Cancel any existing pending notification for this device
+                if (_pendingOfflineNotifications.TryGetValue(deviceName, out var existingCts))
+                {
+                    existingCts.Cancel();
+                    existingCts.Dispose();
+                }
+
+                // Create new cancellation token for this pending notification
+                var cts = new CancellationTokenSource();
+                _pendingOfflineNotifications[deviceName] = cts;
+
+                // Schedule delayed notification
+                Task.Delay(TimeSpan.FromSeconds(delaySeconds), cts.Token).ContinueWith(task =>
+                {
+                    if (task.IsCanceled)
+                    {
+                        // Notification was cancelled (device came back online - mode switch detected)
+                        DiagnosticLogger.Log($"[ModeSwitchDetection] {deviceName} offline notification cancelled (mode switch detected)");
+                        return;
+                    }
+
+                    // Delay expired, device still offline - show notification on UI thread
+                    DiagnosticLogger.Log($"[ModeSwitchDetection] {deviceName} still offline after {delaySeconds}s - showing notification");
+
+                    var title = $"{deviceName} - Device Offline";
+                    var message = "Device has been turned off or disconnected";
+
+                    _notificationManager.Show(
+                        title,
+                        message,
+                        NotificationType.Warning,
+                        areaName: "",
+                        expirationTime: TimeSpan.FromSeconds(5)
+                    );
+
+                    // Clean up
+                    lock (_pendingOfflineLock)
+                    {
+                        _pendingOfflineNotifications.Remove(deviceName);
+                        cts.Dispose();
+                    }
+                }, TaskScheduler.Default);
+            }
+
+            return;
+        }
+
+        // Mode switch suppression not enabled - show notification immediately
+        var notificationTitle = $"{deviceName} - Device Offline";
+        var notificationMessage = "Device has been turned off or disconnected";
 
         _notificationManager.Show(
-            title,
-            message,
+            notificationTitle,
+            notificationMessage,
             NotificationType.Warning,
             areaName: "",
             expirationTime: TimeSpan.FromSeconds(5)
@@ -350,6 +435,30 @@ public class NotificationService : IHostedService,
             DiagnosticLogger.Log($"Skipping online notification for {deviceName} as NotifyStateChange is disabled in settings.");
             return;
         }
+
+        // Check if there's a pending offline notification (mode switch detection)
+        bool modeSwitchDetected = false;
+        lock (_pendingOfflineLock)
+        {
+            if (_pendingOfflineNotifications.TryGetValue(deviceName, out var cts))
+            {
+                // Mode switch detected - cancel the pending offline notification
+                cts.Cancel();
+                cts.Dispose();
+                _pendingOfflineNotifications.Remove(deviceName);
+                modeSwitchDetected = true;
+
+                DiagnosticLogger.Log($"[ModeSwitchDetection] {deviceName} came back online - mode switch detected, suppressing both notifications");
+            }
+        }
+
+        // If mode switch was detected, suppress the online notification as well
+        if (modeSwitchDetected)
+        {
+            return;
+        }
+
+        // Normal online notification (not a mode switch)
         var title = $"{deviceName} - Device Online";
         var message = $"Device is back online (Battery: {batteryPercent}%)";
 

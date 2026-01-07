@@ -1,5 +1,6 @@
 ﻿using CommunityToolkit.Mvvm.Messaging;
 using LGSTrayPrimitives;
+using LGSTrayPrimitives.Interfaces;
 using LGSTrayPrimitives.MessageStructs;
 using LGSTrayUI.Interfaces;
 using LGSTrayUI.Messages;
@@ -12,18 +13,20 @@ namespace LGSTrayUI.Tests;
 
 public class NotificationServiceTests
 {
-    private async Task<Mock<INotificationManager>> MockManager(int percentage, AppSettings settingsMock, PowerSupplyStatus powerSupply) 
+    private async Task<Mock<INotificationManager>> MockManager(int percentage, AppSettings settingsMock, PowerSupplyStatus powerSupply)
     {
         var manager = new Mock<INotificationManager>(MockBehavior.Loose);
         var settings = new Mock<IOptions<AppSettings>>();
         var messenger = new StrongReferenceMessenger();
+        var dispatcher = new Mock<IDispatcher>();
         var iconFactory = new Mock<ILogiDeviceIconFactory>();
         var appSettings = settingsMock;
         var userSettings = new UserSettingsWrapper();
 
         settings.Setup(s => s.Value).Returns(appSettings);
+        dispatcher.Setup(d => d.BeginInvoke(It.IsAny<Action>())).Callback<Action>(action => action());
 
-        var service = new NotificationService(manager.Object, settings.Object, messenger);
+        var service = new NotificationService(manager.Object, settings.Object, messenger, dispatcher.Object);
         await service.StartAsync(CancellationToken.None);
 
         var device = new LogiDeviceViewModel(iconFactory.Object, appSettings, userSettings);

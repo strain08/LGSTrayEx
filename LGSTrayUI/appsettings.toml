@@ -65,6 +65,23 @@ notifyOnBatteryHigh = true
 # Battery percentage threshold for "charged" notification
 batteryHighThreshold = 80
 
+# Suppress offline/online notification spam when devices switch between wired/wireless modes
+# Should be left on false if you don't use such devices
+# When enabled, offline notifications are delayed by modeSwitchDetectionDelaySeconds
+# If device reconnects within that window, both notifications are suppressed
+suppressModeSwitchNotifications = false
+
+# Delay in seconds before showing offline notification (for mode switch detection)
+# If device comes back online within this window, it's treated as a mode switch
+# Recommended: 2-5 seconds for most devices
+modeSwitchDetectionDelaySeconds = 3
+
+# List of device names to apply mode switch suppression
+# Empty list = apply to all devices (recommended)
+# Specify device names to limit suppression to specific devices (pick from device list menu)
+# Example: devicesForModeSwitchSuppression = ["G502", "G915"]
+devicesForModeSwitchSuppression = []
+
 [Logging]
 # Enable diagnostic logging to diagnostic.log
 # Can be overridden by --log command-line flag
