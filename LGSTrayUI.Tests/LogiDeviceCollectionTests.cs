@@ -11,6 +11,7 @@ namespace LGSTrayUI.Tests;
 /// Tests for LogiDeviceCollection device removal functionality
 /// These tests verify how device removal works to fix duplicate device issue
 /// </summary>
+[Collection("Sequential")]
 public class LogiDeviceCollectionTests
 {
     private static LogiDeviceCollection CreateTestCollection(params string[] initialDeviceSignatures)

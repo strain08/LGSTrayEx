@@ -12,6 +12,7 @@ namespace LGSTrayUI.Tests;
 /// <summary>
 /// Tests for LogiDeviceCollection mode switch functionality (Wired/Wireless)
 /// </summary>
+[Collection("Sequential")]
 public class LogiDeviceCollectionModeSwitchTests
 {
     private static LogiDeviceCollection CreateTestCollection(out MockMessenger messenger)
