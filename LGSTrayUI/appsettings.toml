@@ -8,7 +8,7 @@ enableRichToolTips = false
 
 [HTTPServer]
 # Enable built-in HTTP server for status and control
-enabled = true
+enabled = false
 
 addr = "localhost"
 port = 12321
@@ -148,7 +148,7 @@ maxAttempts = 5            # Multiple quick attempts
 [MQTT]
 # Enable MQTT integration with Home Assistant
 # When enabled, battery status is published to MQTT broker with auto-discovery support
-enabled = true
+enabled = false
 
 # MQTT broker connection settings
 brokerAddress = "localhost"   # Broker hostname or IP address

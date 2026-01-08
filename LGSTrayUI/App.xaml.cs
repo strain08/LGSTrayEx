@@ -5,6 +5,7 @@ using LGSTrayCore.Managers;
 using LGSTrayPrimitives;
 using LGSTrayPrimitives.Interfaces;
 using LGSTrayPrimitives.IPC;
+using LGSTrayUI.Extensions;
 using LGSTrayUI.IconDrawing;
 using LGSTrayUI.Interfaces;
 using LGSTrayUI.Messages;
@@ -12,7 +13,6 @@ using LGSTrayUI.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Notification.Wpf;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -22,7 +22,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using Tommy.Extensions.Configuration;
-using static LGSTrayUI.AppExtensions;
+using static LGSTrayUI.Extensions.AppExtensions;
 
 namespace LGSTrayUI;
 
@@ -126,36 +126,28 @@ public partial class App : Application
         // Register WeakReferenceMessenger for intra-process messaging (power events, etc.)
         builder.Services.AddSingleton<IMessenger>(WeakReferenceMessenger.Default);
 
-        builder.Services.AddLGSMessagePipe(true);
-        builder.Services.AddWebSocketClientFactory();
+        // IPC, Settings
+        builder.Services.AddLGSMessagePipe(true);        
         builder.Services.AddSingleton<UserSettingsWrapper>();
         builder.Services.AddSingleton<ISettingsManager, SettingsManager>();
+        
+        // Managers
+        builder.Services.AddDeviceManager<LGSTrayHIDManager>(builder.Configuration);
+        builder.Services.AddDeviceManager<GHubManager>(builder.Configuration);
 
+        // UI
+        builder.Services.AddSingleton<ILogiDeviceCollection, LogiDeviceCollection>();
         builder.Services.AddSingleton<ILogiDeviceIconFactory, LogiDeviceIconFactory>();
         builder.Services.AddSingleton<LogiDeviceViewModelFactory>();
         builder.Services.AddSingleton<IDispatcher, WpfDispatcher>();
-
-        builder.Services.AddWebserver(builder.Configuration);
-
-        builder.Services.AddDeviceManager<LGSTrayHIDManager>(builder.Configuration);
-        builder.Services.AddDeviceManager<GHubManager>(builder.Configuration);
-        builder.Services.AddSingleton<ILogiDeviceCollection, LogiDeviceCollection>();
-
-
         builder.Services.AddSingleton<MainTaskbarIconWrapper>();
         builder.Services.AddHostedService<NotifyIconViewModel>();
-        if (appSettings.Notifications.Enabled)
-        {
-            builder.Services.AddSingleton<INotificationManager, NotificationManager>();
-            builder.Services.AddHostedService<NotificationService>();
-        }
 
-        // Register MQTT service for Home Assistant integration
-        if (appSettings.MQTT.Enabled)
-        {
-            builder.Services.AddHostedService<MQTTService>();
-            DiagnosticLogger.Log("MQTT service enabled");
-        }
+        // Notifiers
+        builder.Services.AddWebSocketClientFactory();
+        builder.Services.AddWebserver(builder.Configuration);
+        builder.Services.AddMQTTClient(builder.Configuration);
+        builder.Services.AddNotifications(builder.Configuration);
 
         var host = builder.Build();
         _host = host; // Store host reference for wake handler

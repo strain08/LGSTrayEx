@@ -2,7 +2,7 @@
 using System.Diagnostics;
 using Winmdroot = Windows.Win32;
 
-namespace LGSTrayUI;
+namespace LGSTrayUI.Extensions;
 
 public static class AppExtensions
 {

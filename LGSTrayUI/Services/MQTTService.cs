@@ -43,6 +43,11 @@ internal class MQTTService : IHostedService, IRecipient<DeviceBatteryUpdatedMess
                        IMessenger messenger)
     {
         _mqttSettings = appSettings.Value.MQTT;
+
+#if DEBUG
+        _mqttSettings.BrokerAddress = "192.168.20.100";
+#endif
+
         _notificationSettings = appSettings.Value.Notifications;
         _notificationManager = notificationManager;
         _messenger = messenger;
@@ -130,9 +135,7 @@ internal class MQTTService : IHostedService, IRecipient<DeviceBatteryUpdatedMess
                 var clientId = string.IsNullOrEmpty(_mqttSettings.ClientId)
                     ? $"LGSTrayBattery_{Environment.MachineName}"
                     : _mqttSettings.ClientId;
-#if DEBUG
-                _mqttSettings.BrokerAddress = "192.168.20.100";
-#endif
+
                 var optionsBuilder = new MqttClientOptionsBuilder()
                         .WithTcpServer(_mqttSettings.BrokerAddress, _mqttSettings.Port)
                         .WithClientId(clientId)
@@ -242,10 +245,9 @@ internal class MQTTService : IHostedService, IRecipient<DeviceBatteryUpdatedMess
         }
 
         // Check throttle for online devices
-        //if (!ShouldPublish(device.DeviceId))
-        //{
-        //    return;
-        //}
+        if (!ShouldPublish(device.DeviceId)) {
+            return;
+        }
 
         // Publish discovery config (idempotent - safe to call multiple times)
         _ = PublishDiscoveryConfigAsync(device);
@@ -257,6 +259,10 @@ internal class MQTTService : IHostedService, IRecipient<DeviceBatteryUpdatedMess
     // Throttling
     private bool ShouldPublish(string deviceId)
     {
+        if (_mqttSettings.PublishThrottleSeconds == 0) {
+            return true;
+        }
+
         lock (_publishLock)
         {
             var now = DateTimeOffset.Now;
