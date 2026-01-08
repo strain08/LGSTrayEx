@@ -110,7 +110,7 @@ public partial class App : Application
         // Initialize logging
         DiagnosticLogger.Initialize(enableLogging, enableVerbose);
         DiagnosticLogger.ResetLog();
-        DiagnosticLogger.Log("Logging started.");
+        DiagnosticLogger.Log($"LGSTray {NotifyIconViewModel.AssemblyVersion} logging started.");
         if (enableVerbose)
         {
             DiagnosticLogger.Log("Verbose logging enabled.");
