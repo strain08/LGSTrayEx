@@ -359,4 +359,12 @@ public class MQTTSettings
     /// Retain messages on MQTT broker (recommended for Home Assistant)
     /// </summary>
     public bool RetainMessages { get; set; } = true;
+
+    /// <summary>
+    /// Publish device offline status to Home Assistant (default: false)
+    /// When enabled, devices are marked as "unavailable" in HA when they go offline,
+    /// which may hide their battery data in the UI.
+    /// When disabled, last known battery percentage remains visible even when device is offline.
+    /// </summary>
+    public bool PublishOfflineStatus { get; set; } = false;
 }

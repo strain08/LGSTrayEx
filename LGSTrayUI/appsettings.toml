@@ -179,3 +179,8 @@ publishThrottleSeconds = 60
 # Show toast notifications for MQTT connection failures/successes
 # Helps diagnose connection issues during setup
 notifyConnectionStatus = true
+
+# Publish device offline status to Home Assistant (default: false)
+# When enabled, devices are marked as "unavailable" in HA when offline (hides battery data)
+# When disabled, last known battery percentage remains visible when device is offline
+publishOfflineStatus = true

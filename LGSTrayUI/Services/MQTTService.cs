@@ -219,23 +219,33 @@ internal class MQTTService : IHostedService, IRecipient<DeviceBatteryUpdatedMess
     {
         var device = message.Device;
 
-        // Skip offline devices
-        if (!device.IsOnline)
-        {
-            return;
-        }
-
         // Check connection
         if (!_mqttClient.IsConnected)
         {
             return;
         }
 
-        // Check throttle
-        if (!ShouldPublish(device.DeviceId))
+        // Handle offline devices
+        if (!device.IsOnline)
         {
+            DiagnosticLogger.Log($"[MQTT] Device went offline: {device.DeviceName}");
+
+            // Always publish state update with online=false so HA knows device is offline
+            _ = PublishStateUpdateAsync(device);
+
+            // Optionally publish availability topic (marks sensor as unavailable in HA)
+            if (_mqttSettings.PublishOfflineStatus)
+            {
+                _ = PublishAvailabilityAsync(device.DeviceId, false);
+            }
             return;
         }
+
+        // Check throttle for online devices
+        //if (!ShouldPublish(device.DeviceId))
+        //{
+        //    return;
+        //}
 
         // Publish discovery config (idempotent - safe to call multiple times)
         _ = PublishDiscoveryConfigAsync(device);
@@ -351,6 +361,7 @@ internal class MQTTService : IHostedService, IRecipient<DeviceBatteryUpdatedMess
                 percentage = (int)Math.Round(device.BatteryPercentage),
                 voltage = device.BatteryVoltage,
                 charging = device.PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING,
+                online = device.IsOnline,
                 mileage = device.BatteryMileage,
                 last_update = device.LastUpdate.ToString("o"),
                 data_source = device.DataSource.ToString(),
@@ -369,10 +380,14 @@ internal class MQTTService : IHostedService, IRecipient<DeviceBatteryUpdatedMess
 
             await _mqttClient.PublishAsync(message, CancellationToken.None);
 
-            DiagnosticLogger.Log($"[MQTT] Published state for {device.DeviceName}: {state.percentage}%");
+            DiagnosticLogger.Log($"[MQTT] Published state for {device.DeviceName}: {state.percentage}% (online: {device.IsOnline})");
 
-            // Update availability if needed
-            await PublishAvailabilityAsync(device.DeviceId, device.IsOnline);
+            // Only update availability to "online" for online devices
+            // Offline availability is managed by the message handler based on publishOfflineStatus setting
+            if (device.IsOnline)
+            {
+                await PublishAvailabilityAsync(device.DeviceId, true);
+            }
         }
         catch (Exception ex)
         {
