@@ -7,6 +7,8 @@ namespace LGSTrayUI.Tests.Mocks;
 /// </summary>
 public class MockMessenger : IMessenger
 {
+    public List<object> SentMessages { get; } = new();
+
     public bool IsRegistered<TMessage, TToken>(object recipient, TToken token) where TMessage : class where TToken : IEquatable<TToken>
     {
         return false;
@@ -19,6 +21,7 @@ public class MockMessenger : IMessenger
 
     public TMessage Send<TMessage, TToken>(TMessage message, TToken token) where TMessage : class where TToken : IEquatable<TToken>
     {
+        SentMessages.Add(message);
         return message;
     }
 

@@ -138,10 +138,13 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
 
     public void UpdateState(UpdateMessage updateMessage)
     {
-        if (updateMessage.batteryPercentage >= 0)
+        if (updateMessage.batteryPercentage >= 0 || updateMessage.IsWiredMode)
         {
             IsOnline = true;
-            BatteryPercentage = updateMessage.batteryPercentage;
+            if (updateMessage.batteryPercentage >= 0)
+            {
+                BatteryPercentage = updateMessage.batteryPercentage;
+            }
         }
         else
         {
