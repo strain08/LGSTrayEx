@@ -33,6 +33,7 @@ Some experimentation might be needed.
 ## C. Common configuration
 
 #### 1. Webserver, MQTT
+If required, **leave them enabled on just one instance.**
+
 App will notify on startup if server can not be enabled on configured port (port already used).
 MQTT brokers reject duplicate client IDs.
-- If required, **leave them enabled on just one instance.**

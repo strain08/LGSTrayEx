@@ -3,12 +3,13 @@
 [UI]
 # Setting related to Hardcodet NotifyIcon for WPF component
 # When false renders the standard, native Windows system tray tooltip.
-# When true renders a custom control. No current benefits. Could remain visible when using full-screen applications.
+# When true renders a custom control. No current benefits. 
+# Could remain visible when using full-screen applications.
 enableRichToolTips = false
 
 [HTTPServer]
 # Enable built-in HTTP server for status and control
-enabled = true
+enabled = false
 
 addr = "localhost"
 port = 12321
@@ -17,7 +18,7 @@ useIpv6 = true
 [GHub]
 # Requires Logitech G-HUB to be installed and running
 # Could provide mileage on devices that support it
-enabled = true
+enabled = false
 
 [Native]
 # Enable HID++ 1.0 and 2.0 protocols, most compatible
@@ -84,9 +85,9 @@ suppressModeSwitchNotifications = false
 modeSwitchDetectionDelaySeconds = 3
 
 # List of device names to apply mode switch suppression
-# Empty list = apply to all devices (recommended)
+# Empty list = apply to all devices
 # Specify device names to limit suppression to specific devices (pick from device list menu)
-# Example: devicesForModeSwitchSuppression = ["G502", "G915"]
+# Example: devicesForModeSwitchSuppression = ["G502", "G515 LS TKL"]
 devicesForModeSwitchSuppression = []
 
 [Logging]
@@ -190,4 +191,4 @@ notifyConnectionStatus = true
 # Publish device offline status to Home Assistant (default: false)
 # When enabled, devices are marked as "unavailable" in HA when offline (hides battery data)
 # When disabled, last known battery percentage remains visible when device is offline
-publishOfflineStatus = true
+publishOfflineStatus = false

@@ -39,6 +39,20 @@ public class ConfigurationValidationService : IConfigurationValidationService
     {
         string settingsPath = Path.Combine(AppContext.BaseDirectory, "appsettings.toml");
 
+        // If config file exists, always repair and merge before loading
+        if (File.Exists(settingsPath))
+        {
+            try
+            {
+                await RepairAndMergeConfiguration(settingsPath);
+            }
+            catch (Exception repairEx)
+            {
+                DiagnosticLogger.LogError($"Failed to repair/merge configuration: {repairEx.Message}");
+                // Continue anyway - try to load the config as-is
+            }
+        }
+
         try
         {
             config.AddTomlFile(settingsPath);
@@ -46,16 +60,6 @@ public class ConfigurationValidationService : IConfigurationValidationService
         }
         catch (Exception ex)
         {
-            // Try to repair duplicate keys (common issue with legacy settings)
-            if (ex is FormatException)
-            {
-                if (await TryRepairConfiguration(config, settingsPath))
-                {
-                    return true;
-                }
-                // Fall through to user prompt if repair failed
-            }
-
             // Handle file not found, parsing errors, or invalid data
             if (ex is FileNotFoundException || ex is InvalidDataException || ex is FormatException)
             {
@@ -67,23 +71,13 @@ public class ConfigurationValidationService : IConfigurationValidationService
         }
     }
 
-    private async Task<bool> TryRepairConfiguration(ConfigurationManager config, string settingsPath)
+    private async Task RepairAndMergeConfiguration(string settingsPath)
     {
-        try
-        {
-            DiagnosticLogger.Log("Attempting to repair configuration (remove duplicates, merge missing keys)...");
-            var settingsManager = new TomlSettingsManager();
-            settingsManager.Repair();              // Remove obsolete keys
-            settingsManager.MergeMissingKeys();    // Add missing keys from defaults
-            config.AddTomlFile(settingsPath);
-            DiagnosticLogger.Log("Repair successful.");
-            return true;
-        }
-        catch (Exception repairEx)
-        {
-            DiagnosticLogger.LogError($"Settings repair failed: {repairEx.Message}");
-            return false;
-        }
+        DiagnosticLogger.Log("Checking configuration for obsolete/missing keys...");
+        var settingsManager = new TomlSettingsManager(settingsPath);
+        settingsManager.Repair();              // Remove obsolete keys
+        settingsManager.MergeMissingKeys();    // Add missing keys from defaults
+        await Task.CompletedTask; // Keep async signature for consistency
     }
 
     private async Task<bool> PromptForConfigurationReset(ConfigurationManager config, string settingsPath)

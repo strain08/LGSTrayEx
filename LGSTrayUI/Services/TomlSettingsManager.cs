@@ -31,6 +31,9 @@ public class TomlSettingsManager : ISettingsManager
     {
         try
         {
+            // Ensure all tables use proper section formatting (not inline)
+            EnsureProperFormatting(table);
+
             using var writer = new StreamWriter(_settingsPath);
             table.WriteTo(writer);
             writer.Flush();
@@ -38,6 +41,22 @@ public class TomlSettingsManager : ISettingsManager
         catch (Exception ex)
         {
             DiagnosticLogger.LogError("Failed to write settings to file: " + ex.StackTrace);
+        }
+    }
+
+    /// <summary>
+    /// Recursively ensures all tables in the config use proper section formatting (not inline).
+    /// </summary>
+    private void EnsureProperFormatting(TomlTable table)
+    {
+        table.IsInline = false;
+
+        foreach (var key in table.Keys)
+        {
+            if (table[key] is TomlTable nestedTable)
+            {
+                EnsureProperFormatting(nestedTable);
+            }
         }
     }
 
@@ -113,7 +132,7 @@ public class TomlSettingsManager : ISettingsManager
         {
             // Load user's current config
             var userConfig = ReadSettings();
-
+            
             // Load default config from embedded resource
             var defaultConfig = ReadDefaultSettings();
 
@@ -157,7 +176,16 @@ public class TomlSettingsManager : ISettingsManager
             if (!target.HasKey(key))
             {
                 // Key missing in user config - add from defaults
-                target[key] = source[key];
+                if (source[key] is TomlTable sourceTable)
+                {
+                    // Deep clone the table to avoid inline table formatting
+                    target[key] = CloneTomlTable(sourceTable);
+                }
+                else
+                {
+                    // For non-table values, direct assignment is fine
+                    target[key] = source[key];
+                }
                 DiagnosticLogger.Log($"Added missing configuration key: {key}");
                 changed = true;
             }
@@ -173,5 +201,32 @@ public class TomlSettingsManager : ISettingsManager
         }
 
         return changed;
+    }
+
+    /// <summary>
+    /// Deep clones a TomlTable to ensure proper section formatting in output.
+    /// </summary>
+    private TomlTable CloneTomlTable(TomlTable source)
+    {
+        var cloned = new TomlTable
+        {
+            IsInline = false  // Explicitly disable inline formatting
+        };
+
+        foreach (var key in source.Keys)
+        {
+            if (source[key] is TomlTable nestedTable)
+            {
+                // Recursively clone nested tables
+                cloned[key] = CloneTomlTable(nestedTable);
+            }
+            else
+            {
+                // Copy primitive values directly
+                cloned[key] = source[key];
+            }
+        }
+
+        return cloned;
     }
 }
