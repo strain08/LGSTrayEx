@@ -61,7 +61,7 @@ public class LogiDeviceCollectionModeSwitchTests
         var device = collection.Devices.First();
         
         // Send initial update to bring online
-        collection.OnUpdateMessage(new UpdateMessage(deviceId, 50, PowerSupplyStatus.POWER_SUPPLY_STATUS_DISCHARGING, 3900, System.DateTimeOffset.Now));
+        collection.OnUpdateMessage(new UpdateMessage(deviceId, 50, PowerSupplyStatus.DISCHARGING, 3900, System.DateTimeOffset.Now));
 
         // Initial state check
         Assert.False(device.IsWiredMode);
@@ -73,7 +73,7 @@ public class LogiDeviceCollectionModeSwitchTests
         var wiredUpdate = new UpdateMessage(
             deviceId: deviceId,
             batteryPercentage: -1, // Often -1 or charging indication
-            powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING,
+            powerSupplyStatus: PowerSupplyStatus.CHARGING,
             batteryMVolt: 0,
             updateTime: updateTime,
             isWiredMode: true
@@ -108,7 +108,7 @@ public class LogiDeviceCollectionModeSwitchTests
         var wiredUpdate = new UpdateMessage(
             deviceId: deviceId,
             batteryPercentage: -1,
-            powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING,
+            powerSupplyStatus: PowerSupplyStatus.CHARGING,
             batteryMVolt: 0,
             updateTime: System.DateTimeOffset.Now,
             isWiredMode: true
@@ -120,7 +120,7 @@ public class LogiDeviceCollectionModeSwitchTests
         var wirelessUpdate = new UpdateMessage(
             deviceId: deviceId,
             batteryPercentage: 80,
-            powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_DISCHARGING,
+            powerSupplyStatus: PowerSupplyStatus.DISCHARGING,
             batteryMVolt: 3900,
             updateTime: System.DateTimeOffset.Now,
             isWiredMode: false
@@ -149,7 +149,7 @@ public class LogiDeviceCollectionModeSwitchTests
         var offlineUpdate = new UpdateMessage(
             deviceId: deviceId,
             batteryPercentage: -1,
-            powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_UNKNOWN,
+            powerSupplyStatus: PowerSupplyStatus.UNKNOWN,
             batteryMVolt: 0,
             updateTime: System.DateTimeOffset.Now,
             isWiredMode: false

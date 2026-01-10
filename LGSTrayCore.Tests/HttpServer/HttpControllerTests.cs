@@ -111,7 +111,7 @@ public class HttpControllerTests
             BatteryPercentage = -1,
             IsOnline = true,
             IsWiredMode = true,
-            PowerSupplyStatus = PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING
+            PowerSupplyStatus = PowerSupplyStatus.CHARGING
         };
 
         // Act
@@ -138,7 +138,7 @@ public class HttpControllerTests
             BatteryPercentage = 80.0,
             BatteryVoltage = 3.9,
             BatteryMileage = 120.5,
-            PowerSupplyStatus = PowerSupplyStatus.POWER_SUPPLY_STATUS_DISCHARGING,
+            PowerSupplyStatus = PowerSupplyStatus.DISCHARGING,
             IsOnline = true,
             LastUpdate = new DateTimeOffset(2025, 1, 8, 12, 0, 0, TimeSpan.Zero)
         };
@@ -170,7 +170,7 @@ public class HttpControllerTests
         var device = new TestLogiDevice
         {
             BatteryPercentage = 85.0,
-            PowerSupplyStatus = PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING,
+            PowerSupplyStatus = PowerSupplyStatus.CHARGING,
             IsOnline = true
         };
 
@@ -183,7 +183,7 @@ public class HttpControllerTests
         Assert.Equal("True", charging);
 
         // Change to discharging
-        device.PowerSupplyStatus = PowerSupplyStatus.POWER_SUPPLY_STATUS_DISCHARGING;
+        device.PowerSupplyStatus = PowerSupplyStatus.DISCHARGING;
         xml = device.GetXmlData();
         doc = XDocument.Parse(xml);
         charging = doc.Root?.Element("charging")?.Value;

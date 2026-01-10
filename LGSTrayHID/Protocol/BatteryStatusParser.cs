@@ -31,12 +31,12 @@ public static class BatteryStatusParser
     {
         return statusByte switch
         {
-            BatteryStatusCode.DISCHARGING => POWER_SUPPLY_STATUS_DISCHARGING,
+            BatteryStatusCode.DISCHARGING => DISCHARGING,
             BatteryStatusCode.CHARGING or
             BatteryStatusCode.CHARGING_SLOW or
-            BatteryStatusCode.CHARGING_ERROR => POWER_SUPPLY_STATUS_CHARGING,
-            BatteryStatusCode.FULL => POWER_SUPPLY_STATUS_FULL,
-            _ => POWER_SUPPLY_STATUS_NOT_CHARGING,
+            BatteryStatusCode.CHARGING_ERROR => CHARGING,
+            BatteryStatusCode.FULL => FULL,
+            _ => NOT_CHARGING,
         };
     }
 
@@ -61,15 +61,15 @@ public static class BatteryStatusParser
             // Charging flag is set - check sub-status in bits 0-2
             return (flags & BatteryStatusCode.STATUS_MASK) switch
             {
-                0 => POWER_SUPPLY_STATUS_CHARGING,
-                1 => POWER_SUPPLY_STATUS_FULL,
-                2 => POWER_SUPPLY_STATUS_NOT_CHARGING,
-                _ => POWER_SUPPLY_STATUS_UNKNOWN,
+                0 => CHARGING,
+                1 => FULL,
+                2 => NOT_CHARGING,
+                _ => UNKNOWN,
             };
         }
 
         // Charging flag not set - battery is discharging
-        return POWER_SUPPLY_STATUS_DISCHARGING;
+        return DISCHARGING;
     }
 
     /// <summary>

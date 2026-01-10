@@ -158,11 +158,16 @@ internal class MQTTService : IHostedService, IRecipient<DeviceBatteryUpdatedMess
 
                 // Add Last Will and Testament (LWT)
                 // This ensures HA marks devices as unavailable if the app crashes
-                var statusTopic = $"{_mqttSettings.TopicPrefix}/status";
-                optionsBuilder.WithWillTopic(statusTopic)
-                              .WithWillPayload("offline")
-                              .WithWillRetain(true)
-                              .WithWillQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce);
+                if (_mqttSettings.PublishLWT) 
+                {
+                    var statusTopic = $"{_mqttSettings.TopicPrefix}/status";
+                    optionsBuilder.WithWillTopic(statusTopic)
+                                  .WithWillPayload("offline")
+                                  .WithWillRetain(true)
+                                  .WithWillQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce);
+                }
+
+
 
                 var options = optionsBuilder.Build();
 
@@ -257,7 +262,7 @@ internal class MQTTService : IHostedService, IRecipient<DeviceBatteryUpdatedMess
             _ = PublishStateUpdateAsync(device);
 
             // Optionally publish availability topic (marks sensor as unavailable in HA)
-            if (_mqttSettings.PublishOfflineStatus)
+            if (_mqttSettings.PublishLWT)
             {
                 _ = PublishAvailabilityAsync(device.DeviceId, false);
             }
@@ -453,18 +458,18 @@ internal class MQTTService : IHostedService, IRecipient<DeviceBatteryUpdatedMess
             var deviceId = SanitizeForMqtt(device.DeviceId);
             var topic = $"{_mqttSettings.TopicPrefix}/sensor/{deviceId}/battery/state";
 
-            var state = new
-            {
+            var state = new {
                 percentage = (int)Math.Round(device.BatteryPercentage),
                 voltage = device.BatteryVoltage,
-                charging = device.PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING,
+                charging = device.PowerSupplyStatus == PowerSupplyStatus.CHARGING,
                 online = device.IsOnline,
                 is_wired = device.IsWiredMode,
                 power_status = device.PowerSupplyStatus.ToString(),
                 signature = device.DeviceSignature,
                 last_update = device.LastUpdate.ToString("o"),
                 device_name = device.DeviceName,
-                device_type = device.DeviceType.ToString()
+                device_type = device.DeviceType.ToString(),
+                machine_name = Environment.MachineName
             };
 
             var payload = System.Text.Json.JsonSerializer.Serialize(state);

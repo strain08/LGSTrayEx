@@ -206,8 +206,8 @@ public class DeviceAnnouncementHandler
                     deviceId: deviceIdentifier,
                     batteryPercentage: -1,  // Convention: -1 = offline/unknown
                     powerSupplyStatus: isModeSwitch
-                        ? PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING
-                        : PowerSupplyStatus.POWER_SUPPLY_STATUS_UNKNOWN,
+                        ? PowerSupplyStatus.CHARGING
+                        : PowerSupplyStatus.UNKNOWN,
                     batteryMVolt: 0,
                     updateTime: DateTimeOffset.Now,
                     mileage: -1,

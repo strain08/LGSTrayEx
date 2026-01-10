@@ -97,9 +97,9 @@ public class LogiDeviceCollectionTests
         collection.OnInitMessage(new InitMessage("ABC123", "HID Device", true, DeviceType.Mouse));
 
         // Set initial battery levels
-        collection.OnUpdateMessage(new UpdateMessage(deviceId: "dev001", batteryPercentage: 100, powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_DISCHARGING, batteryMVolt: 4000, updateTime: System.DateTimeOffset.Now));
-        collection.OnUpdateMessage(new UpdateMessage(deviceId: "dev002", batteryPercentage: 100, powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_DISCHARGING, batteryMVolt: 4000, updateTime: System.DateTimeOffset.Now));
-        collection.OnUpdateMessage(new UpdateMessage(deviceId: "ABC123", batteryPercentage: 100, powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_DISCHARGING, batteryMVolt: 4000, updateTime: System.DateTimeOffset.Now));
+        collection.OnUpdateMessage(new UpdateMessage(deviceId: "dev001", batteryPercentage: 100, powerSupplyStatus: PowerSupplyStatus.DISCHARGING, batteryMVolt: 4000, updateTime: System.DateTimeOffset.Now));
+        collection.OnUpdateMessage(new UpdateMessage(deviceId: "dev002", batteryPercentage: 100, powerSupplyStatus: PowerSupplyStatus.DISCHARGING, batteryMVolt: 4000, updateTime: System.DateTimeOffset.Now));
+        collection.OnUpdateMessage(new UpdateMessage(deviceId: "ABC123", batteryPercentage: 100, powerSupplyStatus: PowerSupplyStatus.DISCHARGING, batteryMVolt: 4000, updateTime: System.DateTimeOffset.Now));
 
         Assert.Equal(3, collection.Devices.Count);
 

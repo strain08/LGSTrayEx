@@ -401,5 +401,5 @@ public class MQTTSettings
     /// which may hide their battery data in the UI.
     /// When disabled, last known battery percentage remains visible even when device is offline.
     /// </summary>
-    public bool PublishOfflineStatus { get; set; } = false;
+    public bool PublishLWT { get; set; } = false;
 }

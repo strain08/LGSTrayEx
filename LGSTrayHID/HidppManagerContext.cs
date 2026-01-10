@@ -172,7 +172,7 @@ public sealed class HidppManagerContext
                         new UpdateMessage(
                             deviceId: device.Identifier,
                             batteryPercentage: -1,  // Convention: -1 = offline
-                            powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_UNKNOWN,
+                            powerSupplyStatus: PowerSupplyStatus.UNKNOWN,
                             batteryMVolt: 0,
                             updateTime: DateTimeOffset.Now,
                             mileage: -1

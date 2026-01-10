@@ -18,7 +18,7 @@ useIpv6 = true
 [GHub]
 # Requires Logitech G-HUB to be installed and running
 # Could provide mileage on devices that support it
-enabled = true
+enabled = false
 
 [Native]
 # Enable HID++ 1.0 and 2.0 protocols, most compatible
@@ -156,13 +156,13 @@ maxAttempts = 5            # Multiple quick attempts
 [MQTT]
 # Enable MQTT integration with Home Assistant
 # When enabled, battery status is published to MQTT broker with auto-discovery support
-enabled = true
+enabled = false
 
 # MQTT broker connection settings
-brokerAddress = "192.168.20.100"   # Broker hostname or IP address
-port = 1883                   # Default MQTT port (1883 for non-TLS, 8883 for TLS)
-username = ""                 # Leave empty for anonymous connection
-password = ""                 # Leave empty for anonymous connection
+brokerAddress = ""		   # Broker hostname or IP address
+port = 1883                # Default MQTT port (1883 for non-TLS, 8883 for TLS)
+username = ""              # Leave empty for anonymous connection
+password = ""              # Leave empty for anonymous connection
 
 # Enable TLS/SSL encryption for MQTT connection (port 8883 recommended)
 useTLS = false
@@ -180,15 +180,13 @@ retainMessages = true
 clientId = ""
 
 # Publish throttling settings
-# Minimum seconds between publishes for same device (prevents spam)
+# Minimum seconds between publishes for same device
 # Recommended: 60 seconds for battery updates
 publishThrottleSeconds = 0
 
 # Show toast notifications for MQTT connection failures/successes
-# Helps diagnose connection issues during setup
 notifyConnectionStatus = true
 
-# Publish device offline status to Home Assistant (default: false)
-# When enabled, devices are marked as "unavailable" in HA when offline (hides battery data)
-# When disabled, last known battery percentage remains visible when device is offline
-publishOfflineStatus = false
+# Publish LWT payload to Home Assistant (default: true)
+# When enabled, devices are marked as "unavailable" in HA when app is not running.
+publishLWT = true

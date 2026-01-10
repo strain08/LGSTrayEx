@@ -41,7 +41,7 @@ public class NotificationServiceTests {
         return device;
     }
 
-    private void UpdateBattery(LogiDeviceViewModel device, StrongReferenceMessenger messenger, int percentage, PowerSupplyStatus status = PowerSupplyStatus.POWER_SUPPLY_STATUS_DISCHARGING) {
+    private void UpdateBattery(LogiDeviceViewModel device, StrongReferenceMessenger messenger, int percentage, PowerSupplyStatus status = PowerSupplyStatus.DISCHARGING) {
         device.UpdateState(new UpdateMessage(
             deviceId: device.DeviceId,
             batteryPercentage: percentage,
@@ -67,11 +67,11 @@ public class NotificationServiceTests {
         var device = CreateDevice("dev1", "Test Device");
 
         // Act - Initialize (not full)
-        UpdateBattery(device, messenger, 50, PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING);
+        UpdateBattery(device, messenger, 50, PowerSupplyStatus.CHARGING);
         manager.Invocations.Clear(); // Clear init notifications if any
 
         // Act - Charge to full
-        UpdateBattery(device, messenger, 100, PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING);
+        UpdateBattery(device, messenger, 100, PowerSupplyStatus.CHARGING);
 
         // Assert
         Assert.Single(manager.Invocations);
@@ -96,10 +96,10 @@ public class NotificationServiceTests {
         var device = CreateDevice("dev1", "Test Device");
 
         // Act
-        UpdateBattery(device, messenger, 50, PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING); // init
+        UpdateBattery(device, messenger, 50, PowerSupplyStatus.CHARGING); // init
         manager.Invocations.Clear();
 
-        UpdateBattery(device, messenger, 80, PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING); // hit threshold
+        UpdateBattery(device, messenger, 80, PowerSupplyStatus.CHARGING); // hit threshold
 
         // Assert
         Assert.Single(manager.Invocations);
@@ -233,7 +233,7 @@ public class NotificationServiceTests {
         device.UpdateState(new UpdateMessage(
             deviceId: device.DeviceId,
             batteryPercentage: -1,
-            powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_UNKNOWN,
+            powerSupplyStatus: PowerSupplyStatus.UNKNOWN,
             batteryMVolt: 0,
             updateTime: DateTimeOffset.Now
         ));

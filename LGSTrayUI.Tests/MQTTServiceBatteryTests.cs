@@ -58,7 +58,7 @@ public class MQTTServiceBatteryTests
         {
             percentage = (int)Math.Round(device.BatteryPercentage),
             voltage = device.BatteryVoltage,
-            charging = device.PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING,
+            charging = device.PowerSupplyStatus == PowerSupplyStatus.CHARGING,
             online = device.IsOnline,
             is_wired = device.IsWiredMode,
             power_status = device.PowerSupplyStatus.ToString(),
@@ -83,7 +83,7 @@ public class MQTTServiceBatteryTests
         device.UpdateState(new UpdateMessage(
             deviceId: "test002",
             batteryPercentage: 75.5,
-            powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_DISCHARGING,
+            powerSupplyStatus: PowerSupplyStatus.DISCHARGING,
             batteryMVolt: 3800,
             updateTime: DateTimeOffset.Now
         ));
@@ -93,7 +93,7 @@ public class MQTTServiceBatteryTests
         {
             percentage = (int)Math.Round(device.BatteryPercentage),
             voltage = device.BatteryVoltage,
-            charging = device.PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING,
+            charging = device.PowerSupplyStatus == PowerSupplyStatus.CHARGING,
             online = device.IsOnline,
             is_wired = device.IsWiredMode,
             power_status = device.PowerSupplyStatus.ToString(),
@@ -120,7 +120,7 @@ public class MQTTServiceBatteryTests
         device.UpdateState(new UpdateMessage(
             deviceId: "test003",
             batteryPercentage: 50.0,
-            powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_DISCHARGING,
+            powerSupplyStatus: PowerSupplyStatus.DISCHARGING,
             batteryMVolt: 3700,
             updateTime: DateTimeOffset.Now
         ));
@@ -129,7 +129,7 @@ public class MQTTServiceBatteryTests
         device.UpdateState(new UpdateMessage(
             deviceId: "test003",
             batteryPercentage: -1, // Negative indicates offline
-            powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_UNKNOWN,
+            powerSupplyStatus: PowerSupplyStatus.UNKNOWN,
             batteryMVolt: 0,
             updateTime: DateTimeOffset.Now
         ));
@@ -139,7 +139,7 @@ public class MQTTServiceBatteryTests
         {
             percentage = (int)Math.Round(device.BatteryPercentage),
             voltage = device.BatteryVoltage,
-            charging = device.PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING,
+            charging = device.PowerSupplyStatus == PowerSupplyStatus.CHARGING,
             online = device.IsOnline,
             is_wired = device.IsWiredMode,
             power_status = device.PowerSupplyStatus.ToString(),
@@ -166,7 +166,7 @@ public class MQTTServiceBatteryTests
         device.UpdateState(new UpdateMessage(
             deviceId: "test004",
             batteryPercentage: -1, // Wired mode, no battery data
-            powerSupplyStatus: PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING,
+            powerSupplyStatus: PowerSupplyStatus.CHARGING,
             batteryMVolt: 0,
             updateTime: DateTimeOffset.Now,
             isWiredMode: true
@@ -177,7 +177,7 @@ public class MQTTServiceBatteryTests
         {
             percentage = (int)Math.Round(device.BatteryPercentage),
             voltage = device.BatteryVoltage,
-            charging = device.PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING,
+            charging = device.PowerSupplyStatus == PowerSupplyStatus.CHARGING,
             online = device.IsOnline,
             is_wired = device.IsWiredMode,
             power_status = device.PowerSupplyStatus.ToString(),

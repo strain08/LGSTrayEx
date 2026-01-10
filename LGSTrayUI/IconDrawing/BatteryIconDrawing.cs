@@ -102,7 +102,7 @@ public static partial class BatteryIconDrawing
         }
 
         // Overlay charging indicator if device is charging
-        if (device.PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING)
+        if (device.PowerSupplyStatus == PowerSupplyStatus.CHARGING)
         {
             // Use theme-appropriate charging icon
             Bitmap chargingOverlay = Charging;
@@ -172,7 +172,7 @@ public static partial class BatteryIconDrawing
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
 
-            bool isCharging = device.PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING;
+            bool isCharging = device.PowerSupplyStatus == PowerSupplyStatus.CHARGING;
 
             // Background Logic
             //if (isCharging)

@@ -508,8 +508,8 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
                 deviceId,
                 percentage.Value,
                 charging.Value
-                    ? PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING
-                    : PowerSupplyStatus.POWER_SUPPLY_STATUS_NOT_CHARGING,
+                    ? PowerSupplyStatus.CHARGING
+                    : PowerSupplyStatus.NOT_CHARGING,
                 0,  // No voltage from GHUB
                 DateTime.Now,
                 mileage ?? 0.0  // Default to 0 if missing

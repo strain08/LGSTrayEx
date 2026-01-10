@@ -150,7 +150,7 @@ public class NotificationService : IHostedService,
         var deviceId = device.DeviceId;
         var deviceName = device.DeviceName;  // Always available, no "Unknown Device"
         var batteryPercent = (int)Math.Round(device.BatteryPercentage);
-        var isCharging = device.PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING;
+        var isCharging = device.PowerSupplyStatus == PowerSupplyStatus.CHARGING;
         var isOnline = device.IsOnline;
 
         DiagnosticLogger.Log($"Received battery update for device {deviceId}: {batteryPercent}%, Charging: {isCharging}");

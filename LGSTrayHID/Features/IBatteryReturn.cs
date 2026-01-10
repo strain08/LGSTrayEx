@@ -11,7 +11,7 @@ public readonly record struct BatteryUpdateReturn
     public BatteryUpdateReturn()
     {
         this.batteryPercentage = 0;
-        this.status = PowerSupplyStatus.POWER_SUPPLY_STATUS_UNKNOWN;
+        this.status = PowerSupplyStatus.UNKNOWN;
         this.batteryMVolt = -1;
     }
 

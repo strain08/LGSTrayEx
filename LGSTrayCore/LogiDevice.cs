@@ -63,7 +63,7 @@ public partial class LogiDevice : ObservableObject
             }
 
             string statusText = !IsOnline ? "Offline" : $"{BatteryPercentage}%";
-            string chargingText = PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING ? " (Charging)" : "";
+            string chargingText = PowerSupplyStatus == PowerSupplyStatus.CHARGING ? " (Charging)" : "";
             string sourceText2 = DataSource == DataSource.GHub ? " (G)" : "(N)";
 #if DEBUG
             return $"{sourceText2} {DeviceName}{chargingText}, {statusText} - {LastUpdate}";
@@ -99,7 +99,7 @@ public partial class LogiDevice : ObservableObject
             $"<battery_percent>{BatteryPercentage:f2}</battery_percent>" +
             $"<battery_voltage>{BatteryVoltage:f2}</battery_voltage>" +
             $"<mileage>{BatteryMileage:f2}</mileage>" +
-            $"<charging>{PowerSupplyStatus == PowerSupplyStatus.POWER_SUPPLY_STATUS_CHARGING}</charging>" +
+            $"<charging>{PowerSupplyStatus == PowerSupplyStatus.CHARGING}</charging>" +
             $"<last_update>{LastUpdate}</last_update>" +
             $"</xml>"
             ;
