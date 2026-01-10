@@ -21,7 +21,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using Tommy.Extensions.Configuration;
 using static LGSTrayUI.Extensions.AppExtensions;
 
 namespace LGSTrayUI;
@@ -166,6 +165,9 @@ public partial class App : Application
 
         // Get messenger from DI
         var messenger = host.Services.GetRequiredService<IMessenger>();
+
+        // Ensure ConfigurationValidationService is instantiated to listen for startup errors
+        host.Services.GetRequiredService<IConfigurationValidationService>();
 
         // Create hidden window for Modern Standby power notifications
         // This works on both S3 (traditional sleep) and S0 (Modern Standby) systems
