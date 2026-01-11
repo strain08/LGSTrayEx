@@ -111,17 +111,11 @@ public class LogiDeviceCollection : ILogiDeviceCollection
             // Check if device already exists by signature (not deviceId, as GHUB changes IDs)
             LogiDeviceViewModel? existingDevice = null;
 
-            // First, try to find by signature in our mapping
-            if (_signatureToId.TryGetValue(signature, out string? mappedDeviceId))
-            {
-                existingDevice = Devices.FirstOrDefault(x => x.DeviceId == mappedDeviceId);
-            }
+            // First, try to find by signature in our mapping            
+            existingDevice = Devices.FirstOrDefault(x => x.DeviceId == _signatureToId.GetValueOrDefault(signature));
 
             // Fallback: search by current deviceId
-            if (existingDevice == null)
-            {
-                existingDevice = Devices.FirstOrDefault(x => x.DeviceId == initMessage.deviceId);
-            }
+            existingDevice ??= Devices.FirstOrDefault(x => x.DeviceId == initMessage.deviceId);
 
             // Device already exists - update it
             if (existingDevice != null)
@@ -136,7 +130,7 @@ public class LogiDeviceCollection : ILogiDeviceCollection
                 DiagnosticLogger.Log($"Device already exists, updating - {initMessage.deviceId} ({initMessage.deviceName})");
 
                 // Log if device was offline and is now reconnecting
-                if (existingDevice.BatteryPercentage < 0)
+                if (existingDevice.BatteryPercentage < 0 || !existingDevice.IsOnline)
                 {
                     DiagnosticLogger.Log($"Device reconnected from offline state - {initMessage.deviceId}");
                 }
@@ -188,45 +182,22 @@ public class LogiDeviceCollection : ILogiDeviceCollection
                 return;
             }
 
-            // Check if device is going offline (batteryPercentage = -1)
+            // Log state transitions
             if (updateMessage.batteryPercentage < 0)
             {
-                // Check if this is a mode switch (wired mode)
                 if (updateMessage.IsWiredMode)
-                {
-                    // Mode switch detected - keep device in collection with wired mode status
                     DiagnosticLogger.Log($"Device switched to wired mode (charging) - {device.DeviceId} ({device.DeviceName})");
-                    device.UpdateState(updateMessage);
-
-                    // Notify NotificationService about mode switch
-                    _messenger.Send(new DeviceBatteryUpdatedMessage(device));
-                }
                 else
-                {
-                    // Keep device in collection, update with offline state
                     DiagnosticLogger.Log($"Device offline, keeping in collection - {device.DeviceId} ({device.DeviceName})");
-                    device.UpdateState(updateMessage);
-
-                    // Notify NotificationService that device battery was updated (offline state)
-                    // Device is guaranteed to be in collection and fully updated
-                    _messenger.Send(new DeviceBatteryUpdatedMessage(device));
-                }
             }
-            else
+            else if (device.IsWiredMode)
             {
-                // Normal battery update (not offline)
-                // If device was in wired mode and now has battery data, it returned to wireless
-                if (device.IsWiredMode)
-                {
-                    DiagnosticLogger.Log($"Device returned to wireless mode - {device.DeviceId} ({device.DeviceName})");
-                }
-
-                device.UpdateState(updateMessage);
-
-                // Notify NotificationService that device battery was updated
-                // Device is guaranteed to be in collection and fully updated
-                _messenger.Send(new DeviceBatteryUpdatedMessage(device));
+                DiagnosticLogger.Log($"Device returned to wireless mode - {device.DeviceId} ({device.DeviceName})");
             }
+
+            // Update device state and notify
+            device.UpdateState(updateMessage);
+            _messenger.Send(new DeviceBatteryUpdatedMessage(device));
         });
     }
 
