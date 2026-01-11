@@ -1,1 +1,7 @@
-Custom build of hidapi 0.14.0 with hotplugging support
+Build with
+
+```
+mkdir build
+cmake -B build
+cmake --build .\build --target hidapi_winapi --config Release
+```
