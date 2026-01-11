@@ -45,7 +45,6 @@ public class LogiDeviceCollectionModeSwitchTests
             viewModelFactory,
             subscriber,
             dispatcher,
-            appSettings,
             messenger);
     }
 

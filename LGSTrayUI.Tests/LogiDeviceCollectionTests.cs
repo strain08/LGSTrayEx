@@ -56,7 +56,6 @@ public class LogiDeviceCollectionTests
             viewModelFactory,
             subscriber,
             dispatcher,
-            appSettings,
             messenger);
 
         return collection;
@@ -160,7 +159,7 @@ public class LogiDeviceCollectionTests
 
         // Act - creating collection triggers deduplication
         var messenger = new MockMessenger();
-        var collection = new LogiDeviceCollection(settings, viewModelFactory, subscriber, dispatcher, appSettings, messenger);
+        var collection = new LogiDeviceCollection(settings, viewModelFactory, subscriber, dispatcher, messenger);
 
         // Assert - Verify signatures deduplicated (unique signatures only)
         Assert.Equal(2, settings.SelectedSignatures.Count);
