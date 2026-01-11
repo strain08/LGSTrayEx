@@ -2,6 +2,7 @@
 using LGSTrayPrimitives;
 using LGSTrayPrimitives.MessageStructs;
 using System.Collections.Concurrent;
+using System.Linq;
 using static LGSTrayHID.HidApi.HidApi;
 using static LGSTrayHID.HidApi.HidApiHotPlug;
 using static LGSTrayHID.HidApi.HidApiWinApi;
@@ -167,6 +168,39 @@ public sealed class HidppManagerContext
                 // Only send for devices that completed initialization
                 if (!string.IsNullOrEmpty(device.Identifier))
                 {
+                    // FIX: Check if device is active on another receiver (e.g., wireless when wired is unplugged)
+                    // This prevents mode-switch keyboards from showing offline when switching wired→wireless
+                    bool hasAlternativeSource = _deviceMap
+                        .Where(kvp => kvp.Key != containerId) // Ignore the container being removed
+                        .SelectMany(kvp => kvp.Value.DeviceCollection.Values)
+                        .Any(d => d.Identifier == device.Identifier && d.IsOnline && !d.Disposed);
+
+                    if (hasAlternativeSource)
+                    {
+                        DiagnosticLogger.Log($"[{device.DeviceName}] Device removed from {containerId:D} but active on alternative source - skipping offline notification");
+
+                        // Proactively update battery on the alternative source to refresh UI immediately
+                        // instead of waiting for the next polling cycle (default 600s)
+                        var altDevice = _deviceMap
+                            .Where(kvp => kvp.Key != containerId)
+                            .SelectMany(kvp => kvp.Value.DeviceCollection.Values)
+                            .FirstOrDefault(d => d.Identifier == device.Identifier && d.IsOnline && !d.Disposed);
+
+                        if (altDevice != null)
+                        {
+                            // Capture device reference for async operation (avoid unsafe context in lambda)
+                            var deviceToUpdate = altDevice;
+                            var deviceName = device.DeviceName;
+
+                            // Trigger battery update asynchronously (via helper method to avoid unsafe context)
+                            _ = Task.Run(() => TriggerModeSwitchBatteryUpdate(deviceToUpdate, deviceName));
+                        }
+
+                        // Skip sending offline notification - device is still connected via alternative path
+                        continue;
+                    }
+
+                    // Device has no alternative source - send offline notification
                     HidppManagerContext.Instance.SignalDeviceEvent(
                         IPCMessageType.UPDATE,
                         new UpdateMessage(
@@ -195,6 +229,18 @@ public sealed class HidppManagerContext
     public void SignalDeviceEvent(IPCMessageType messageType, IPCMessage message)
     {
         HidppDeviceEvent?.Invoke(messageType, message);
+    }
+
+    /// <summary>
+    /// Trigger battery update on alternative device source after mode-switch.
+    /// This ensures UI refreshes immediately instead of waiting for the next polling cycle.
+    /// </summary>
+    private static async Task TriggerModeSwitchBatteryUpdate(HidppDevice device, string deviceName)
+    {
+        // Brief delay to allow device firmware to complete mode-switch handover
+        await Task.Delay(1000);
+        await device.UpdateBattery(forceIpcUpdate: true);
+        DiagnosticLogger.Log($"[{deviceName}] Triggered battery update on alternative source after mode-switch");
     }
 
     /// <summary>
