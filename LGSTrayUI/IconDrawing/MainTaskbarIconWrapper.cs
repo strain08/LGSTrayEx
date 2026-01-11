@@ -54,11 +54,31 @@ public class MainTaskbarIconWrapper : IDisposable
     private Timer? _debounceTimer;
     private readonly object _timerLock = new();
     private int _timerVersion = 0;  // Track timer generations to detect stale callbacks
+    private object? _contextMenuDataContext;  // Store DataContext for ContextMenus
 
     public MainTaskbarIconWrapper()
     {
         LogiDeviceIcon.RefCountChanged += OnRefCountChanged;
         OnRefCountChanged(LogiDeviceIcon.RefCount);
+    }
+
+    /// <summary>
+    /// Sets the DataContext for the ContextMenu on the main taskbar icon.
+    /// This should be called after construction to bind the ContextMenu to the NotifyIconViewModel.
+    /// </summary>
+    /// <param name="dataContext">The DataContext to set (typically NotifyIconViewModel)</param>
+    public void SetContextMenuDataContext(object dataContext)
+    {
+        lock (_timerLock)
+        {
+            _contextMenuDataContext = dataContext;
+
+            // Set DataContext on existing icon's ContextMenu if present
+            if (_taskbarIcon?.ContextMenu != null)
+            {
+                _taskbarIcon.ContextMenu.DataContext = dataContext;
+            }
+        }
     }
 
     private void OnRefCountChanged(int refCount)
@@ -106,6 +126,12 @@ public class MainTaskbarIconWrapper : IDisposable
                             return;
 
                         _taskbarIcon = new MainTaskBarIcon();
+
+                        // Set DataContext on the new icon's ContextMenu
+                        if (_contextMenuDataContext != null && _taskbarIcon.ContextMenu != null)
+                        {
+                            _taskbarIcon.ContextMenu.DataContext = _contextMenuDataContext;
+                        }
                     }
                 });
             }, state: null,

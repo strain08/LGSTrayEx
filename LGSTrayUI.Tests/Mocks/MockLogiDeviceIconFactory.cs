@@ -9,6 +9,14 @@ namespace LGSTrayUI.Tests.Mocks;
 public class MockLogiDeviceIconFactory : ILogiDeviceIconFactory
 {
     /// <summary>
+    /// Mock implementation - does nothing in tests
+    /// </summary>
+    public void SetContextMenuDataContext(object dataContext)
+    {
+        // No-op in tests - we don't create real WPF controls
+    }
+
+    /// <summary>
     /// Returns null instead of creating real WPF control
     /// Tests don't need actual icon rendering
     /// </summary>

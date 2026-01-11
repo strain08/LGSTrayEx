@@ -10,6 +10,13 @@ namespace LGSTrayUI.Interfaces;
 public interface ILogiDeviceIconFactory
 {
     /// <summary>
+    /// Sets the DataContext to be used for ContextMenus on device icons.
+    /// This should be called with the NotifyIconViewModel after it's constructed.
+    /// </summary>
+    /// <param name="dataContext">The DataContext (typically NotifyIconViewModel)</param>
+    void SetContextMenuDataContext(object dataContext);
+
+    /// <summary>
     /// Creates a LogiDeviceIcon for the specified device
     /// </summary>
     /// <param name="device">The device to create an icon for</param>

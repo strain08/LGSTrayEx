@@ -1,6 +1,7 @@
 ﻿using Hardcodet.Wpf.TaskbarNotification;
 using LGSTrayCore;
 using LGSTrayPrimitives;
+using LGSTrayUI.Helpers;
 using LGSTrayUI.IconDrawing;
 using LGSTrayUI.Interfaces;
 using LGSTrayUI.Services;
@@ -15,6 +16,7 @@ public class LogiDeviceIconFactory : ILogiDeviceIconFactory
 {
     private readonly AppSettings _appSettings;
     private readonly UserSettingsWrapper _userSettings;
+    private object? _contextMenuDataContext;
 
     public LogiDeviceIconFactory(IOptions<AppSettings> appSettings, UserSettingsWrapper userSettings)
     {
@@ -22,9 +24,18 @@ public class LogiDeviceIconFactory : ILogiDeviceIconFactory
         _userSettings = userSettings;
     }
 
+    /// <summary>
+    /// Sets the DataContext to be used for ContextMenus on device icons.
+    /// This should be called with the NotifyIconViewModel after it's constructed.
+    /// </summary>
+    public void SetContextMenuDataContext(object dataContext)
+    {
+        _contextMenuDataContext = dataContext;
+    }
+
     public LogiDeviceIcon CreateDeviceIcon(LogiDevice device, Action<LogiDeviceIcon>? config = null)
     {
-        LogiDeviceIcon output = new(device, _appSettings, _userSettings);
+        LogiDeviceIcon output = new(device, _appSettings, _userSettings, _contextMenuDataContext);
         config?.Invoke(output);
 
         return output;
@@ -120,12 +131,16 @@ public partial class LogiDeviceIcon : UserControl, IDisposable
     private LogiDevice? _subscribedDevice;
     private UserSettingsWrapper? _subscribedSettings;
 
-    public LogiDeviceIcon(LogiDevice device, AppSettings appSettings, UserSettingsWrapper userSettings)
+    public LogiDeviceIcon(LogiDevice device, AppSettings appSettings, UserSettingsWrapper userSettings, object? contextMenuDataContext = null)
     {
         InitializeComponent();
 
         if (!appSettings.UI.EnableRichToolTips)
             taskbarIcon.TrayToolTip = null;
+
+        // Create a new ContextMenu instance for this icon
+        // Each icon gets its own menu to prevent stuck menu states when icons are disposed
+        taskbarIcon.ContextMenu = ContextMenuHelper.CreateSysTrayMenu(contextMenuDataContext);
 
         AddRef();
 

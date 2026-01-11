@@ -1,5 +1,5 @@
 ﻿using Hardcodet.Wpf.TaskbarNotification;
-using System.Windows;
+using LGSTrayUI.Helpers;
 
 namespace LGSTrayUI.IconDrawing;
 /// <summary>
@@ -12,7 +12,9 @@ public class MainTaskBarIcon : TaskbarIcon
 {
     public MainTaskBarIcon() : base()
     {
-        ContextMenu = (System.Windows.Controls.ContextMenu)Application.Current.FindResource("SysTrayMenu");
+        // Create a new ContextMenu instance (not shared) to prevent stuck menu states
+        // DataContext will be set by NotifyIconViewModel after instantiation
+        ContextMenu = ContextMenuHelper.CreateSysTrayMenu();
         BatteryIconDrawing.DrawUnknown(this);
     }
 }

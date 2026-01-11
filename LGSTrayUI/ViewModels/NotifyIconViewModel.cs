@@ -5,6 +5,7 @@ using LGSTrayCore.Interfaces;
 using LGSTrayPrimitives;
 using LGSTrayPrimitives.Messages;
 using LGSTrayUI.IconDrawing;
+using LGSTrayUI.Interfaces;
 using LGSTrayUI.Messages;
 using LGSTrayUI.Services;
 using Microsoft.Extensions.Hosting;
@@ -113,10 +114,15 @@ public partial class NotifyIconViewModel : ObservableObject, IHostedService
                                ILogiDeviceCollection logiDeviceCollection,
                                UserSettingsWrapper userSettings,
                                IEnumerable<IDeviceManager> deviceManagers,
-                               IMessenger messenger)
+                               IMessenger messenger,
+                               ILogiDeviceIconFactory logiDeviceIconFactory)
     {
         _mainTaskbarIconWrapper = mainTaskbarIconWrapper;
-        ((ContextMenu)Application.Current.FindResource("SysTrayMenu")).DataContext = this;
+
+        // Set this ViewModel as the DataContext for all ContextMenus
+        // Each icon now gets its own ContextMenu instance to prevent stuck menu states
+        _mainTaskbarIconWrapper.SetContextMenuDataContext(this);
+        logiDeviceIconFactory.SetContextMenuDataContext(this);
 
         _logiDevices = (logiDeviceCollection as LogiDeviceCollection)!.Devices;
         _userSettings = userSettings;
