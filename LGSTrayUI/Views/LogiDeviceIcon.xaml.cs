@@ -181,7 +181,9 @@ public partial class LogiDeviceIcon : UserControl, IDisposable
         {
             return;
         }
-        else if (e.PropertyName is nameof(LogiDevice.BatteryPercentage) or nameof(LogiDevice.PowerSupplyStatus))
+        else if (e.PropertyName is nameof(LogiDevice.BatteryPercentage)
+                                   or nameof(LogiDevice.PowerSupplyStatus)
+                                   or nameof(LogiDevice.IsVisuallyOnline))
         {
             DrawBatteryIcon();
         }

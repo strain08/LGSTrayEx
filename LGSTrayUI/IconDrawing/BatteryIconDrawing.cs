@@ -51,7 +51,7 @@ public static partial class BatteryIconDrawing
 
     private static Bitmap GetBatteryValue(LogiDevice device)
     {
-        if (!device.IsOnline || device.BatteryPercentage < 0)
+        if (!device.IsVisuallyOnline || device.BatteryPercentage < 0)
         {
             return Missing;
         }
@@ -70,7 +70,8 @@ public static partial class BatteryIconDrawing
         DrawIcon(taskbarIcon, new()
         {
             BatteryPercentage = -1,
-            IsOnline = false
+            IsOnline = false,
+            IsVisuallyOnline = false
         });
     }
 
@@ -210,7 +211,7 @@ public static partial class BatteryIconDrawing
             float emSize = height * 0.7f;
             //emSize = height * 0.7f;
             using Font font = new("Segoe UI Variable", emSize, fontStyle, GraphicsUnit.Pixel);
-            string text = (!device.IsOnline || device.BatteryPercentage < 0) ? "?" : $"{device.BatteryPercentage:f0}";
+            string text = (!device.IsVisuallyOnline || device.BatteryPercentage < 0) ? "?" : $"{device.BatteryPercentage:f0}";
 
             // Text Centering
             SizeF textSize = g.MeasureString(text, font);

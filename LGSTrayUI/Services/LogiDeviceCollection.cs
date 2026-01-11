@@ -265,6 +265,7 @@ public class LogiDeviceCollection : ILogiDeviceCollection
         DiagnosticLogger.Log($"Marking device offline - {device.DeviceId} ({device.DeviceName}) [Signature: {device.DeviceSignature}] - reason: {reason}");
 
         device.IsOnline = false;
+        device.IsVisuallyOnline = false;  // Set visual state immediately for explicit offline
         device.PowerSupplyStatus = PowerSupplyStatus.UNKNOWN;
 
         // Notify NotificationService about offline state

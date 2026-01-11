@@ -7,6 +7,8 @@ using LGSTrayUI.Services;
 using System;
 using System.ComponentModel;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace LGSTrayUI;
 
@@ -35,6 +37,7 @@ public class LogiDeviceViewModelFactory
 public partial class LogiDeviceViewModel : LogiDevice, IDisposable
 {
     private readonly ILogiDeviceIconFactory _logiDeviceIconFactory;
+    private readonly AppSettings _appSettings;
     private readonly UserSettingsWrapper _userSettings;
     private readonly PropertyChangedEventHandler _propertyChangedHandler;
 
@@ -50,9 +53,16 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
     private LogiDeviceIcon? taskbarIcon;
     private string? _cachedDetailedTooltip;
 
+    /// <summary>
+    /// Cancellation token for pending offline state change (mode-switch detection)
+    /// </summary>
+    private CancellationTokenSource? _pendingOfflineTimer;
+    private readonly object _offlineTimerLock = new();
+
     public LogiDeviceViewModel(ILogiDeviceIconFactory logiDeviceIconFactory, AppSettings appSettings, UserSettingsWrapper userSettings)
     {
         _logiDeviceIconFactory = logiDeviceIconFactory;
+        _appSettings = appSettings;
         _userSettings = userSettings;
 
         // Subscribe to property changes from base class to update computed properties
@@ -83,9 +93,12 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
             case nameof(BatteryPercentage):
                 _cachedDetailedTooltip = null;
                 OnPropertyChanged(nameof(DetailedMenuTooltip));
-                //UpdateIconVisibility(); // IsOnline now drives visibility mostly
                 break;
             case nameof(IsOnline):
+                // IsOnline is used for notifications - icon visibility uses IsVisuallyOnline
+                break;
+            case nameof(IsVisuallyOnline):
+                // Visual state controls icon visibility (with grace period)
                 UpdateIconVisibility();
                 break;
         }
@@ -98,7 +111,7 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
 
     public void UpdateIconVisibility()
     {
-        bool isOffline = !IsOnline;
+        bool isOffline = !IsVisuallyOnline;  // Use visual state (with grace period)
         bool shouldShow = IsChecked && (!isOffline || _userSettings.KeepOfflineDevices);
 
         if (shouldShow)
@@ -140,7 +153,22 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
     {
         if (updateMessage.batteryPercentage >= 0 || updateMessage.IsWiredMode)
         {
+            // Device is online or in wired mode - cancel any pending offline timer
+            lock (_offlineTimerLock)
+            {
+                if (_pendingOfflineTimer != null)
+                {
+                    DiagnosticLogger.Log($"[ModeSwitchDetection] {DeviceName} came back online - cancelling pending offline state change (mode switch detected)");
+                    _pendingOfflineTimer.Cancel();
+                    _pendingOfflineTimer.Dispose();
+                    _pendingOfflineTimer = null;
+                }
+            }
+
+            // Update BOTH states immediately
             IsOnline = true;
+            IsVisuallyOnline = true;
+
             if (updateMessage.batteryPercentage >= 0)
             {
                 BatteryPercentage = updateMessage.batteryPercentage;
@@ -148,7 +176,48 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
         }
         else
         {
+            // Device went offline
+            var delaySeconds = _appSettings.Notifications.ModeSwitchDetectionDelaySeconds;
+
+            // CRITICAL: Update IsOnline IMMEDIATELY (for notifications)
             IsOnline = false;
+
+            // But delay IsVisuallyOnline (for icon rendering - prevents "?" flicker)
+            lock (_offlineTimerLock)
+            {
+                // Cancel any existing pending timer
+                if (_pendingOfflineTimer != null)
+                {
+                    _pendingOfflineTimer.Cancel();
+                    _pendingOfflineTimer.Dispose();
+                }
+
+                // Create new timer for delayed visual offline state
+                _pendingOfflineTimer = new CancellationTokenSource();
+                var cts = _pendingOfflineTimer;
+
+                DiagnosticLogger.Log($"[ModeSwitchDetection] {DeviceName} went offline - delaying ICON state change by {delaySeconds}s to detect mode switch");
+
+                // Schedule delayed visual offline state change
+                Task.Delay(TimeSpan.FromSeconds(delaySeconds), cts.Token).ContinueWith(task =>
+                {
+                    if (task.IsCanceled)
+                    {
+                        // Timer was cancelled (device came back online)
+                        return;
+                    }
+
+                    // Delay expired, device still offline - update visual icon state
+                    DiagnosticLogger.Log($"[ModeSwitchDetection] {DeviceName} still offline after {delaySeconds}s - changing icon to offline state");
+                    IsVisuallyOnline = false;
+
+                    lock (_offlineTimerLock)
+                    {
+                        _pendingOfflineTimer?.Dispose();
+                        _pendingOfflineTimer = null;
+                    }
+                }, TaskScheduler.FromCurrentSynchronizationContext()); // Run on UI thread
+            }
         }
 
         PowerSupplyStatus = updateMessage.powerSupplyStatus;
@@ -218,6 +287,17 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
     {
         // Unsubscribe from PropertyChanged event to prevent memory leak
         PropertyChanged -= _propertyChangedHandler;
+
+        // Cancel and dispose any pending offline timer
+        lock (_offlineTimerLock)
+        {
+            if (_pendingOfflineTimer != null)
+            {
+                _pendingOfflineTimer.Cancel();
+                _pendingOfflineTimer.Dispose();
+                _pendingOfflineTimer = null;
+            }
+        }
 
         // Dispose icon if it was created
         if (IsChecked)

@@ -51,6 +51,14 @@ public partial class LogiDevice : ObservableObject
     [NotifyPropertyChangedFor(nameof(ToolTipString))]
     private bool _isOnline = false;
 
+    /// <summary>
+    /// Visual representation of online state with grace period for mode-switch detection.
+    /// Used exclusively for icon rendering to prevent "?" flicker during brief disconnections.
+    /// For notifications and logical state, use IsOnline instead.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isVisuallyOnline = false;
+
     public string ToolTipString
     {
         get
