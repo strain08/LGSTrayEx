@@ -15,10 +15,10 @@ See included [settings file](https://github.com/strain08/LGSTrayBattery/blob/mas
 ## New Features
 - MQTT client, advertise to HA
 - Notifications for device on/off, battery level thresholds, configurable
-- Experimental support for monitoring devices that connect both wired and wireless
-- Ghub and Native devices: choose which source you want to use from devices menu
-- Option keepOfflineDevices: configures tray icon behaviour
-- Device On/Off status represented in http xml as battery_percent = -1
+- Support for monitoring devices that connect both wired and wireless
+- Ghub and Native devices: choose which source you want to monitor from devices menu
+- Menu option Keep Offline Devices: configures tray icon behaviour
+- Device On/Off status represented in http xml with is_online key
 - Dark / Light menu
 
 See [release notes](https://github.com/strain08/LGSTrayBattery/releases/latest)
