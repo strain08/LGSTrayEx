@@ -64,7 +64,7 @@ public partial class NotifyIconViewModel : ObservableObject, IHostedService
     public static string AssemblyVersion => "v" + Assembly.GetEntryAssembly()?
                                                           .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
                                                           .InformationalVersion?
-                                                          .Split('+')[0] ?? "Missing";
+                                                          .Split('+')[0] + "-strain08" ?? "Missing";
         
 
     private const string AutoStartRegKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";

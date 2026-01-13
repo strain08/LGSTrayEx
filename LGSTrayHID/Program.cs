@@ -38,7 +38,7 @@ internal class Program
         var builder = Host.CreateEmptyApplicationBuilder(null);
 
         // Load Logging config        
-        builder.Configuration.AddTomlFile("appsettings.toml", optional: false, reloadOnChange: false);
+        builder.Configuration.AddTomlFile(SettingsFile.Name, optional: false, reloadOnChange: false);
         var loggingSettings = builder.Configuration.GetSection("Logging").Get<LoggingSettings>();
 
         // Determine logging settings

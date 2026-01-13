@@ -13,7 +13,7 @@ public class TomlSettingsManager : ISettingsManager
 
     public TomlSettingsManager(string? path = null)
     {
-        _settingsPath = path ?? Path.Combine(AppContext.BaseDirectory, "appsettings.toml");
+        _settingsPath = path ?? Path.Combine(AppContext.BaseDirectory, SettingsFile.Name);
     }
 
     private TomlTable ReadSettings()

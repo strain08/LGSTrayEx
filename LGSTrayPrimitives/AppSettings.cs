@@ -1,5 +1,10 @@
 ﻿namespace LGSTrayPrimitives;
 
+public static class SettingsFile 
+{
+    public static readonly string Name = "appsettings.toml";
+}
+
 public class AppSettings
 {
     public UISettings UI { get; set; } = null!;

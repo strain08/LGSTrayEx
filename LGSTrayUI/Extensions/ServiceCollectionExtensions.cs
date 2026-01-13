@@ -10,10 +10,6 @@ internal static class ServiceCollectionExtensions {
     public static void AddMQTTClient(this IServiceCollection services, IConfiguration configs) {
         var settings = configs.Get<AppSettings>() ?? throw new System.Exception("Settings null in ServiceCollectionExtensions !");
 
-#if DEBUG
-        settings.MQTT.Enabled = true;        
-#endif
-
         if (settings.MQTT.Enabled) {
             services.AddHostedService<MQTTService>();
             DiagnosticLogger.Log("MQTT service enabled");

@@ -44,10 +44,6 @@ internal class MQTTService : IHostedService, IRecipient<DeviceBatteryUpdatedMess
     {
         _mqttSettings = appSettings.Value.MQTT;
 
-#if DEBUG
-        _mqttSettings.BrokerAddress = "192.168.20.100";
-#endif
-
         _notificationSettings = appSettings.Value.Notifications;
         _notificationManager = notificationManager;
         _messenger = messenger;

@@ -1,4 +1,4 @@
-namespace LGSTrayPrimitives.Enums;
+namespace LGSTrayPrimitives;
 
 public enum DataSource : byte
 {

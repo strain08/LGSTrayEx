@@ -156,6 +156,7 @@ maxAttempts = 5            # Multiple quick attempts
 [MQTT]
 # Enable MQTT integration with Home Assistant
 # When enabled, battery status is published to MQTT broker with auto-discovery support
+# Http server must be disabled.
 enabled = false
 
 # MQTT broker connection settings

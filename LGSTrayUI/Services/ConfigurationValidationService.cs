@@ -37,7 +37,7 @@ public class ConfigurationValidationService : IConfigurationValidationService
 
     public async Task<bool> LoadAndValidateConfiguration(ConfigurationManager config)
     {
-        string settingsPath = Path.Combine(AppContext.BaseDirectory, "appsettings.toml");
+        string settingsPath = Path.Combine(AppContext.BaseDirectory, SettingsFile.Name);
 
         // If config file exists, always repair and merge before loading
         if (File.Exists(settingsPath))
