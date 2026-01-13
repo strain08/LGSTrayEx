@@ -82,7 +82,7 @@ suppressModeSwitchNotifications = false
 # Delay in seconds before showing offline notification (for mode switch detection)
 # If device comes back online within this window, it's treated as a mode switch
 # Recommended: 2-5 seconds for most devices
-modeSwitchDetectionDelaySeconds = 3
+modeSwitchDetectionDelaySeconds = 0
 
 # List of device names to apply mode switch suppression
 # Empty list = apply to all devices
@@ -93,7 +93,7 @@ devicesForModeSwitchSuppression = []
 [Logging]
 # Enable diagnostic logging to diagnostic.log
 # Can be overridden by --log command-line flag
-enabled = false
+enabled = true
 
 # Enable verbose logging (+protocol messages)
 # Can be overridden by --verbose command-line flag
@@ -188,6 +188,6 @@ publishThrottleSeconds = 0
 # Show toast notifications for MQTT connection failures/successes
 notifyConnectionStatus = true
 
-# Publish LWT payload to Home Assistant (default: true)
+# Publish LWT payload to Home Assistant (default: false)
 # When enabled, devices are marked as "unavailable" in HA when app is not running.
-publishLWT = true
+publishLWT = false

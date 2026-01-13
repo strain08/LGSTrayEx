@@ -238,12 +238,33 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        DiagnosticLogger.Log("Application exiting...");
+
         Microsoft.Win32.SystemEvents.PowerModeChanged -= AppExtensions_PowerModeChanged;
         // AppDomain.CurrentDomain.UnhandledException -= CrashHandler;
 
         // Close power notification window (cleans up WndProc hook and unregisters notifications)
         _powerWindow?.Close();
         _powerWindow = null;
+
+        // Stop the host to ensure all hosted services run their StopAsync methods
+        if (_host != null)
+        {
+            DiagnosticLogger.Log("Stopping host services...");
+            try
+            {
+                // Give hosted services up to 30 seconds to shut down gracefully
+                _host.StopAsync(TimeSpan.FromSeconds(30)).Wait();
+                DiagnosticLogger.Log("Host services stopped successfully");
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.LogError($"Error stopping host services: {ex.Message}");
+            }
+
+            _host.Dispose();
+            _host = null;
+        }
 
         // ONLY release if we actually acquired it in OnStartup
         if (_hasHandle)
@@ -259,6 +280,7 @@ public partial class App : Application
         }
 
         _mutex?.Dispose();
+        DiagnosticLogger.Log("Application exit complete");
         base.OnExit(e);
     }
 

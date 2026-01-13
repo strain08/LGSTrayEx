@@ -156,7 +156,8 @@ public partial class NotifyIconViewModel : ObservableObject, IHostedService
     [RelayCommand]
     private static void ExitApplication()
     {
-        Environment.Exit(0);
+        DiagnosticLogger.Log("Exit application requested");
+        Application.Current.Shutdown();
     }
 
     [RelayCommand]
