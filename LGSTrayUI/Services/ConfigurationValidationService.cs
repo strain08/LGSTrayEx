@@ -5,34 +5,38 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
-using CommunityToolkit.Mvvm.Messaging;
+using MessagePipe;
 using Tommy.Extensions.Configuration;
 using LGSTrayUI.Interfaces;
 
 namespace LGSTrayUI.Services;
 
-public class ConfigurationValidationService : IConfigurationValidationService
+public class ConfigurationValidationService : IConfigurationValidationService, IDisposable
 {
-    private readonly IMessenger? _messenger;
+    private readonly IDisposable? _subscription;
 
     // Parameterless constructor for early instantiation (before DI container built)
     public ConfigurationValidationService()
     {
-        _messenger = null;
+        _subscription = null;
     }
 
-    // DI constructor for when messenger is available
-    public ConfigurationValidationService(IMessenger messenger)
+    // DI constructor for when subscriber is available
+    public ConfigurationValidationService(ISubscriber<HttpServerErrorMessage> subscriber)
     {
-        _messenger = messenger;
-
         // Register to receive HTTP server error messages
-        _messenger.Register<HttpServerErrorMessage>(this, OnHttpServerError);
+        _subscription = subscriber.Subscribe(OnHttpServerError);
     }
 
-    private void OnHttpServerError(object recipient, HttpServerErrorMessage message)
+    private void OnHttpServerError(HttpServerErrorMessage message)
     {
         HandleHttpServerStartupError(message.ErrorMessage, message.Port);
+    }
+
+    public void Dispose()
+    {
+        _subscription?.Dispose();
+        GC.SuppressFinalize(this);
     }
 
     public async Task<bool> LoadAndValidateConfiguration(ConfigurationManager config)

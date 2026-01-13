@@ -54,14 +54,14 @@ public class HttpController : WebApiController
         tw.Write("<b>By Device ID</b><br>");
         foreach (var logiDevice in _logiDeviceCollection.GetDevices())
         {
-            tw.Write($"{logiDevice.DeviceName} : <a href=\"/device/{logiDevice.DeviceId}\">{logiDevice.DeviceId}</a><br>");
+            tw.Write($"{logiDevice.DeviceName} : <a href=\"/device/{logiDevice.DeviceSignature}\">{logiDevice.DeviceSignature}</a><br>");
         }
 
         tw.Write("<br><b>By Device Name</b><br>");
         foreach (var logiDevice in _logiDeviceCollection.GetDevices())
         {
             var source_prefix = logiDevice.DataSource == DataSource.Native ? "N-" : "G-";
-            tw.Write($"<a href=\"/device/{source_prefix + Uri.EscapeDataString(logiDevice.DeviceName)}\">{source_prefix + logiDevice.DeviceName}</a><br>");
+            tw.Write($"<a href=\"/device/{Uri.EscapeDataString(logiDevice.DeviceSignature)}\">{source_prefix + logiDevice.DeviceName}</a><br>");
         }
 
         tw.Write("<br><hr>");
@@ -74,9 +74,7 @@ public class HttpController : WebApiController
     [Route(HttpVerbs.Get, "/device/{deviceIden}")]
     public void GetDevice(string deviceIden)
     {
-        var logiDevice = _logiDeviceCollection.GetDevices().FirstOrDefault(x => x.DeviceId == deviceIden);
-        logiDevice ??= _logiDeviceCollection.GetDevices().FirstOrDefault(x => x.DeviceName == deviceIden[2..] && 
-                                                                              x.DataSource == (deviceIden[..2] == "N-" ? DataSource.Native:DataSource.GHub ));
+        var logiDevice = _logiDeviceCollection.GetDevices().FirstOrDefault(x => x.DeviceSignature == deviceIden);        
 
         using var tw = HttpContext.OpenResponseText();
         if (logiDevice == null)

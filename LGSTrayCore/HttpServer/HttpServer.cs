@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.Messaging;
+﻿using MessagePipe;
 using EmbedIO;
 using EmbedIO.Net;
 using EmbedIO.WebApi;
@@ -15,16 +15,16 @@ public class HttpServer : IHostedService, IDisposable
 
     private readonly AppSettings _appSettings;
     private readonly HttpControllerFactory _httpControllerFactory;
-    private readonly IMessenger _messenger;
+    private readonly IPublisher<HttpServerErrorMessage> _publisher;
 
     private CancellationTokenSource _serverCts = null!;
     private WebServer _server = null!;
 
-    public HttpServer(IOptions<AppSettings> appSettings, HttpControllerFactory httpControllerFactory, IMessenger messenger)
+    public HttpServer(IOptions<AppSettings> appSettings, HttpControllerFactory httpControllerFactory, IPublisher<HttpServerErrorMessage> publisher)
     {
         _appSettings = appSettings.Value;
         _httpControllerFactory = httpControllerFactory;
-        _messenger = messenger;
+        _publisher = publisher;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -43,7 +43,7 @@ public class HttpServer : IHostedService, IDisposable
             DiagnosticLogger.LogError($"HTTP Server failed to start on port {_appSettings.HTTPServer.Port}: {errorMessage}");
 
             // Notify UI about the error
-            _messenger.Send(new HttpServerErrorMessage(errorMessage, _appSettings.HTTPServer.Port));
+            _publisher.Publish(new HttpServerErrorMessage(errorMessage, _appSettings.HTTPServer.Port));
         }
     }
 

@@ -12,28 +12,6 @@ using System.Threading.Tasks;
 
 namespace LGSTrayUI;
 
-public class LogiDeviceViewModelFactory
-{
-    private readonly ILogiDeviceIconFactory _logiDeviceIconFactory;
-    private readonly AppSettings _appSettings;
-    private readonly UserSettingsWrapper _userSettings;
-
-    public LogiDeviceViewModelFactory(ILogiDeviceIconFactory logiDeviceIconFactory, AppSettings appSettings, UserSettingsWrapper userSettings)
-    {
-        _logiDeviceIconFactory = logiDeviceIconFactory;
-        _appSettings = appSettings;
-        _userSettings = userSettings;
-    }
-
-    public LogiDeviceViewModel CreateViewModel(Action<LogiDeviceViewModel>? config = null)
-    {
-        LogiDeviceViewModel output = new(_logiDeviceIconFactory, _appSettings, _userSettings);
-        config?.Invoke(output);
-
-        return output;
-    }
-}
-
 public partial class LogiDeviceViewModel : LogiDevice, IDisposable
 {
     private readonly ILogiDeviceIconFactory _logiDeviceIconFactory;
@@ -44,11 +22,7 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
     [ObservableProperty]
     private bool _isChecked = false;
 
-    /// <summary>
-    /// Stable device signature for persistent settings (GHUB.xxx or NATIVE.xxx)
-    /// </summary>
-    [ObservableProperty]
-    private string _deviceSignature = string.Empty;
+
 
     private LogiDeviceIcon? taskbarIcon;
     private string? _cachedDetailedTooltip;

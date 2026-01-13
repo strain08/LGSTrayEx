@@ -52,6 +52,12 @@ public partial class LogiDevice : ObservableObject
     private bool _isOnline = false;
 
     /// <summary>
+    /// Stable device signature for persistent settings (GHUB.xxx or NATIVE.xxx)
+    /// </summary>
+    [ObservableProperty]
+    private string _deviceSignature = string.Empty;
+
+    /// <summary>
     /// Visual representation of online state with grace period for mode-switch detection.
     /// Used exclusively for icon rendering to prevent "?" flicker during brief disconnections.
     /// For notifications and logical state, use IsOnline instead.
