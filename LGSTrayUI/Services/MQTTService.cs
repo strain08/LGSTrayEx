@@ -469,7 +469,7 @@ internal class MQTTService : IHostedService, IDisposable
                 model = device.DeviceType.ToString(),
                 manufacturer = "Logitech",
                 sw_version = $"LGSTrayBattery {_sw_version}",
-                via_device = machineName
+            //    via_device = machineName
             };
 
             // Shared availability config (Device AND Service must be online)
@@ -494,7 +494,7 @@ internal class MQTTService : IHostedService, IDisposable
             // 1. Battery Level Sensor Config
             var batteryConfig = new
             {
-                name = $"{device.DeviceName} Battery",
+                name = "Battery",
                 unique_id = $"lgstray_{deviceId}_battery",
                 state_topic = $"{_mqttSettings.TopicPrefix}/sensor/{deviceId}/battery/state",
                 device_class = "battery",
@@ -512,7 +512,7 @@ internal class MQTTService : IHostedService, IDisposable
             // 2. Charging Status Binary Sensor Config
             var chargingConfig = new
             {
-                name = $"{device.DeviceName} Charging",
+                name = "Charging",
                 unique_id = $"lgstray_{deviceId}_charging",
                 state_topic = $"{_mqttSettings.TopicPrefix}/sensor/{deviceId}/battery/state",
                 device_class = "battery_charging",
@@ -526,7 +526,7 @@ internal class MQTTService : IHostedService, IDisposable
             // 3. Connectivity Binary Sensor Config
             var connectivityConfig = new
             {
-                name = $"{device.DeviceName} Status",
+                name = "Status",
                 unique_id = $"lgstray_{deviceId}_connectivity",
                 state_topic = $"{_mqttSettings.TopicPrefix}/sensor/{deviceId}/battery/state",
                 device_class = "connectivity",
