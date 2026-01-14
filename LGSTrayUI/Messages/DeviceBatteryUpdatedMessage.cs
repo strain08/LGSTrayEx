@@ -8,5 +8,5 @@ namespace LGSTrayUI.Messages;
 /// </summary>
 public class DeviceBatteryUpdatedMessage(LogiDevice device)
 {
-    public LogiDevice Device { get; } = device;
+    public LogiDevice Device => device;
 }

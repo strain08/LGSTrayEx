@@ -20,6 +20,7 @@ public class LogiDeviceCollection : ILogiDeviceCollection
     private readonly UserSettingsWrapper _userSettings;
     private readonly LogiDeviceViewModelFactory _logiDeviceViewModelFactory;
     private readonly ISubscriber<IPCMessage> _subscriber;
+    private readonly ISubscriber<ForceRepublishMessage> _republishSubscriber;
     private readonly IDispatcher _dispatcher;
     private readonly IPublisher<DeviceBatteryUpdatedMessage> _batteryPublisher;
 
@@ -33,6 +34,7 @@ public class LogiDeviceCollection : ILogiDeviceCollection
         UserSettingsWrapper userSettings,
         LogiDeviceViewModelFactory logiDeviceViewModelFactory,
         ISubscriber<IPCMessage> subscriber,
+        ISubscriber<ForceRepublishMessage> republishSubscriber,
         IDispatcher dispatcher,
         IPublisher<DeviceBatteryUpdatedMessage> batteryPublisher
     )
@@ -40,6 +42,7 @@ public class LogiDeviceCollection : ILogiDeviceCollection
         _userSettings = userSettings;
         _logiDeviceViewModelFactory = logiDeviceViewModelFactory;
         _subscriber = subscriber;
+        _republishSubscriber = republishSubscriber;
         _dispatcher = dispatcher;
         _batteryPublisher = batteryPublisher;
 
@@ -58,6 +61,9 @@ public class LogiDeviceCollection : ILogiDeviceCollection
                 OnRemoveMessage(removeMessage);
             }
         });
+
+        // Subscribe to force republish messages (from MQTT when HA restarts)
+        _republishSubscriber.Subscribe(OnForceRepublish);
 
         // Register for system resume messages to enable grace period
 
@@ -253,6 +259,20 @@ public class LogiDeviceCollection : ILogiDeviceCollection
 
             // Always mark as offline (KeepOfflineDevices logic handled in UI)
             MarkAsOffline(deviceToRemove, removeMessage.reason);
+        });
+    }
+
+    private void OnForceRepublish(ForceRepublishMessage message)
+    {
+        _dispatcher.BeginInvoke(() =>
+        {
+            DiagnosticLogger.Log($"[LogiDeviceCollection] Force republish requested - republishing {Devices.Count} device(s)");
+
+            // Republish all online devices to MQTT
+            foreach (var device in Devices.Where(d => d.IsOnline))
+            {
+                _batteryPublisher.Publish(new DeviceBatteryUpdatedMessage(device));
+            }
         });
     }
 

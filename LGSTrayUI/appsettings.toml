@@ -157,10 +157,10 @@ maxAttempts = 5            # Multiple quick attempts
 # Enable MQTT integration with Home Assistant
 # When enabled, battery status is published to MQTT broker with auto-discovery support
 # Http server must be disabled.
-enabled = false
+enabled = true
 
 # MQTT broker connection settings
-brokerAddress = ""		   # Broker hostname or IP address
+brokerAddress = "192.168.20.100"		   # Broker hostname or IP address
 port = 1883                # Default MQTT port (1883 for non-TLS, 8883 for TLS)
 username = ""              # Leave empty for anonymous connection
 password = ""              # Leave empty for anonymous connection

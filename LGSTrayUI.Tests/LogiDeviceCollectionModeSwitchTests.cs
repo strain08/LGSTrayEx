@@ -51,10 +51,13 @@ public class LogiDeviceCollectionModeSwitchTests
         var iconFactory = new MockLogiDeviceIconFactory();
         var viewModelFactory = new LogiDeviceViewModelFactory(iconFactory, appSettings, settings);
 
+        var republishSubscriberMock = new Mock<ISubscriber<ForceRepublishMessage>>();
+
         var collection = new LogiDeviceCollection(
             settings,
             viewModelFactory,
             subscriberMock.Object,
+            republishSubscriberMock.Object,
             dispatcher,
             publisherMock.Object);
             

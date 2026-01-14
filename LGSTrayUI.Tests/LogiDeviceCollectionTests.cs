@@ -63,10 +63,13 @@ public class LogiDeviceCollectionTests
         var iconFactory = new MockLogiDeviceIconFactory();
         var viewModelFactory = new LogiDeviceViewModelFactory(iconFactory, appSettings, settings);
 
+        var republishSubscriberMock = new Mock<ISubscriber<ForceRepublishMessage>>();
+
         var collection = new LogiDeviceCollection(
             settings,
             viewModelFactory,
             subscriberMock.Object,
+            republishSubscriberMock.Object,
             dispatcher,
             publisherMock.Object);
         
@@ -179,8 +182,10 @@ public class LogiDeviceCollectionTests
         
         var viewModelFactory = new LogiDeviceViewModelFactory(iconFactory, appSettings, settings);
 
+        var republishSubscriberMock = new Mock<ISubscriber<ForceRepublishMessage>>();
+
         // Act - creating collection triggers deduplication
-        var collection = new LogiDeviceCollection(settings, viewModelFactory, subscriberMock.Object, dispatcher, publisherMock.Object);
+        var collection = new LogiDeviceCollection(settings, viewModelFactory, subscriberMock.Object, republishSubscriberMock.Object, dispatcher, publisherMock.Object);
 
         // Assert - Verify signatures deduplicated (unique signatures only)
         Assert.Equal(2, settings.SelectedSignatures.Count);
