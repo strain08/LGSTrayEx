@@ -401,10 +401,10 @@ public class MQTTSettings
     public bool RetainMessages { get; set; } = true;
 
     /// <summary>
-    /// Publish device offline status to Home Assistant (default: false)
-    /// When enabled, devices are marked as "unavailable" in HA when they go offline,
-    /// which may hide their battery data in the UI.
-    /// When disabled, last known battery percentage remains visible even when device is offline.
+    /// Mark devices as unavailable in Home Assistant when LGSTray disconnects (default: false)
+    /// Uses MQTT Last Will and Testament (LWT) to automatically mark all devices
+    /// managed by this instance as unavailable if the app crashes or disconnects unexpectedly.
+    /// When disabled, last known battery percentage remains visible even when LGSTray is not running.
     /// </summary>
     public bool PublishLWT { get; set; } = false;
 }
