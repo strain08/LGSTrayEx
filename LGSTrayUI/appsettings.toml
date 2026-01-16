@@ -188,6 +188,7 @@ publishThrottleSeconds = 0
 # Show toast notifications for MQTT connection failures/successes
 notifyConnectionStatus = true
 
-# Publish LWT payload to Home Assistant (default: false)
-# When enabled, devices are marked as "unavailable" in HA when app is not running.
-publishLWT = false
+# Uses MQTT LWT to set the Host Status sensor when app goes offline, system sleep, etc.
+# Devices and their battery levels will remain available.
+# (default: true)
+publishLWT = true

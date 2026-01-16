@@ -401,10 +401,8 @@ public class MQTTSettings
     public bool RetainMessages { get; set; } = true;
 
     /// <summary>
-    /// Publish device offline status to Home Assistant (default: false)
-    /// When enabled, devices are marked as "unavailable" in HA when they go offline,
-    /// which may hide their battery data in the UI.
-    /// When disabled, last known battery percentage remains visible even when device is offline.
+    /// Uses MQTT LWT to set the Host Status sensor when app goes offline, system sleep, etc.
+    /// Devices and their battery levels will remain available.
     /// </summary>
     public bool PublishLWT { get; set; } = false;
 }

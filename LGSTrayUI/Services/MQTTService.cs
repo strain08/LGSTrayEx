@@ -50,6 +50,25 @@ internal class MQTTService : IHostedService, IDisposable
     private bool _isConnecting = false;
     private readonly object _connectionLock = new();
 
+    /// <summary>
+    /// Safely checks if the MQTT client is connected and not disposed.
+    /// </summary>
+    private bool IsClientConnected
+    {
+        get
+        {
+            if (_disposedValue) return false;
+            try
+            {
+                return _mqttClient.IsConnected;
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;
+            }
+        }
+    }
+
     public MQTTService(IOptions<AppSettings> appSettings,
                        INotificationManager? notificationManager,
                        ISubscriber<DeviceBatteryUpdatedMessage> batterySubscriber,
@@ -108,50 +127,70 @@ internal class MQTTService : IHostedService, IDisposable
     {
         DiagnosticLogger.Log("[MQTT] Service stopping...");
 
-        // Unregister from messenger
+        // Check if already disposed
+        if (_disposedValue)
+        {
+            DiagnosticLogger.Log("[MQTT] Service already disposed, skipping StopAsync");
+            return;
+        }
+
+        // Unregister from messenger first to stop receiving new updates
         _batterySubscription?.Dispose();
         _suspendSubscription?.Dispose();
         _republishSubscription?.Dispose();
 
-        // Cancel reconnection attempts
+        // Cancel reconnection attempts BEFORE any disconnect operations
+        // This prevents OnDisconnectedAsync from triggering reconnection
         _reconnectCts?.Cancel();
+        _reconnectCts?.Dispose();
+        _reconnectCts = null;
 
-        // Disconnect gracefully
-        DiagnosticLogger.Log($"[MQTT] Client connected: {_mqttClient.IsConnected}");
+        // Disconnect gracefully - check client is still valid
+        var isConnected = false;
+        try
+        {
+            isConnected = _mqttClient.IsConnected;
+        }
+        catch (ObjectDisposedException)
+        {
+            DiagnosticLogger.Log("[MQTT] Client already disposed");
+            return;
+        }
 
-        if (_mqttClient.IsConnected)
+        DiagnosticLogger.Log($"[MQTT] Client connected: {isConnected}");
+
+        if (isConnected)
         {
             try
             {
-                DiagnosticLogger.Log("[MQTT] Starting graceful shutdown sequence...");
-
-                // Mark all monitored devices as disconnected (state update only)
-                // This updates the Status binary sensor to show "Not Connected"
-                // while keeping devices available in HA (not grayed out)
-                DiagnosticLogger.Log("[MQTT] Calling MarkAllDevicesOfflineAsync...");
-                await MarkAllDevicesOfflineAsync();
-                DiagnosticLogger.Log("[MQTT] MarkAllDevicesOfflineAsync completed");
-
-                // Note: We do NOT publish service offline status during graceful shutdown
-                // This keeps devices "available" in HA with just the Status sensor showing disconnected
-                // LWT will handle marking service offline if app crashes
+                // Unsubscribe from MQTT client events BEFORE disconnecting
+                // This prevents OnDisconnectedAsync from being called during shutdown
+                DiagnosticLogger.Log("[MQTT] Unsubscribing from MQTT client events...");
+                _mqttClient.ConnectedAsync -= OnConnectedAsync;
+                _mqttClient.DisconnectedAsync -= OnDisconnectedAsync;
+                _mqttClient.ApplicationMessageReceivedAsync -= OnMqttMessageReceivedAsync;
 
                 DiagnosticLogger.Log("[MQTT] Disconnecting from broker...");
-                await _mqttClient.DisconnectAsync(cancellationToken: cancellationToken);
+                // Use explicit timeout for disconnect - don't rely on cancellation token alone
+                // LWT will automatically mark devices as unavailable if PublishLWT is enabled
+                using var disconnectCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, disconnectCts.Token);
+                await _mqttClient.DisconnectAsync(cancellationToken: linkedCts.Token);
                 DiagnosticLogger.Log("[MQTT] Disconnected from broker");
+            }
+            catch (OperationCanceledException)
+            {
+                DiagnosticLogger.LogWarning("[MQTT] Disconnect operation timed out or was cancelled");
             }
             catch (Exception ex)
             {
                 DiagnosticLogger.LogError($"[MQTT] Error during disconnect: {ex.Message}");
-                DiagnosticLogger.LogError($"[MQTT] Stack trace: {ex.StackTrace}");
             }
         }
         else
         {
             DiagnosticLogger.Log("[MQTT] Client not connected, skipping graceful shutdown");
         }
-
-        //return Task.CompletedTask;
     }
 
     // Connection Management
@@ -220,8 +259,6 @@ internal class MQTTService : IHostedService, IDisposable
                                   .WithWillQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce);
                 }
 
-
-
                 var options = optionsBuilder.Build();
 
                 // Connect with timeout
@@ -282,6 +319,12 @@ internal class MQTTService : IHostedService, IDisposable
 
         // Publish Service Availability (Birth Message)
         _ = PublishServiceAvailabilityAsync(true);
+
+        // Publish Host Device Discovery Config (if LWT enabled)
+        if (_mqttSettings.PublishLWT)
+        {
+            _ = PublishHostDiscoveryConfigAsync();
+        }
 
         // Clear published devices tracking to re-publish discovery configs
         lock (_publishLock)
@@ -350,18 +393,9 @@ internal class MQTTService : IHostedService, IDisposable
 
     private void OnSystemSuspending(SystemSuspendingMessage message)
     {
-        DiagnosticLogger.Log("[MQTT] System suspending - marking all devices as disconnected");
-
-        // Check connection
-        if (!_mqttClient.IsConnected)
-        {
-            DiagnosticLogger.Log("[MQTT] Not connected, skipping device offline marking");
-            return;
-        }
-
-        // Mark all devices as disconnected before system sleeps
-        // Fire-and-forget since we can't wait in the suspend handler
-        _ = MarkAllDevicesOfflineAsync();
+        DiagnosticLogger.Log("[MQTT] System suspending");
+        // LWT will handle marking devices as unavailable if the connection drops during sleep
+        // No explicit action needed here
     }
 
     public void OnBatteryUpdate(DeviceBatteryUpdatedMessage message)
@@ -374,25 +408,16 @@ internal class MQTTService : IHostedService, IDisposable
             return;
         }
 
-        // Check connection
-        if (!_mqttClient.IsConnected)
+        // Check connection (safe check handles disposed state)
+        if (!IsClientConnected)
         {
             return;
         }
 
-        // Handle offline devices
+        // Skip offline device updates - we don't track device online/offline status anymore
+        // LWT handles service-level availability when LGSTray disconnects
         if (!device.IsOnline)
         {
-            DiagnosticLogger.Log($"[MQTT] Device went offline: {device.DeviceName}");
-
-            // Always publish state update with online=false so HA knows device is offline
-            _ = PublishStateUpdateAsync(device);
-
-            // Optionally publish availability topic (marks sensor as unavailable in HA)
-            if (_mqttSettings.PublishLWT)
-            {
-                _ = PublishAvailabilityAsync(device.DeviceId, false);
-            }
             return;
         }
 
@@ -472,75 +497,38 @@ internal class MQTTService : IHostedService, IDisposable
                 via_device = machineName
             };
 
-            // Shared availability config (Device AND Service must be online)
-            var availabilityConfig = new[]
-            {
-                // Global Service Status (Bridge)
-                new
-                {
-                    topic = $"{_mqttSettings.TopicPrefix}/status",
-                    payload_available = "online",
-                    payload_not_available = "offline"
-                },
-                // Device Specific Status
-                new
-                {
-                    topic = $"{_mqttSettings.TopicPrefix}/sensor/{deviceId}/battery/availability",
-                    payload_available = "online",
-                    payload_not_available = "offline"
-                }
-            };
-
             // 1. Battery Level Sensor Config
-            var batteryConfig = new
+            var batteryConfig = new Dictionary<string, object>
             {
-                name = $"Battery",
-                unique_id = $"lgstray_{deviceId}_battery",
-                state_topic = $"{_mqttSettings.TopicPrefix}/sensor/{deviceId}/battery/state",
-                device_class = "battery",
-                state_class = "measurement", // Enable long-term stats
-                unit_of_measurement = "%",
-                value_template = "{{ value_json.percentage }}",
-                json_attributes_topic = $"{_mqttSettings.TopicPrefix}/sensor/{deviceId}/battery/state",
-                device = deviceRegistry,
-                origin,
-                icon = GetDeviceIcon(device.DeviceType),
-                availability = availabilityConfig,
-                availability_mode = "all" // Default, but explicit: BOTH must be online
+                ["name"] = "Battery",
+                ["unique_id"] = $"lgstray_{deviceId}_battery",
+                ["state_topic"] = $"{_mqttSettings.TopicPrefix}/sensor/{deviceId}/battery/state",
+                ["device_class"] = "battery",
+                ["state_class"] = "measurement", // Enable long-term stats
+                ["unit_of_measurement"] = "%",
+                ["value_template"] = "{{ value_json.percentage }}",
+                ["json_attributes_topic"] = $"{_mqttSettings.TopicPrefix}/sensor/{deviceId}/battery/state",
+                ["device"] = deviceRegistry,
+                ["origin"] = origin,
+                ["icon"] = GetDeviceIcon(device.DeviceType)
             };
 
             // 2. Charging Status Binary Sensor Config
-            var chargingConfig = new
+            var chargingConfig = new Dictionary<string, object>
             {
-                name = $"Charging",
-                unique_id = $"lgstray_{deviceId}_charging",
-                state_topic = $"{_mqttSettings.TopicPrefix}/sensor/{deviceId}/battery/state",
-                device_class = "battery_charging",
-                value_template = "{{ 'ON' if value_json.charging else 'OFF' }}",
-                device = deviceRegistry,
-                origin,
-                availability = availabilityConfig,
-                availability_mode = "all"
-            };
-
-            // 3. Connectivity Binary Sensor Config
-            var connectivityConfig = new
-            {
-                name = $"Status",
-                unique_id = $"lgstray_{deviceId}_connectivity",
-                state_topic = $"{_mqttSettings.TopicPrefix}/sensor/{deviceId}/battery/state",
-                device_class = "connectivity",
-                value_template = "{{ 'ON' if value_json.online else 'OFF' }}",
-                device = deviceRegistry,
-                origin,
-                availability = availabilityConfig,
-                availability_mode = "all"
+                ["name"] = "Charging",
+                ["unique_id"] = $"lgstray_{deviceId}_charging",
+                ["state_topic"] = $"{_mqttSettings.TopicPrefix}/sensor/{deviceId}/battery/state",
+                ["device_class"] = "battery_charging",
+                ["value_template"] = "{{ 'ON' if value_json.charging else 'OFF' }}",
+                ["device"] = deviceRegistry,
+                ["origin"] = origin
             };
 
             // Publish Battery Sensor Config
             var batteryPayload = System.Text.Json.JsonSerializer.Serialize(batteryConfig);
             var batteryTopic = $"{_mqttSettings.TopicPrefix}/sensor/{deviceId}/battery/config";
-            
+
             var batteryMessage = new MqttApplicationMessageBuilder()
                 .WithTopic(batteryTopic)
                 .WithPayload(batteryPayload)
@@ -563,28 +551,12 @@ internal class MQTTService : IHostedService, IDisposable
 
             await _mqttClient.PublishAsync(chargingMessage, CancellationToken.None);
 
-            // Publish Connectivity Binary Sensor Config
-            var connectivityPayload = System.Text.Json.JsonSerializer.Serialize(connectivityConfig);
-            var connectivityTopic = $"{_mqttSettings.TopicPrefix}/binary_sensor/{deviceId}/connectivity/config";
-
-            var connectivityMessage = new MqttApplicationMessageBuilder()
-                .WithTopic(connectivityTopic)
-                .WithPayload(connectivityPayload)
-                .WithRetainFlag(_mqttSettings.RetainMessages)
-                .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
-                .Build();
-
-            await _mqttClient.PublishAsync(connectivityMessage, CancellationToken.None);
-
             lock (_publishLock)
             {
                 _publishedDevices.Add(device.DeviceId);
             }
 
             DiagnosticLogger.Log($"[MQTT] Published discovery config for {device.DeviceName}");
-
-            // Publish initial availability
-            await PublishAvailabilityAsync(device.DeviceId, device.IsOnline);
         }
         catch (Exception ex)
         {
@@ -604,7 +576,6 @@ internal class MQTTService : IHostedService, IDisposable
                 percentage = (int)Math.Round(device.BatteryPercentage),
                 voltage = device.BatteryVoltage,
                 charging = device.PowerSupplyStatus == PowerSupplyStatus.CHARGING,
-                online = device.IsOnline,
                 is_wired = device.IsWiredMode,
                 power_status = device.PowerSupplyStatus.ToString(),
                 signature = device.DeviceSignature,
@@ -625,18 +596,70 @@ internal class MQTTService : IHostedService, IDisposable
 
             await _mqttClient.PublishAsync(message, CancellationToken.None);
 
-            DiagnosticLogger.Log($"[MQTT] Published state for {device.DeviceName}: {state.percentage}% (online: {device.IsOnline})");
-
-            // Only update availability to "online" for online devices
-            // Offline availability is managed by the message handler based on publishOfflineStatus setting
-            if (device.IsOnline)
-            {
-                await PublishAvailabilityAsync(device.DeviceId, true);
-            }
+            DiagnosticLogger.Log($"[MQTT] Published state for {device.DeviceName}: {state.percentage}%");
         }
         catch (Exception ex)
         {
             DiagnosticLogger.LogError($"[MQTT] Failed to publish state for {device.DeviceName}: {ex.Message}");
+        }
+    }
+
+    // Host Discovery Publishing
+    private async Task PublishHostDiscoveryConfigAsync()
+    {
+        try
+        {
+            var machineName = Environment.MachineName;
+            var deviceId = SanitizeForMqtt(machineName);
+            var _sw_version = NotifyIconViewModel.AssemblyVersion;
+
+            // Host Device Registry
+            // Identifiers matches 'via_device' of peripherals (which is just machineName)
+            var hostDeviceRegistry = new
+            {
+                identifiers = new[] { machineName },
+                name = machineName,
+                model = "Host Bridge",
+                manufacturer = "LGSTrayBattery",
+                sw_version = $"LGSTrayBattery {_sw_version}"
+            };
+
+            // Host Status Binary Sensor Config (Connectivity)
+            var hostStatusConfig = new Dictionary<string, object>
+            {
+                ["name"] = "Host Status",
+                ["unique_id"] = $"lgstray_{deviceId}_host_status",
+                ["state_topic"] = $"{_mqttSettings.TopicPrefix}/status",
+                ["device_class"] = "connectivity",
+                ["payload_on"] = "online",
+                ["payload_off"] = "offline",
+                ["device"] = hostDeviceRegistry,
+                ["origin"] = new
+                {
+                    name = "LGSTrayBattery",
+                    sw = _sw_version,
+                    url = "https://github.com/strain08/LGSTrayBattery"
+                },
+                ["entity_category"] = "diagnostic"
+            };
+
+            var payload = System.Text.Json.JsonSerializer.Serialize(hostStatusConfig);
+            var topic = $"{_mqttSettings.TopicPrefix}/binary_sensor/{deviceId}/host_status/config";
+
+            var message = new MqttApplicationMessageBuilder()
+                .WithTopic(topic)
+                .WithPayload(payload)
+                .WithRetainFlag(_mqttSettings.RetainMessages)
+                .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
+                .Build();
+
+            await _mqttClient.PublishAsync(message, CancellationToken.None);
+
+            DiagnosticLogger.Log($"[MQTT] Published host discovery config for {machineName}");
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.LogError($"[MQTT] Failed to publish host discovery config: {ex.Message}");
         }
     }
 
@@ -662,126 +685,21 @@ internal class MQTTService : IHostedService, IDisposable
         }
     }
 
-    private async Task PublishAvailabilityAsync(string deviceId, bool isOnline)
-    {
-        try
-        {
-            var sanitizedId = SanitizeForMqtt(deviceId);
-            var topic = $"{_mqttSettings.TopicPrefix}/sensor/{sanitizedId}/battery/availability";
-            var payload = isOnline ? "online" : "offline";
-
-            var message = new MqttApplicationMessageBuilder()
-                .WithTopic(topic)
-                .WithPayload(payload)
-                .WithRetainFlag(_mqttSettings.RetainMessages)
-                .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
-                .Build();
-
-            await _mqttClient.PublishAsync(message, CancellationToken.None);
-        }
-        catch (Exception ex)
-        {
-            DiagnosticLogger.LogWarning($"[MQTT] Failed to publish availability: {ex.Message}");
-        }
-    }
-
-    private async Task MarkAllDevicesOfflineAsync()
-    {
-        try
-        {
-            DiagnosticLogger.Log("[MQTT] MarkAllDevicesOfflineAsync - ENTERED");
-
-            // Get all devices that were published (tracked in _publishedDevices)
-            List<string> devicesToMarkOffline;
-            lock (_publishLock)
-            {
-                devicesToMarkOffline = new List<string>(_publishedDevices);
-                DiagnosticLogger.Log($"[MQTT] Found {devicesToMarkOffline.Count} published devices to mark offline");
-            }
-
-            if (devicesToMarkOffline.Count == 0)
-            {
-                DiagnosticLogger.Log("[MQTT] No devices to mark offline");
-                return;
-            }
-
-            // Publish state update with online=false for each device
-            foreach (var deviceId in devicesToMarkOffline)
-            {
-                DiagnosticLogger.Log($"[MQTT] Marking device {deviceId} as disconnected...");
-                await PublishDeviceOfflineStateAsync(deviceId);
-                DiagnosticLogger.Log($"[MQTT] Device {deviceId} marked as disconnected");
-            }
-
-            DiagnosticLogger.Log($"[MQTT] Successfully marked {devicesToMarkOffline.Count} device(s) as disconnected");
-        }
-        catch (Exception ex)
-        {
-            DiagnosticLogger.LogError($"[MQTT] Failed to mark devices offline: {ex.Message}");
-            DiagnosticLogger.LogError($"[MQTT] Stack trace: {ex.StackTrace}");
-        }
-    }
-
-    private async Task PublishDeviceOfflineStateAsync(string deviceId)
-    {
-        try
-        {
-            var sanitizedId = SanitizeForMqtt(deviceId);
-            var topic = $"{_mqttSettings.TopicPrefix}/sensor/{sanitizedId}/battery/state";
-
-            // Publish minimal state update with online=false
-            // This updates the connectivity binary sensor to show "OFF"
-            // while keeping the device available in HA
-            // Note: We only send 'online' field - battery percentage and charging status
-            // retain their last values (don't reset to 0%)
-            var state = new
-            {
-                online = false,
-                last_update = DateTimeOffset.Now.ToString("o")
-            };
-
-            var payload = System.Text.Json.JsonSerializer.Serialize(state);
-
-            DiagnosticLogger.Log($"[MQTT] Publishing offline state to topic: {topic}");
-            DiagnosticLogger.Log($"[MQTT] Payload: {payload}");
-
-            var message = new MqttApplicationMessageBuilder()
-                .WithTopic(topic)
-                .WithPayload(payload)
-                .WithRetainFlag(_mqttSettings.RetainMessages)
-                .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
-                .Build();
-
-            _mqttClient.PublishAsync(message).Wait(TimeSpan.FromSeconds(2));
-            DiagnosticLogger.Log($"[MQTT] Successfully published offline state for {deviceId}");
-        }
-        catch (Exception ex)
-        {
-            DiagnosticLogger.LogError($"[MQTT] Failed to publish offline state for device {deviceId}: {ex.Message}");
-            DiagnosticLogger.LogError($"[MQTT] Stack trace: {ex.StackTrace}");
-        }
-    }
-
     // Helpers
-    private static string SanitizeForMqtt(string input)
-    {
-        // Replace invalid MQTT topic characters
-        return input.Replace(" ", "_")
-                    .Replace("/", "_")
-                    .Replace("+", "_")
-                    .Replace("#", "_");
-    }
 
-    private static string GetDeviceIcon(DeviceType deviceType)
-    {
-        return deviceType switch
-        {
-            DeviceType.Mouse => "mdi:mouse",
-            DeviceType.Keyboard => "mdi:keyboard",
-            DeviceType.Headset => "mdi:headset",
-            _ => "mdi:battery"
-        };
-    }
+    // Replace invalid MQTT topic characters
+    private static string SanitizeForMqtt(string input) => input.Replace(" ", "_")
+                                                                .Replace("/", "_")
+                                                                .Replace("+", "_")
+                                                                .Replace("#", "_");
+
+
+    private static string GetDeviceIcon(DeviceType deviceType) => deviceType switch {
+        DeviceType.Mouse => "mdi:mouse",
+        DeviceType.Keyboard => "mdi:keyboard",
+        DeviceType.Headset => "mdi:headset",
+        _ => "mdi:battery"
+    };
 
     private void ShowConnectionNotification(bool connected, string? errorMessage)
     {
@@ -840,15 +758,53 @@ internal class MQTTService : IHostedService, IDisposable
     {
         if (!_disposedValue)
         {
+            DiagnosticLogger.Log("[MQTT] Dispose called");
+
             if (disposing)
             {
                 _reconnectCts?.Cancel();
                 _reconnectCts?.Dispose();
-                
-                //_mqttClient?.Dispose();
+                _reconnectCts = null;
+
+                // Unsubscribe from MQTT client events before disposing (may already be done in StopAsync)
+                // This prevents event handlers from being called during/after dispose
+                // Safe to call -= even if already unsubscribed
+                DiagnosticLogger.Log("[MQTT] Ensuring client events are unsubscribed");
+                try
+                {
+                    _mqttClient.ConnectedAsync -= OnConnectedAsync;
+                    _mqttClient.DisconnectedAsync -= OnDisconnectedAsync;
+                    _mqttClient.ApplicationMessageReceivedAsync -= OnMqttMessageReceivedAsync;
+                }
+                catch (Exception ex)
+                {
+                    DiagnosticLogger.LogWarning($"[MQTT] Error unsubscribing events: {ex.Message}");
+                }
+
+                // Dispose MQTT client with timeout to prevent hang
+                // StopAsync should have already disconnected it
+                DiagnosticLogger.Log("[MQTT] Disposing MQTT client");
+                try
+                {
+                    // Run dispose on thread pool with timeout to prevent deadlock
+                    var disposeTask = Task.Run(() => _mqttClient.Dispose());
+                    if (!disposeTask.Wait(TimeSpan.FromSeconds(3)))
+                    {
+                        DiagnosticLogger.LogWarning("[MQTT] Client dispose timed out after 3 seconds - continuing anyway");
+                    }
+                    else
+                    {
+                        DiagnosticLogger.Log("[MQTT] MQTT client disposed successfully");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DiagnosticLogger.LogWarning($"[MQTT] Error disposing client: {ex.Message}");
+                }
             }
 
             _disposedValue = true;
+            DiagnosticLogger.Log("[MQTT] Dispose completed");
         }
     }
 

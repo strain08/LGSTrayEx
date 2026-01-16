@@ -241,28 +241,35 @@ public partial class App : Application
         DiagnosticLogger.Log("Application exiting...");
 
         Microsoft.Win32.SystemEvents.PowerModeChanged -= AppExtensions_PowerModeChanged;
-        // AppDomain.CurrentDomain.UnhandledException -= CrashHandler;
 
         // Close power notification window (cleans up WndProc hook and unregisters notifications)
+        DiagnosticLogger.Log("Closing power notification window...");
         _powerWindow?.Close();
         _powerWindow = null;
+        DiagnosticLogger.Log("Power notification window closed");
 
-        // Stop the host to ensure all hosted services run their StopAsync methods
+        // Dispose the host - StopAsync is already called by host.RunAsync() when app shuts down
+        // We only need to dispose here to clean up resources
         if (_host != null)
         {
-            DiagnosticLogger.Log("Stopping host services...");
+            DiagnosticLogger.Log("Disposing host...");
             try
             {
-                // Give hosted services up to 30 seconds to shut down gracefully
-                _host.StopAsync(TimeSpan.FromSeconds(30)).Wait();
-                DiagnosticLogger.Log("Host services stopped successfully");
+                // Run dispose on thread pool with timeout to avoid deadlocks
+                var disposeTask = Task.Run(() => _host?.Dispose());
+                if (!disposeTask.Wait(TimeSpan.FromSeconds(5)))
+                {
+                    DiagnosticLogger.LogWarning("Host dispose timed out after 5 seconds - forcing exit");
+                }
+                else
+                {
+                    DiagnosticLogger.Log("Host disposed");
+                }
             }
             catch (Exception ex)
             {
-                DiagnosticLogger.LogError($"Error stopping host services: {ex.Message}");
+                DiagnosticLogger.LogError($"Error disposing host: {ex.Message}");
             }
-
-            _host.Dispose();
             _host = null;
         }
 
