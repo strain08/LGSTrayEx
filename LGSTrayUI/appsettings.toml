@@ -73,16 +73,15 @@ notifyOnBatteryHigh = true
 # Battery percentage threshold for "charged" notification
 batteryHighThreshold = 80
 
-# Suppress offline/online notification spam when devices switch between wired/wireless modes
+# Certain devices such as G515 LS TKL switch between wired and wireless mode when plugged into usb port
+# Enable to prevent displaying online/offline notifications when plugging/unplugging device
 # Should be left on false if you don't use such devices
-# When enabled, offline notifications are delayed by modeSwitchDetectionDelaySeconds
-# If device reconnects within that window, both notifications are suppressed
 suppressModeSwitchNotifications = false
 
 # Delay in seconds before showing offline notification (for mode switch detection)
 # If device comes back online within this window, it's treated as a mode switch
 # Recommended: 2-5 seconds for most devices
-modeSwitchDetectionDelaySeconds = 0
+modeSwitchDetectionDelaySeconds = 3
 
 # List of device names to apply mode switch suppression
 # Empty list = apply to all devices
@@ -157,10 +156,10 @@ maxAttempts = 5            # Multiple quick attempts
 # Enable MQTT integration with Home Assistant
 # When enabled, battery status is published to MQTT broker with auto-discovery support
 # Http server must be disabled.
-enabled = true
+enabled = false
 
 # MQTT broker connection settings
-brokerAddress = "192.168.20.100"		   # Broker hostname or IP address
+brokerAddress = ""		   # Broker hostname or IP address
 port = 1883                # Default MQTT port (1883 for non-TLS, 8883 for TLS)
 username = ""              # Leave empty for anonymous connection
 password = ""              # Leave empty for anonymous connection
@@ -182,7 +181,6 @@ clientId = ""
 
 # Publish throttling settings
 # Minimum seconds between publishes for same device
-# Recommended: 60 seconds for battery updates
 publishThrottleSeconds = 0
 
 # Show toast notifications for MQTT connection failures/successes
