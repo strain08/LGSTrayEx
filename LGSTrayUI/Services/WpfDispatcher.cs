@@ -12,11 +12,19 @@ public class WpfDispatcher : IDispatcher
 {
     public void BeginInvoke(Action action)
     {
-        Application.Current.Dispatcher.BeginInvoke(action);
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.HasShutdownStarted)
+            return; // Silently ignore during shutdown
+
+        dispatcher.BeginInvoke(action);
     }
 
     public Task InvokeAsync(Action action)
     {
-        return Application.Current.Dispatcher.InvokeAsync(action).Task;
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.HasShutdownStarted)
+            return Task.CompletedTask; // Return completed task during shutdown
+
+        return dispatcher.InvokeAsync(action).Task;
     }
 }

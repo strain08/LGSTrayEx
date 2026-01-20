@@ -1,6 +1,8 @@
 ﻿using Hardcodet.Wpf.TaskbarNotification;
+using LGSTrayPrimitives;
 using System;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 
 namespace LGSTrayUI.IconDrawing;
@@ -22,16 +24,55 @@ public class MainTaskbarIconWrapper : IDisposable
     {
         if (!disposedValue)
         {
+            DiagnosticLogger.Log("[MainTaskbarIconWrapper] Dispose called");
+
             if (disposing)
             {
-                _debounceTimer?.Dispose();
-                _taskbarIcon?.Dispose();
+                // Unsubscribe from events first to prevent callbacks during disposal
                 LogiDeviceIcon.RefCountChanged -= OnRefCountChanged;
+
+                // Dispose timer to cancel any pending callbacks
+                _debounceTimer?.Dispose();
+                _debounceTimer = null;
+
+                // Dispose taskbar icon - must be done on UI thread
+                try
+                {
+                    if (_taskbarIcon != null)
+                    {
+                        if (Application.Current?.Dispatcher != null &&
+                            !Application.Current.Dispatcher.HasShutdownStarted)
+                        {
+                            if (Application.Current.Dispatcher.CheckAccess())
+                            {
+                                _taskbarIcon.Dispose();
+                            }
+                            else
+                            {
+                                // Use BeginInvoke to avoid deadlock - fire and forget during shutdown
+                                Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+                                {
+                                    try { _taskbarIcon?.Dispose(); }
+                                    catch { /* Ignore errors during shutdown */ }
+                                }));
+                            }
+                        }
+                        else
+                        {
+                            // Dispatcher not available or shutting down - try direct dispose
+                            _taskbarIcon.Dispose();
+                        }
+                        _taskbarIcon = null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DiagnosticLogger.LogWarning($"[MainTaskbarIconWrapper] Error disposing taskbar icon: {ex.Message}");
+                }
             }
 
-            // TODO: free unmanaged resources (unmanaged objects) and override finalizer
-            // TODO: set large fields to null
             disposedValue = true;
+            DiagnosticLogger.Log("[MainTaskbarIconWrapper] Dispose completed");
         }
     }
 
@@ -109,31 +150,49 @@ public class MainTaskbarIconWrapper : IDisposable
                 {
                     if (currentVersion != _timerVersion)
                         return; // Stale callback, ignore
+
+                    if (disposedValue)
+                        return; // Already disposed, ignore
                 }
 
-                Application.Current.Dispatcher.Invoke(() =>
+                // Check if dispatcher is available and not shutting down
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher == null || dispatcher.HasShutdownStarted)
+                    return;
+
+                try
                 {
-                    lock (_timerLock)
+                    dispatcher.Invoke(() =>
                     {
-                        // Final safety checks with early returns to reduce nesting
-                        if (currentVersion != _timerVersion)
-                            return;
-
-                        if (LogiDeviceIcon.RefCount != 0)
-                            return;
-
-                        if (_taskbarIcon != null)
-                            return;
-
-                        _taskbarIcon = new MainTaskBarIcon();
-
-                        // Set DataContext on the new icon's ContextMenu
-                        if (_contextMenuDataContext != null && _taskbarIcon.ContextMenu != null)
+                        lock (_timerLock)
                         {
-                            _taskbarIcon.ContextMenu.DataContext = _contextMenuDataContext;
+                            // Final safety checks with early returns to reduce nesting
+                            if (currentVersion != _timerVersion)
+                                return;
+
+                            if (disposedValue)
+                                return;
+
+                            if (LogiDeviceIcon.RefCount != 0)
+                                return;
+
+                            if (_taskbarIcon != null)
+                                return;
+
+                            _taskbarIcon = new MainTaskBarIcon();
+
+                            // Set DataContext on the new icon's ContextMenu
+                            if (_contextMenuDataContext != null && _taskbarIcon.ContextMenu != null)
+                            {
+                                _taskbarIcon.ContextMenu.DataContext = _contextMenuDataContext;
+                            }
                         }
-                    }
-                });
+                    });
+                }
+                catch (TaskCanceledException)
+                {
+                    // Dispatcher shutdown during invoke - ignore
+                }
             }, state: null,
                dueTime: 500,
                period: Timeout.Infinite);

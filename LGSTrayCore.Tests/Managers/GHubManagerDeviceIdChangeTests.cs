@@ -1,6 +1,13 @@
 using LGSTrayCore.Managers;
 using LGSTrayCore.Tests.Mocks;
 using LGSTrayPrimitives.MessageStructs;
+using MessagePipe;
+using Moq;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Xunit;
 
 namespace LGSTrayCore.Tests.Managers;
 
@@ -10,6 +17,20 @@ namespace LGSTrayCore.Tests.Managers;
 /// </summary>
 public class GHubManagerDeviceIdChangeTests
 {
+    private (GHubManager manager, Mock<IPublisher<IPCMessage>> publisherMock, MockWebSocketClient mockWs, List<IPCMessage> publishedMessages) CreateTestContext()
+    {
+        var publisherMock = new Mock<IPublisher<IPCMessage>>();
+        var publishedMessages = new List<IPCMessage>();
+        publisherMock.Setup(p => p.Publish(It.IsAny<IPCMessage>()))
+            .Callback<IPCMessage>(msg => publishedMessages.Add(msg));
+
+        var mockWs = new MockWebSocketClient();
+        var mockFactory = new MockWebSocketClientFactory(mockWs);
+        var manager = new GHubManager(publisherMock.Object, mockFactory);
+
+        return (manager, publisherMock, mockWs, publishedMessages);
+    }
+
     [Fact]
     public async Task SleepWakeCycle_DeviceIdChanges_PublishesRemoveAndInit()
     {
@@ -20,10 +41,7 @@ public class GHubManagerDeviceIdChangeTests
         // Expected: RemoveMessage for old ID, InitMessage for new ID
 
         // Arrange
-        var mockPublisher = new MockPublisher<IPCMessage>();
-        var mockWs = new MockWebSocketClient();
-        var mockFactory = new MockWebSocketClientFactory(mockWs);
-        var manager = new GHubManager(mockPublisher, mockFactory);
+        var (manager, _, mockWs, publishedMessages) = CreateTestContext();
 
         // Register device info for auto-response
         mockWs.RegisterDeviceInfo("dev00000001", "G Pro Wireless");
@@ -35,7 +53,7 @@ public class GHubManagerDeviceIdChangeTests
         mockWs.SimulateDeviceListResponse(("dev00000001", "G Pro Wireless", true));
         await Task.Delay(50); // Let async propagate
 
-        mockPublisher.PublishedMessages.Clear(); // Reset to track sleep/wake messages
+        publishedMessages.Clear(); // Reset to track sleep/wake messages
 
         // Act: Simulate sleep/wake cycle with ID change
         // Step 1: Device disconnects (sleep)
@@ -47,9 +65,9 @@ public class GHubManagerDeviceIdChangeTests
         await Task.Delay(100); // Wait for processing
 
         // Assert
-        var removeMsg = mockPublisher.PublishedMessages.OfType<RemoveMessage>()
+        var removeMsg = publishedMessages.OfType<RemoveMessage>()
             .FirstOrDefault(m => m.deviceId == "dev00000001");
-        var initMsg = mockPublisher.PublishedMessages.OfType<InitMessage>()
+        var initMsg = publishedMessages.OfType<InitMessage>()
             .FirstOrDefault(m => m.deviceId == "dev00000002");
 
         Assert.NotNull(removeMsg);
@@ -66,10 +84,7 @@ public class GHubManagerDeviceIdChangeTests
         // with state="not_connected", we publish a RemoveMessage
 
         // Arrange
-        var mockPublisher = new MockPublisher<IPCMessage>();
-        var mockWs = new MockWebSocketClient();
-        var mockFactory = new MockWebSocketClientFactory(mockWs);
-        var manager = new GHubManager(mockPublisher, mockFactory);
+        var (manager, _, mockWs, publishedMessages) = CreateTestContext();
 
         await manager.StartAsync(CancellationToken.None);
 
@@ -79,7 +94,7 @@ public class GHubManagerDeviceIdChangeTests
         await Task.Delay(50); // Let async propagate
 
         // Assert
-        var removeMsg = mockPublisher.PublishedMessages.OfType<RemoveMessage>()
+        var removeMsg = publishedMessages.OfType<RemoveMessage>()
             .FirstOrDefault(m => m.deviceId == "dev00000001");
 
         Assert.NotNull(removeMsg);
@@ -93,24 +108,21 @@ public class GHubManagerDeviceIdChangeTests
         // with state="active" and full device info, we re-register the device
 
         // Arrange
-        var mockPublisher = new MockPublisher<IPCMessage>();
-        var mockWs = new MockWebSocketClient();
-        var mockFactory = new MockWebSocketClientFactory(mockWs);
-        var manager = new GHubManager(mockPublisher, mockFactory);
+        var (manager, _, mockWs, publishedMessages) = CreateTestContext();
 
         // Register device info for state change simulation
         mockWs.RegisterDeviceInfo("dev00000002", "Test Device");
 
         await manager.StartAsync(CancellationToken.None);
         await Task.Delay(100);
-        mockPublisher.PublishedMessages.Clear(); // Clear startup messages
+        publishedMessages.Clear(); // Clear startup messages
 
         // Act - simulate device reconnect with full device info in state change
         mockWs.SimulateDeviceStateChange("dev00000002", "active", includeDeviceInfo: true);
         await Task.Delay(50);
 
         // Assert - device should be re-registered
-        var initMsg = mockPublisher.PublishedMessages.OfType<InitMessage>()
+        var initMsg = publishedMessages.OfType<InitMessage>()
             .FirstOrDefault(m => m.deviceId == "dev00000002");
 
         Assert.NotNull(initMsg);
@@ -124,10 +136,7 @@ public class GHubManagerDeviceIdChangeTests
         // before re-discovering them to prevent duplicates
 
         // Arrange
-        var mockPublisher = new MockPublisher<IPCMessage>();
-        var mockWs = new MockWebSocketClient();
-        var mockFactory = new MockWebSocketClientFactory(mockWs);
-        var manager = new GHubManager(mockPublisher, mockFactory);
+        var (manager, _, mockWs, publishedMessages) = CreateTestContext();
 
         await manager.StartAsync(CancellationToken.None);
 
@@ -138,14 +147,14 @@ public class GHubManagerDeviceIdChangeTests
         );
         await Task.Delay(50);
 
-        mockPublisher.PublishedMessages.Clear();
+        publishedMessages.Clear();
 
         // Act
         _ = manager.RediscoverDevices();
         await Task.Delay(200); // Wait for cleanup + reconnect
 
         // Assert
-        var wildcardRemoval = mockPublisher.PublishedMessages.OfType<RemoveMessage>()
+        var wildcardRemoval = publishedMessages.OfType<RemoveMessage>()
             .FirstOrDefault(m => m.deviceId == "*GHUB*");
 
         Assert.NotNull(wildcardRemoval);

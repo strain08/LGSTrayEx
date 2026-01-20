@@ -151,7 +151,7 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
         else
         {
             // Device went offline
-            var delaySeconds = _appSettings.Notifications.ModeSwitchDetectionDelaySeconds;
+            var delaySeconds = _appSettings.Notifications.SuppressModeSwitchNotifications ? _appSettings.Notifications.ModeSwitchDetectionDelaySeconds : 0;            
 
             // CRITICAL: Update IsOnline IMMEDIATELY (for notifications)
             IsOnline = false;

@@ -1,6 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using CommunityToolkit.Mvvm.Messaging;
 using LGSTrayCore.Interfaces;
 using LGSTrayPrimitives;
 using LGSTrayPrimitives.Messages;
@@ -108,13 +107,11 @@ public partial class NotifyIconViewModel : ObservableObject, IHostedService
     private bool _rediscoverDevicesEnabled = true;
 
     private readonly IEnumerable<IDeviceManager> _deviceManagers;
-    private readonly IMessenger _messenger;
 
     public NotifyIconViewModel(MainTaskbarIconWrapper mainTaskbarIconWrapper,
                                ILogiDeviceCollection logiDeviceCollection,
                                UserSettingsWrapper userSettings,
                                IEnumerable<IDeviceManager> deviceManagers,
-                               IMessenger messenger,
                                ILogiDeviceIconFactory logiDeviceIconFactory)
     {
         _mainTaskbarIconWrapper = mainTaskbarIconWrapper;
@@ -127,7 +124,6 @@ public partial class NotifyIconViewModel : ObservableObject, IHostedService
         _logiDevices = (logiDeviceCollection as LogiDeviceCollection)!.Devices;
         _userSettings = userSettings;
         _deviceManagers = deviceManagers;
-        _messenger = messenger;
 
         FilteredDevices = CollectionViewSource.GetDefaultView(_logiDevices);
 
@@ -160,7 +156,8 @@ public partial class NotifyIconViewModel : ObservableObject, IHostedService
     [RelayCommand]
     private static void ExitApplication()
     {
-        Environment.Exit(0);
+        DiagnosticLogger.Log("Exit application requested");
+        Application.Current.Shutdown();
     }
 
     [RelayCommand]

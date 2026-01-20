@@ -73,10 +73,9 @@ notifyOnBatteryHigh = true
 # Battery percentage threshold for "charged" notification
 batteryHighThreshold = 80
 
-# Suppress offline/online notification spam when devices switch between wired/wireless modes
+# Certain devices such as G515 LS TKL switch between wired and wireless mode when plugged into usb port
+# Enable to prevent displaying online/offline notifications when plugging/unplugging device
 # Should be left on false if you don't use such devices
-# When enabled, offline notifications are delayed by modeSwitchDetectionDelaySeconds
-# If device reconnects within that window, both notifications are suppressed
 suppressModeSwitchNotifications = false
 
 # Delay in seconds before showing offline notification (for mode switch detection)
@@ -93,7 +92,7 @@ devicesForModeSwitchSuppression = []
 [Logging]
 # Enable diagnostic logging to diagnostic.log
 # Can be overridden by --log command-line flag
-enabled = false
+enabled = true
 
 # Enable verbose logging (+protocol messages)
 # Can be overridden by --verbose command-line flag
@@ -182,12 +181,7 @@ clientId = ""
 
 # Publish throttling settings
 # Minimum seconds between publishes for same device
-# Recommended: 60 seconds for battery updates
 publishThrottleSeconds = 0
 
 # Show toast notifications for MQTT connection failures/successes
 notifyConnectionStatus = true
-
-# Publish LWT payload to Home Assistant (default: true)
-# When enabled, devices are marked as "unavailable" in HA when app is not running.
-publishLWT = true

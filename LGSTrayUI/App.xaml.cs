@@ -1,5 +1,4 @@
-﻿using CommunityToolkit.Mvvm.Messaging;
-using LGSTrayCore;
+﻿using LGSTrayCore;
 using LGSTrayCore.Interfaces;
 using LGSTrayCore.Managers;
 using LGSTrayPrimitives;
@@ -10,6 +9,7 @@ using LGSTrayUI.IconDrawing;
 using LGSTrayUI.Interfaces;
 using LGSTrayUI.Messages;
 using LGSTrayUI.Services;
+using MessagePipe;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -35,8 +35,8 @@ public partial class App : Application
     private IHost? _host; // DI container for accessing services
     private IEnumerable<IDeviceManager>? _deviceManagers; // Cached device managers for wake handler
     private PowerNotificationWindow? _powerWindow; // Hidden window for Modern Standby notifications
-    private NotificationService? _notificationService; // Cached for power event handling
-    private IMessenger? _messenger; // Cached messenger for power event handling
+    private IPublisher<SystemSuspendingMessage>? _suspendPublisher;
+    private IPublisher<SystemResumingMessage>? _resumePublisher;
 
     /// <summary>
     /// Gets whether logging is enabled (--log flag).
@@ -133,9 +133,6 @@ public partial class App : Application
         builder.Services.Configure<AppSettings>(config);
         builder.Services.AddSingleton(appSettings);
 
-        // Register WeakReferenceMessenger for intra-process messaging (power events, etc.)
-        builder.Services.AddSingleton<IMessenger>(WeakReferenceMessenger.Default);
-
         // IPC, Settings
         builder.Services.AddLGSMessagePipe(true);
         builder.Services.AddSingleton<UserSettingsWrapper>();
@@ -163,15 +160,16 @@ public partial class App : Application
         var host = builder.Build();
         _host = host; // Store host reference for wake handler
 
-        // Get messenger from DI
-        var messenger = host.Services.GetRequiredService<IMessenger>();
+        // Get publishers from DI
+        _suspendPublisher = host.Services.GetRequiredService<IPublisher<SystemSuspendingMessage>>();
+        _resumePublisher = host.Services.GetRequiredService<IPublisher<SystemResumingMessage>>();
 
         // Ensure ConfigurationValidationService is instantiated to listen for startup errors
         host.Services.GetRequiredService<IConfigurationValidationService>();
 
         // Create hidden window for Modern Standby power notifications
         // This works on both S3 (traditional sleep) and S0 (Modern Standby) systems
-        _powerWindow = new PowerNotificationWindow(this, messenger);
+        _powerWindow = new PowerNotificationWindow(this, _suspendPublisher, _resumePublisher);
         _powerWindow.Show(); // Must call Show() to initialize window handle
         _powerWindow.Hide(); // Then hide immediately
 
@@ -187,7 +185,7 @@ public partial class App : Application
                 DiagnosticLogger.Log("System resumed from sleep (SystemEvents.PowerModeChanged)");
 
                 // Send message to resume notifications
-                GetMessenger()?.Send(new SystemResumingMessage());
+                _resumePublisher?.Publish(new SystemResumingMessage());
 
                 await HandleSystemResumeAsync();
                 break;
@@ -195,7 +193,7 @@ public partial class App : Application
                 DiagnosticLogger.Log("System is suspending to sleep (SystemEvents.PowerModeChanged)");
 
                 // Send message to suspend notifications
-                GetMessenger()?.Send(new SystemSuspendingMessage());
+                _suspendPublisher?.Publish(new SystemSuspendingMessage());
                 break;
         }
     }
@@ -238,38 +236,42 @@ public partial class App : Application
         }
     }
 
-    /// <summary>
-    /// Gets the NotificationService instance from DI container (lazy cached).
-    /// </summary>
-    public NotificationService? GetNotificationService()
-    {
-        if (_notificationService == null && _host != null)
-        {
-            _notificationService = _host.Services.GetService<NotificationService>();
-        }
-        return _notificationService;
-    }
-
-    /// <summary>
-    /// Gets the IMessenger instance from DI container (lazy cached).
-    /// </summary>
-    public IMessenger? GetMessenger()
-    {
-        if (_messenger == null && _host != null)
-        {
-            _messenger = _host.Services.GetRequiredService<IMessenger>();
-        }
-        return _messenger;
-    }
-
     protected override void OnExit(ExitEventArgs e)
     {
+        DiagnosticLogger.Log("Application exiting...");
+
         Microsoft.Win32.SystemEvents.PowerModeChanged -= AppExtensions_PowerModeChanged;
-        // AppDomain.CurrentDomain.UnhandledException -= CrashHandler;
 
         // Close power notification window (cleans up WndProc hook and unregisters notifications)
+        DiagnosticLogger.Log("Closing power notification window...");
         _powerWindow?.Close();
         _powerWindow = null;
+        DiagnosticLogger.Log("Power notification window closed");
+
+        // Dispose the host - StopAsync is already called by host.RunAsync() when app shuts down
+        // We only need to dispose here to clean up resources
+        if (_host != null)
+        {
+            DiagnosticLogger.Log("Disposing host...");
+            try
+            {
+                // Run dispose on thread pool with timeout to avoid deadlocks
+                var disposeTask = Task.Run(() => _host?.Dispose());
+                if (!disposeTask.Wait(TimeSpan.FromSeconds(5)))
+                {
+                    DiagnosticLogger.LogWarning("Host dispose timed out after 5 seconds - forcing exit");
+                }
+                else
+                {
+                    DiagnosticLogger.Log("Host disposed");
+                }
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.LogError($"Error disposing host: {ex.Message}");
+            }
+            _host = null;
+        }
 
         // ONLY release if we actually acquired it in OnStartup
         if (_hasHandle)
@@ -285,6 +287,7 @@ public partial class App : Application
         }
 
         _mutex?.Dispose();
+        DiagnosticLogger.Log("Application exit complete");
         base.OnExit(e);
     }
 
@@ -381,7 +384,8 @@ internal class PowerNotificationWindow : Window
 {
     private IntPtr _notificationHandle = IntPtr.Zero;
     private readonly App _app;
-    private readonly IMessenger _messenger;
+    private readonly IPublisher<SystemSuspendingMessage> _suspendPublisher;
+    private readonly IPublisher<SystemResumingMessage> _resumePublisher;
 
     // P/Invoke declarations for power management
     [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
@@ -395,10 +399,14 @@ internal class PowerNotificationWindow : Window
     private const int PBT_APMRESUMEAUTOMATIC = 0x0012;
     private const int PBT_APMSUSPEND = 0x0004;
 
-    public PowerNotificationWindow(App app, IMessenger messenger)
+    public PowerNotificationWindow(
+        App app,
+        IPublisher<SystemSuspendingMessage> suspendPublisher,
+        IPublisher<SystemResumingMessage> resumePublisher)
     {
         _app = app;
-        _messenger = messenger;
+        _suspendPublisher = suspendPublisher;
+        _resumePublisher = resumePublisher;
 
         // Create hidden window
         Width = 0;
@@ -455,14 +463,14 @@ internal class PowerNotificationWindow : Window
                 DiagnosticLogger.Log("System suspending (WM_POWERBROADCAST)");
 
                 // Send message to suspend notifications
-                _messenger.Send(new SystemSuspendingMessage());
+                _suspendPublisher.Publish(new SystemSuspendingMessage());
             }
             else if (powerEvent == PBT_APMRESUMEAUTOMATIC)
             {
                 DiagnosticLogger.Log("System resumed (WM_POWERBROADCAST)");
 
                 // Send message to resume notifications
-                _messenger.Send(new SystemResumingMessage());
+                _resumePublisher.Publish(new SystemResumingMessage());
 
                 // Call the app's resume handler asynchronously
                 _ = _app.HandleSystemResumeAsync();

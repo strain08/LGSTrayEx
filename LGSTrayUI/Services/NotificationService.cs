@@ -1,7 +1,7 @@
-﻿using CommunityToolkit.Mvvm.Messaging;
-using LGSTrayPrimitives;
+﻿using LGSTrayPrimitives;
 using LGSTrayPrimitives.Interfaces;
 using LGSTrayUI.Messages;
+using MessagePipe;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Notification.Wpf;
@@ -21,16 +21,16 @@ internal class DeviceState
     public int LastBatteryPercentage { get; set; }
     public CancellationTokenSource? PendingOfflineNotification { get; set; }
 }
-public class NotificationService : IHostedService,
-    IRecipient<SystemSuspendingMessage>,
-    IRecipient<SystemResumingMessage>,
-    IRecipient<DeviceBatteryUpdatedMessage>
+public class NotificationService : IHostedService
 {
     private readonly INotificationManager _notificationManager;
     private readonly NotificationSettings _notificationSettings;
-    private readonly IMessenger _messenger;
-
     
+    private readonly ISubscriber<DeviceBatteryUpdatedMessage> _batterySubscriber;
+    private readonly ISubscriber<SystemSuspendingMessage> _suspendSubscriber;
+    private readonly ISubscriber<SystemResumingMessage> _resumeSubscriber;
+    
+    private IDisposable? _subscriptions;
 
     private readonly Dictionary<string, DeviceState> _deviceStates = [];
 
@@ -47,11 +47,17 @@ public class NotificationService : IHostedService,
     public NotificationService(
         INotificationManager notificationManager,
         IOptions<AppSettings> appSettings,
-        IMessenger messenger)
+        ISubscriber<DeviceBatteryUpdatedMessage> batterySubscriber,
+        ISubscriber<SystemSuspendingMessage> suspendSubscriber,
+        ISubscriber<SystemResumingMessage> resumeSubscriber)
     {
         _notificationManager = notificationManager;
         _notificationSettings = appSettings.Value.Notifications;
-        _messenger = messenger;
+        
+        _batterySubscriber = batterySubscriber;
+        _suspendSubscriber = suspendSubscriber;
+        _resumeSubscriber = resumeSubscriber;
+
         // Customize notification colors
         NotificationConstants.InformationBackgroundColor = System.Windows.Media.Brushes.SteelBlue;
         NotificationConstants.WarningBackgroundColor = System.Windows.Media.Brushes.DarkOrange;
@@ -60,12 +66,16 @@ public class NotificationService : IHostedService,
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
+        var bag = DisposableBag.CreateBuilder();
+
         // Subscribe to device battery updates from LogiDeviceCollection
-        _messenger.Register<DeviceBatteryUpdatedMessage>(this);
+        _batterySubscriber.Subscribe(Receive).AddTo(bag);
 
         // Register for power state messages
-        _messenger.Register<SystemSuspendingMessage>(this);
-        _messenger.Register<SystemResumingMessage>(this);
+        _suspendSubscriber.Subscribe(Receive).AddTo(bag);
+        _resumeSubscriber.Subscribe(Receive).AddTo(bag);
+
+        _subscriptions = bag.Build();
 
         return Task.CompletedTask;
     }
@@ -73,7 +83,7 @@ public class NotificationService : IHostedService,
     public Task StopAsync(CancellationToken cancellationToken)
     {
         // Unregister from messenger
-        _messenger.UnregisterAll(this);
+        _subscriptions?.Dispose();
 
         return Task.CompletedTask;
     }

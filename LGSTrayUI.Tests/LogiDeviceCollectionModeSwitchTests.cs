@@ -3,9 +3,11 @@ using LGSTrayPrimitives.MessageStructs;
 using LGSTrayUI.Messages;
 using LGSTrayUI.Services;
 using LGSTrayUI.Tests.Mocks;
+using MessagePipe;
+using Moq;
+using System;
 using System.Linq;
 using Xunit;
-using CommunityToolkit.Mvvm.Messaging;
 
 namespace LGSTrayUI.Tests;
 
@@ -15,10 +17,21 @@ namespace LGSTrayUI.Tests;
 [Collection("Sequential")]
 public class LogiDeviceCollectionModeSwitchTests
 {
-    private static LogiDeviceCollection CreateTestCollection(out MockMessenger messenger)
+    private class MockDisposable : IDisposable { public void Dispose() { } }
+
+    private static LogiDeviceCollection CreateTestCollection(
+        out Mock<IPublisher<DeviceBatteryUpdatedMessage>> publisherMock,
+        out Action<IPCMessage> messageHandler)
     {
         var dispatcher = new SynchronousDispatcher();
-        var subscriber = new MockSubscriber();
+        var subscriberMock = new Mock<ISubscriber<IPCMessage>>();
+        publisherMock = new Mock<IPublisher<DeviceBatteryUpdatedMessage>>();
+
+        IMessageHandler<IPCMessage> capturedHandler = null!;
+        subscriberMock.Setup(s => s.Subscribe(It.IsAny<IMessageHandler<IPCMessage>>(), It.IsAny<MessageHandlerFilter<IPCMessage>[]>()))
+            .Callback<IMessageHandler<IPCMessage>, MessageHandlerFilter<IPCMessage>[]>((handler, _) => capturedHandler = handler)
+            .Returns(new MockDisposable());
+
         var settings = new UserSettingsWrapper();
         
         // Ensure clean state
@@ -38,33 +51,40 @@ public class LogiDeviceCollectionModeSwitchTests
         var iconFactory = new MockLogiDeviceIconFactory();
         var viewModelFactory = new LogiDeviceViewModelFactory(iconFactory, appSettings, settings);
 
-        messenger = new MockMessenger();
+        var republishSubscriberMock = new Mock<ISubscriber<ForceRepublishMessage>>();
 
-        return new LogiDeviceCollection(
+        var collection = new LogiDeviceCollection(
             settings,
             viewModelFactory,
-            subscriber,
+            subscriberMock.Object,
+            republishSubscriberMock.Object,
             dispatcher,
-            messenger);
+            publisherMock.Object);
+            
+        messageHandler = (msg) => capturedHandler?.Handle(msg);
+        return collection;
     }
 
     [Fact]
     public void OnUpdateMessage_WiredMode_UpdatesDeviceAndKeepsOnline()
     {
         // Arrange
-        var collection = CreateTestCollection(out var messenger);
+        var collection = CreateTestCollection(out var publisherMock, out var messageHandler);
         
         // Add a device first
         string deviceId = "dev001";
-        collection.OnInitMessage(new InitMessage(deviceId, "Test Mouse", true, DeviceType.Mouse));
+        messageHandler(new InitMessage(deviceId, "Test Mouse", true, DeviceType.Mouse));
         var device = collection.Devices.First();
         
         // Send initial update to bring online
-        collection.OnUpdateMessage(new UpdateMessage(deviceId, 50, PowerSupplyStatus.DISCHARGING, 3900, System.DateTimeOffset.Now));
+        messageHandler(new UpdateMessage(deviceId, 50, PowerSupplyStatus.DISCHARGING, 3900, System.DateTimeOffset.Now));
 
         // Initial state check
         Assert.False(device.IsWiredMode);
         Assert.True(device.IsOnline);
+
+        // Reset verify invocations
+        publisherMock.Invocations.Clear();
 
         // Act - Simulate Wired Mode update (charging, usually comes with negative percentage if battery status is unavailable/charging)
         // But the key flag is IsWiredMode = true
@@ -78,7 +98,7 @@ public class LogiDeviceCollectionModeSwitchTests
             isWiredMode: true
         );
 
-        collection.OnUpdateMessage(wiredUpdate);
+        messageHandler(wiredUpdate);
 
         // Assert
         Assert.True(device.IsWiredMode, "Device should be in wired mode");
@@ -91,16 +111,16 @@ public class LogiDeviceCollectionModeSwitchTests
         // If IsOnline is manually set to false in MarkAsOffline, then here it should remain true (or whatever UpdateState sets).
         
         // Verify notification
-        Assert.Contains(messenger.SentMessages, m => m is DeviceBatteryUpdatedMessage msg && msg.Device == device);
+        publisherMock.Verify(p => p.Publish(It.Is<DeviceBatteryUpdatedMessage>(m => m.Device == device)), Times.Once);
     }
 
     [Fact]
     public void OnUpdateMessage_ReturnToWireless_UpdatesDevice()
     {
         // Arrange
-        var collection = CreateTestCollection(out var messenger);
+        var collection = CreateTestCollection(out var publisherMock, out var messageHandler);
         string deviceId = "dev001";
-        collection.OnInitMessage(new InitMessage(deviceId, "Test Mouse", true, DeviceType.Mouse));
+        messageHandler(new InitMessage(deviceId, "Test Mouse", true, DeviceType.Mouse));
         var device = collection.Devices.First();
 
         // Put in wired mode first
@@ -112,8 +132,11 @@ public class LogiDeviceCollectionModeSwitchTests
             updateTime: System.DateTimeOffset.Now,
             isWiredMode: true
         );
-        collection.OnUpdateMessage(wiredUpdate);
+        messageHandler(wiredUpdate);
         Assert.True(device.IsWiredMode);
+        
+        // Reset invocations to track new ones
+        publisherMock.Invocations.Clear();
 
         // Act - Return to wireless (normal battery update)
         var wirelessUpdate = new UpdateMessage(
@@ -124,24 +147,23 @@ public class LogiDeviceCollectionModeSwitchTests
             updateTime: System.DateTimeOffset.Now,
             isWiredMode: false
         );
-        collection.OnUpdateMessage(wirelessUpdate);
+        messageHandler(wirelessUpdate);
 
         // Assert
         Assert.False(device.IsWiredMode, "Device should return to wireless mode");
         Assert.Equal(80, device.BatteryPercentage);
         
         // Verify notification
-        // Should have sent another message
-        Assert.Equal(2, messenger.SentMessages.Count(m => m is DeviceBatteryUpdatedMessage));
+        publisherMock.Verify(p => p.Publish(It.IsAny<DeviceBatteryUpdatedMessage>()), Times.Once);
     }
 
     [Fact]
     public void OnUpdateMessage_OfflineAndNotWired_MarksOffline()
     {
         // Arrange
-        var collection = CreateTestCollection(out var messenger);
+        var collection = CreateTestCollection(out var publisherMock, out var messageHandler);
         string deviceId = "dev001";
-        collection.OnInitMessage(new InitMessage(deviceId, "Test Mouse", true, DeviceType.Mouse));
+        messageHandler(new InitMessage(deviceId, "Test Mouse", true, DeviceType.Mouse));
         var device = collection.Devices.First();
 
         // Act - Simulate Disconnection (Offline, not wired)
@@ -153,7 +175,7 @@ public class LogiDeviceCollectionModeSwitchTests
             updateTime: System.DateTimeOffset.Now,
             isWiredMode: false
         );
-        collection.OnUpdateMessage(offlineUpdate);
+        messageHandler(offlineUpdate);
 
         // Assert
         Assert.False(device.IsWiredMode);

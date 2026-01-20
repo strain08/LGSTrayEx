@@ -1,5 +1,4 @@
-﻿using CommunityToolkit.Mvvm.Messaging;
-using LGSTrayCore;
+﻿using LGSTrayCore;
 using LGSTrayCore.Interfaces;
 using LGSTrayPrimitives;
 using LGSTrayPrimitives.Interfaces;
@@ -21,8 +20,9 @@ public class LogiDeviceCollection : ILogiDeviceCollection
     private readonly UserSettingsWrapper _userSettings;
     private readonly LogiDeviceViewModelFactory _logiDeviceViewModelFactory;
     private readonly ISubscriber<IPCMessage> _subscriber;
+    private readonly ISubscriber<ForceRepublishMessage> _republishSubscriber;
     private readonly IDispatcher _dispatcher;
-    private readonly IMessenger _messenger;
+    private readonly IPublisher<DeviceBatteryUpdatedMessage> _batteryPublisher;
 
     // Runtime mapping: signature → current deviceId (for GHUB devices with changing IDs)
     private readonly Dictionary<string, string> _signatureToId = new();    
@@ -34,15 +34,17 @@ public class LogiDeviceCollection : ILogiDeviceCollection
         UserSettingsWrapper userSettings,
         LogiDeviceViewModelFactory logiDeviceViewModelFactory,
         ISubscriber<IPCMessage> subscriber,
+        ISubscriber<ForceRepublishMessage> republishSubscriber,
         IDispatcher dispatcher,
-        IMessenger messenger
+        IPublisher<DeviceBatteryUpdatedMessage> batteryPublisher
     )
     {
         _userSettings = userSettings;
         _logiDeviceViewModelFactory = logiDeviceViewModelFactory;
         _subscriber = subscriber;
+        _republishSubscriber = republishSubscriber;
         _dispatcher = dispatcher;
-        _messenger = messenger;
+        _batteryPublisher = batteryPublisher;
 
         _subscriber.Subscribe(x =>
         {
@@ -59,6 +61,9 @@ public class LogiDeviceCollection : ILogiDeviceCollection
                 OnRemoveMessage(removeMessage);
             }
         });
+
+        // Subscribe to force republish messages (from MQTT when HA restarts)
+        _republishSubscriber.Subscribe(OnForceRepublish);
 
         // Register for system resume messages to enable grace period
 
@@ -197,7 +202,7 @@ public class LogiDeviceCollection : ILogiDeviceCollection
 
             // Update device state and notify
             device.UpdateState(updateMessage);
-            _messenger.Send(new DeviceBatteryUpdatedMessage(device));
+            _batteryPublisher.Publish(new DeviceBatteryUpdatedMessage(device));
         });
     }
 
@@ -257,6 +262,20 @@ public class LogiDeviceCollection : ILogiDeviceCollection
         });
     }
 
+    private void OnForceRepublish(ForceRepublishMessage message)
+    {
+        _dispatcher.BeginInvoke(() =>
+        {
+            DiagnosticLogger.Log($"[LogiDeviceCollection] Force republish requested - republishing {Devices.Count} device(s)");
+
+            // Republish all online devices to MQTT
+            foreach (var device in Devices.Where(d => d.IsOnline))
+            {
+                _batteryPublisher.Publish(new DeviceBatteryUpdatedMessage(device));
+            }
+        });
+    }
+
     /// <summary>
     /// Mark a device as offline but keep it in the collection
     /// </summary>
@@ -269,7 +288,7 @@ public class LogiDeviceCollection : ILogiDeviceCollection
         device.PowerSupplyStatus = PowerSupplyStatus.UNKNOWN;
 
         // Notify NotificationService about offline state
-        _messenger.Send(new DeviceBatteryUpdatedMessage(device));
+        _batteryPublisher.Publish(new DeviceBatteryUpdatedMessage(device));
     }
 
     /// <summary>

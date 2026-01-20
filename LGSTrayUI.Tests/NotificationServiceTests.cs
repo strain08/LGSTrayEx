@@ -1,9 +1,9 @@
-using CommunityToolkit.Mvvm.Messaging;
 using LGSTrayPrimitives;
 using LGSTrayPrimitives.MessageStructs;
 using LGSTrayUI.Interfaces;
 using LGSTrayUI.Messages;
 using LGSTrayUI.Services;
+using MessagePipe;
 using Microsoft.Extensions.Options;
 using Moq;
 using Notification.Wpf;
@@ -11,17 +11,48 @@ using Notification.Wpf;
 namespace LGSTrayUI.Tests;
 
 public class NotificationServiceTests {
-    private (NotificationService service, Mock<INotificationManager> manager, StrongReferenceMessenger messenger) CreateService(AppSettings appSettings) {
+
+    private class MockDisposable : IDisposable { public void Dispose() { } }
+
+    private (NotificationService service, 
+             Mock<INotificationManager> manager, 
+             Action<DeviceBatteryUpdatedMessage> batteryHandler,
+             Action<SystemSuspendingMessage> suspendHandler,
+             Action<SystemResumingMessage> resumeHandler) 
+    CreateService(AppSettings appSettings) {
         var manager = new Mock<INotificationManager>(MockBehavior.Loose);
         var settings = new Mock<IOptions<AppSettings>>();
-        var messenger = new StrongReferenceMessenger();
-
+        
         settings.Setup(s => s.Value).Returns(appSettings);
 
-        var service = new NotificationService(manager.Object, settings.Object, messenger);
-        service.StartAsync(CancellationToken.None); // Start immediately
+        var batterySubscriber = new Mock<ISubscriber<DeviceBatteryUpdatedMessage>>();
+        IMessageHandler<DeviceBatteryUpdatedMessage> capturedBatteryHandler = null!;
+        batterySubscriber.Setup(s => s.Subscribe(It.IsAny<IMessageHandler<DeviceBatteryUpdatedMessage>>(), It.IsAny<MessageHandlerFilter<DeviceBatteryUpdatedMessage>[]>()))
+            .Callback<IMessageHandler<DeviceBatteryUpdatedMessage>, MessageHandlerFilter<DeviceBatteryUpdatedMessage>[]>((h, _) => capturedBatteryHandler = h)
+            .Returns(new MockDisposable());
 
-        return (service, manager, messenger);
+        var suspendSubscriber = new Mock<ISubscriber<SystemSuspendingMessage>>();
+        IMessageHandler<SystemSuspendingMessage> capturedSuspendHandler = null!;
+        suspendSubscriber.Setup(s => s.Subscribe(It.IsAny<IMessageHandler<SystemSuspendingMessage>>(), It.IsAny<MessageHandlerFilter<SystemSuspendingMessage>[]>()))
+            .Callback<IMessageHandler<SystemSuspendingMessage>, MessageHandlerFilter<SystemSuspendingMessage>[]>((h, _) => capturedSuspendHandler = h)
+            .Returns(new MockDisposable());
+
+        var resumeSubscriber = new Mock<ISubscriber<SystemResumingMessage>>();
+        IMessageHandler<SystemResumingMessage> capturedResumeHandler = null!;
+        resumeSubscriber.Setup(s => s.Subscribe(It.IsAny<IMessageHandler<SystemResumingMessage>>(), It.IsAny<MessageHandlerFilter<SystemResumingMessage>[]>()))
+            .Callback<IMessageHandler<SystemResumingMessage>, MessageHandlerFilter<SystemResumingMessage>[]>((h, _) => capturedResumeHandler = h)
+            .Returns(new MockDisposable());
+
+        var service = new NotificationService(
+            manager.Object, 
+            settings.Object, 
+            batterySubscriber.Object,
+            suspendSubscriber.Object,
+            resumeSubscriber.Object);
+            
+        service.StartAsync(CancellationToken.None); // Start immediately (wires up subscriptions)
+
+        return (service, manager, (msg) => capturedBatteryHandler?.Handle(msg), (msg) => capturedSuspendHandler?.Handle(msg), (msg) => capturedResumeHandler?.Handle(msg));
     }
 
     private LogiDeviceViewModel CreateDevice(string id, string name, bool hasBattery = true, AppSettings? appSettings = null) {
@@ -46,7 +77,7 @@ public class NotificationServiceTests {
         return device;
     }
 
-    private void UpdateBattery(LogiDeviceViewModel device, StrongReferenceMessenger messenger, int percentage, PowerSupplyStatus status = PowerSupplyStatus.DISCHARGING) {
+    private void UpdateBattery(LogiDeviceViewModel device, Action<DeviceBatteryUpdatedMessage> handler, int percentage, PowerSupplyStatus status = PowerSupplyStatus.DISCHARGING) {
         device.UpdateState(new UpdateMessage(
             deviceId: device.DeviceId,
             batteryPercentage: percentage,
@@ -54,7 +85,7 @@ public class NotificationServiceTests {
             batteryMVolt: 3700,
             updateTime: DateTimeOffset.Now
         ));
-        messenger.Send(new DeviceBatteryUpdatedMessage(device));
+        handler(new DeviceBatteryUpdatedMessage(device));
     }
 
     [Fact]
@@ -68,15 +99,15 @@ public class NotificationServiceTests {
             }
         };
 
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act - Initialize (not full)
-        UpdateBattery(device, messenger, 50, PowerSupplyStatus.CHARGING);
+        UpdateBattery(device, batteryHandler, 50, PowerSupplyStatus.CHARGING);
         manager.Invocations.Clear(); // Clear init notifications if any
 
         // Act - Charge to full
-        UpdateBattery(device, messenger, 100, PowerSupplyStatus.CHARGING);
+        UpdateBattery(device, batteryHandler, 100, PowerSupplyStatus.CHARGING);
 
         // Assert
         Assert.Single(manager.Invocations);
@@ -97,14 +128,14 @@ public class NotificationServiceTests {
                 BatteryHighThreshold = 80
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act
-        UpdateBattery(device, messenger, 50, PowerSupplyStatus.CHARGING); // init
+        UpdateBattery(device, batteryHandler, 50, PowerSupplyStatus.CHARGING); // init
         manager.Invocations.Clear();
 
-        UpdateBattery(device, messenger, 80, PowerSupplyStatus.CHARGING); // hit threshold
+        UpdateBattery(device, batteryHandler, 80, PowerSupplyStatus.CHARGING); // hit threshold
 
         // Assert
         Assert.Single(manager.Invocations);
@@ -124,14 +155,14 @@ public class NotificationServiceTests {
                 BatteryLowThreshold = 30
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act
-        UpdateBattery(device, messenger, 50); // init
+        UpdateBattery(device, batteryHandler, 50); // init
         manager.Invocations.Clear();
 
-        UpdateBattery(device, messenger, 30); // hit threshold
+        UpdateBattery(device, batteryHandler, 30); // hit threshold
 
         // Assert
         Assert.Single(manager.Invocations);
@@ -156,28 +187,28 @@ public class NotificationServiceTests {
         };
 
         // Thresholds will be [30, 10, 5]
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act 1: Initial (50%)
-        UpdateBattery(device, messenger, 50);
+        UpdateBattery(device, batteryHandler, 50);
         manager.Invocations.Clear();
 
 
 
         // Act 2: Drop to 30% -> Notify Warning
-        UpdateBattery(device, messenger, 30);
+        UpdateBattery(device, batteryHandler, 30);
         Assert.Single(manager.Invocations);
         Assert.Contains("30%", (string)manager.Invocations[0].Arguments[1]);
         Assert.Equal(NotificationType.Warning, manager.Invocations[0].Arguments[2]);
         manager.Invocations.Clear();
 
         // Act 3: Drop to 25% -> NO Notification (still in 30% band)
-        UpdateBattery(device, messenger, 25);
+        UpdateBattery(device, batteryHandler, 25);
         Assert.Empty(manager.Invocations);
 
         // Act 4: Drop to 10% -> Notify Warning
-        UpdateBattery(device, messenger, 10);
+        UpdateBattery(device, batteryHandler, 10);
         Assert.Single(manager.Invocations);
         Assert.Contains("10%", (string)manager.Invocations[0].Arguments[1]);
         Assert.Equal(NotificationType.Warning, manager.Invocations[0].Arguments[2]);
@@ -185,12 +216,12 @@ public class NotificationServiceTests {
         manager.Invocations.Clear();
 
         // Act 5: Drop to 8% -> NO Notification
-        UpdateBattery(device, messenger, 8);
+        UpdateBattery(device, batteryHandler, 8);
         Assert.Empty(manager.Invocations);
 
         // Act 6: Drop to 5% -> Notify Error
 
-        UpdateBattery(device, messenger, 5);
+        UpdateBattery(device, batteryHandler, 5);
         Assert.Single(manager.Invocations);
         Assert.Contains("5%", (string)manager.Invocations[0].Arguments[1]);
         Assert.Equal(NotificationType.Error, manager.Invocations[0].Arguments[2]);
@@ -208,12 +239,12 @@ public class NotificationServiceTests {
             }
         };
 
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act
-        UpdateBattery(device, messenger, 50);
-        UpdateBattery(device, messenger, 5); // Critical low
+        UpdateBattery(device, batteryHandler, 50);
+        UpdateBattery(device, batteryHandler, 5); // Critical low
 
         // Assert
         Assert.Empty(manager.Invocations);
@@ -229,9 +260,9 @@ public class NotificationServiceTests {
             }
         };
 
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device", hasBattery: true, appSettings: appSettings);
-        UpdateBattery(device, messenger, 50); // Online
+        UpdateBattery(device, batteryHandler, 50); // Online
         manager.Invocations.Clear();
 
         // Act - Go Offline
@@ -242,13 +273,13 @@ public class NotificationServiceTests {
             batteryMVolt: 0,
             updateTime: DateTimeOffset.Now
         ));
-        messenger.Send(new DeviceBatteryUpdatedMessage(device));
+        batteryHandler(new DeviceBatteryUpdatedMessage(device));
 
         // Assert
         Assert.Empty(manager.Invocations);
 
         // Act - Go Online
-        UpdateBattery(device, messenger, 50);
+        UpdateBattery(device, batteryHandler, 50);
 
         // Assert
         Assert.Empty(manager.Invocations);
@@ -266,13 +297,13 @@ public class NotificationServiceTests {
                 BatteryLowThreshold = 30
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act
-        UpdateBattery(device, messenger, 50); // init
+        UpdateBattery(device, batteryHandler, 50); // init
         manager.Invocations.Clear();
-        UpdateBattery(device, messenger, 5); // critical1
+        UpdateBattery(device, batteryHandler, 5); // critical1
 
         // Assert
         Assert.Single(manager.Invocations);
@@ -292,13 +323,13 @@ public class NotificationServiceTests {
                 BatteryLowThreshold = 30
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act
-        UpdateBattery(device, messenger, 50); // init
+        UpdateBattery(device, batteryHandler, 50); // init
         manager.Invocations.Clear();
-        UpdateBattery(device, messenger, 10); // critical2
+        UpdateBattery(device, batteryHandler, 10); // critical2
 
         // Assert
         Assert.Single(manager.Invocations);
@@ -318,13 +349,13 @@ public class NotificationServiceTests {
                 BatteryLowThreshold = 30
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act
-        UpdateBattery(device, messenger, 50, PowerSupplyStatus.CHARGING); // init
+        UpdateBattery(device, batteryHandler, 50, PowerSupplyStatus.CHARGING); // init
         manager.Invocations.Clear();
-        UpdateBattery(device, messenger, 5, PowerSupplyStatus.CHARGING); // critical but charging
+        UpdateBattery(device, batteryHandler, 5, PowerSupplyStatus.CHARGING); // critical but charging
 
         // Assert - should not notify because device is charging
         Assert.Empty(manager.Invocations);
@@ -342,13 +373,13 @@ public class NotificationServiceTests {
                 BatteryHighThreshold = 90
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act - Battery at 95% but discharging
-        UpdateBattery(device, messenger, 50, PowerSupplyStatus.DISCHARGING); // init
+        UpdateBattery(device, batteryHandler, 50, PowerSupplyStatus.DISCHARGING); // init
         manager.Invocations.Clear();
-        UpdateBattery(device, messenger, 95, PowerSupplyStatus.DISCHARGING);
+        UpdateBattery(device, batteryHandler, 95, PowerSupplyStatus.DISCHARGING);
 
         // Assert - High range only notifies when charging
         Assert.Empty(manager.Invocations);
@@ -364,13 +395,13 @@ public class NotificationServiceTests {
                 BatteryHighThreshold = 90
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act - Battery at 100% but discharging
-        UpdateBattery(device, messenger, 50, PowerSupplyStatus.DISCHARGING); // init
+        UpdateBattery(device, batteryHandler, 50, PowerSupplyStatus.DISCHARGING); // init
         manager.Invocations.Clear();
-        UpdateBattery(device, messenger, 100, PowerSupplyStatus.DISCHARGING);
+        UpdateBattery(device, batteryHandler, 100, PowerSupplyStatus.DISCHARGING);
 
         // Assert - Full only notifies when charging
         Assert.Empty(manager.Invocations);
@@ -386,13 +417,13 @@ public class NotificationServiceTests {
                 BatteryHighThreshold = 90
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act - Already at 95%, now start charging
-        UpdateBattery(device, messenger, 95, PowerSupplyStatus.DISCHARGING); // init at high
+        UpdateBattery(device, batteryHandler, 95, PowerSupplyStatus.DISCHARGING); // init at high
         manager.Invocations.Clear();
-        UpdateBattery(device, messenger, 95, PowerSupplyStatus.CHARGING); // start charging
+        UpdateBattery(device, batteryHandler, 95, PowerSupplyStatus.CHARGING); // start charging
 
         // Assert - Should notify because we started charging in High range
         Assert.Single(manager.Invocations);
@@ -409,13 +440,13 @@ public class NotificationServiceTests {
                 BatteryHighThreshold = 90
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act - Already at 100%, now start charging
-        UpdateBattery(device, messenger, 100, PowerSupplyStatus.DISCHARGING); // init at full
+        UpdateBattery(device, batteryHandler, 100, PowerSupplyStatus.DISCHARGING); // init at full
         manager.Invocations.Clear();
-        UpdateBattery(device, messenger, 100, PowerSupplyStatus.CHARGING); // start charging
+        UpdateBattery(device, batteryHandler, 100, PowerSupplyStatus.CHARGING); // start charging
 
         // Assert - Should notify Battery Full
         Assert.Single(manager.Invocations);
@@ -432,13 +463,13 @@ public class NotificationServiceTests {
                 BatteryHighThreshold = 90
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act - Charging at 95%, then stop charging
-        UpdateBattery(device, messenger, 95, PowerSupplyStatus.CHARGING); // init
+        UpdateBattery(device, batteryHandler, 95, PowerSupplyStatus.CHARGING); // init
         manager.Invocations.Clear();
-        UpdateBattery(device, messenger, 95, PowerSupplyStatus.DISCHARGING); // stop charging
+        UpdateBattery(device, batteryHandler, 95, PowerSupplyStatus.DISCHARGING); // stop charging
 
         // Assert - Should not notify when stopping charging
         Assert.Empty(manager.Invocations);
@@ -456,17 +487,17 @@ public class NotificationServiceTests {
                 BatteryLowThreshold = 30
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, suspendHandler, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
-        UpdateBattery(device, messenger, 50); // init
+        UpdateBattery(device, batteryHandler, 50); // init
         manager.Invocations.Clear();
 
         // Act - System suspending
-        messenger.Send(new SystemSuspendingMessage());
+        suspendHandler(new SystemSuspendingMessage());
 
         // Try to trigger notification while suspended
-        UpdateBattery(device, messenger, 5);
+        UpdateBattery(device, batteryHandler, 5);
 
         // Assert - Should not notify during suspend
         Assert.Empty(manager.Invocations);
@@ -482,16 +513,16 @@ public class NotificationServiceTests {
                 BatteryLowThreshold = 30
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, suspendHandler, resumeHandler) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
-        UpdateBattery(device, messenger, 50); // init
-        messenger.Send(new SystemSuspendingMessage()); // suspend
-        messenger.Send(new SystemResumingMessage()); // resume
+        UpdateBattery(device, batteryHandler, 50); // init
+        suspendHandler(new SystemSuspendingMessage()); // suspend
+        resumeHandler(new SystemResumingMessage()); // resume
         manager.Invocations.Clear();
 
         // Act - Trigger notification after resume
-        UpdateBattery(device, messenger, 5);
+        UpdateBattery(device, batteryHandler, 5);
 
         // Assert - Should notify after resume (battery notifications work)
         Assert.Single(manager.Invocations);
@@ -506,12 +537,12 @@ public class NotificationServiceTests {
                 NotifyStateChange = true
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, suspendHandler, resumeHandler) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
-        UpdateBattery(device, messenger, 50); // online
-        messenger.Send(new SystemSuspendingMessage()); // suspend
-        messenger.Send(new SystemResumingMessage()); // resume
+        UpdateBattery(device, batteryHandler, 50); // online
+        suspendHandler(new SystemSuspendingMessage()); // suspend
+        resumeHandler(new SystemResumingMessage()); // resume
         manager.Invocations.Clear();
 
         // Act - Device goes offline within grace period (10s)
@@ -522,7 +553,7 @@ public class NotificationServiceTests {
             batteryMVolt: 0,
             updateTime: DateTimeOffset.Now
         ));
-        messenger.Send(new DeviceBatteryUpdatedMessage(device));
+        batteryHandler(new DeviceBatteryUpdatedMessage(device));
 
         // Assert - Offline notification suppressed during grace period
         Assert.Empty(manager.Invocations);
@@ -540,16 +571,16 @@ public class NotificationServiceTests {
                 BatteryHighThreshold = 90
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act - Start at 92% (High range)
-        UpdateBattery(device, messenger, 50, PowerSupplyStatus.CHARGING);
-        UpdateBattery(device, messenger, 92, PowerSupplyStatus.CHARGING);
+        UpdateBattery(device, batteryHandler, 50, PowerSupplyStatus.CHARGING);
+        UpdateBattery(device, batteryHandler, 92, PowerSupplyStatus.CHARGING);
         manager.Invocations.Clear();
 
         // Change to 95% - still in High range
-        UpdateBattery(device, messenger, 95, PowerSupplyStatus.CHARGING);
+        UpdateBattery(device, batteryHandler, 95, PowerSupplyStatus.CHARGING);
 
         // Assert - No notification because still in same range
         Assert.Empty(manager.Invocations);
@@ -565,17 +596,17 @@ public class NotificationServiceTests {
                 BatteryLowThreshold = 30
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act - Drop to Low range (30%)
-        UpdateBattery(device, messenger, 50);
-        UpdateBattery(device, messenger, 30);
+        UpdateBattery(device, batteryHandler, 50);
+        UpdateBattery(device, batteryHandler, 30);
         manager.Invocations.Clear();
 
         // Change within Low range (30 -> 25 -> 20)
-        UpdateBattery(device, messenger, 25);
-        UpdateBattery(device, messenger, 20);
+        UpdateBattery(device, batteryHandler, 25);
+        UpdateBattery(device, batteryHandler, 20);
 
         // Assert - No notifications within same range
         Assert.Empty(manager.Invocations);
@@ -593,13 +624,13 @@ public class NotificationServiceTests {
                 BatteryHighThreshold = 90
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act
-        UpdateBattery(device, messenger, 50, PowerSupplyStatus.CHARGING);
+        UpdateBattery(device, batteryHandler, 50, PowerSupplyStatus.CHARGING);
         manager.Invocations.Clear();
-        UpdateBattery(device, messenger, 95, PowerSupplyStatus.CHARGING); // High range
+        UpdateBattery(device, batteryHandler, 95, PowerSupplyStatus.CHARGING); // High range
 
         // Assert - No notification because NotifyOnBatteryHigh is disabled
         Assert.Empty(manager.Invocations);
@@ -615,13 +646,13 @@ public class NotificationServiceTests {
                 BatteryHighThreshold = 90
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act
-        UpdateBattery(device, messenger, 50, PowerSupplyStatus.CHARGING);
+        UpdateBattery(device, batteryHandler, 50, PowerSupplyStatus.CHARGING);
         manager.Invocations.Clear();
-        UpdateBattery(device, messenger, 100, PowerSupplyStatus.CHARGING); // Full
+        UpdateBattery(device, batteryHandler, 100, PowerSupplyStatus.CHARGING); // Full
 
         // Assert - Full should still notify even when NotifyOnBatteryHigh is disabled
         Assert.Single(manager.Invocations);
@@ -638,15 +669,15 @@ public class NotificationServiceTests {
                 BatteryLowThreshold = 30
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act
-        UpdateBattery(device, messenger, 50);
+        UpdateBattery(device, batteryHandler, 50);
         manager.Invocations.Clear();
-        UpdateBattery(device, messenger, 30); // Low
-        UpdateBattery(device, messenger, 15); // Critical2
-        UpdateBattery(device, messenger, 5);  // Critical1
+        UpdateBattery(device, batteryHandler, 30); // Low
+        UpdateBattery(device, batteryHandler, 15); // Critical2
+        UpdateBattery(device, batteryHandler, 5);  // Critical1
 
         // Assert - No notifications for low/critical when disabled
         Assert.Empty(manager.Invocations);
@@ -664,13 +695,13 @@ public class NotificationServiceTests {
                 BatteryLowThreshold = 30
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act
-        UpdateBattery(device, messenger, 50);
+        UpdateBattery(device, batteryHandler, 50);
         manager.Invocations.Clear();
-        UpdateBattery(device, messenger, 30); // Exactly at threshold
+        UpdateBattery(device, batteryHandler, 30); // Exactly at threshold
 
         // Assert
         Assert.Single(manager.Invocations);
@@ -687,13 +718,13 @@ public class NotificationServiceTests {
                 BatteryHighThreshold = 90
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act
-        UpdateBattery(device, messenger, 50, PowerSupplyStatus.CHARGING);
+        UpdateBattery(device, batteryHandler, 50, PowerSupplyStatus.CHARGING);
         manager.Invocations.Clear();
-        UpdateBattery(device, messenger, 90, PowerSupplyStatus.CHARGING); // Exactly at threshold
+        UpdateBattery(device, batteryHandler, 90, PowerSupplyStatus.CHARGING); // Exactly at threshold
 
         // Assert
         Assert.Single(manager.Invocations);
@@ -710,15 +741,15 @@ public class NotificationServiceTests {
                 BatteryLowThreshold = 15
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act - Start at 16% (Low range, but above threshold of 15)
-        UpdateBattery(device, messenger, 16);
+        UpdateBattery(device, batteryHandler, 16);
         manager.Invocations.Clear();
 
         // Move to 15% (Critical2/Threshold boundary) while discharging
-        UpdateBattery(device, messenger, 15, PowerSupplyStatus.DISCHARGING);
+        UpdateBattery(device, batteryHandler, 15, PowerSupplyStatus.DISCHARGING);
 
         // Assert - Should notify entering threshold range
         Assert.Single(manager.Invocations);
@@ -735,13 +766,13 @@ public class NotificationServiceTests {
                 BatteryLowThreshold = 30
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Device");
 
         // Act - Drop from 50% to 6% (Critical2)
-        UpdateBattery(device, messenger, 50);
+        UpdateBattery(device, batteryHandler, 50);
         manager.Invocations.Clear();
-        UpdateBattery(device, messenger, 6, PowerSupplyStatus.DISCHARGING);
+        UpdateBattery(device, batteryHandler, 6, PowerSupplyStatus.DISCHARGING);
 
         // Assert - Should notify entering Critical2 range
         Assert.Single(manager.Invocations);
@@ -760,10 +791,10 @@ public class NotificationServiceTests {
                 SuppressModeSwitchNotifications = false // Disable delay for immediate notification
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Mouse");
 
-        UpdateBattery(device, messenger, 50); // Online
+        UpdateBattery(device, batteryHandler, 50); // Online
         manager.Invocations.Clear();
 
         // Act - Device goes offline
@@ -774,7 +805,7 @@ public class NotificationServiceTests {
             batteryMVolt: 0,
             updateTime: DateTimeOffset.Now
         ));
-        messenger.Send(new DeviceBatteryUpdatedMessage(device));
+        batteryHandler(new DeviceBatteryUpdatedMessage(device));
 
         // Assert
         Assert.Single(manager.Invocations);
@@ -793,7 +824,7 @@ public class NotificationServiceTests {
                 SuppressModeSwitchNotifications = false // Disable delay for immediate notification
             }
         };
-        var (service, manager, messenger) = CreateService(appSettings);
+        var (service, manager, batteryHandler, _, _) = CreateService(appSettings);
         var device = CreateDevice("dev1", "Test Mouse");
 
         // Start offline
@@ -804,11 +835,11 @@ public class NotificationServiceTests {
             batteryMVolt: 0,
             updateTime: DateTimeOffset.Now
         ));
-        messenger.Send(new DeviceBatteryUpdatedMessage(device));
+        batteryHandler(new DeviceBatteryUpdatedMessage(device));
         manager.Invocations.Clear();
 
         // Act - Device comes online
-        UpdateBattery(device, messenger, 50);
+        UpdateBattery(device, batteryHandler, 50);
 
         // Assert
         Assert.Single(manager.Invocations);
