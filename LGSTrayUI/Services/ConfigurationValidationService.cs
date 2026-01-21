@@ -42,6 +42,7 @@ public class ConfigurationValidationService : IConfigurationValidationService, I
     public async Task<bool> LoadAndValidateConfiguration(ConfigurationManager config)
     {
         string settingsPath = Path.Combine(AppContext.BaseDirectory, SettingsFile.Name);
+        string localSettingsPath = Path.Combine(AppContext.BaseDirectory, SettingsFile.LocalName);
 
         // If config file exists, always repair and merge before loading
         if (File.Exists(settingsPath))
@@ -60,6 +61,14 @@ public class ConfigurationValidationService : IConfigurationValidationService, I
         try
         {
             config.AddTomlFile(settingsPath);
+
+            // Load local overrides if present (dev settings, gitignored)
+            if (File.Exists(localSettingsPath))
+            {
+                config.AddTomlFile(localSettingsPath, optional: true, reloadOnChange: false);
+                DiagnosticLogger.Log($"Loaded local settings override: {SettingsFile.LocalName}");
+            }
+
             return true;
         }
         catch (Exception ex)

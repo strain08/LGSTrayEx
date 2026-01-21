@@ -37,8 +37,9 @@ internal class Program
 
         var builder = Host.CreateEmptyApplicationBuilder(null);
 
-        // Load Logging config        
+        // Load Logging config
         builder.Configuration.AddTomlFile(SettingsFile.Name, optional: false, reloadOnChange: false);
+        builder.Configuration.AddTomlFile(SettingsFile.LocalName, optional: true, reloadOnChange: false);
         var loggingSettings = builder.Configuration.GetSection("Logging").Get<LoggingSettings>();
 
         // Determine logging settings
@@ -48,11 +49,6 @@ internal class Program
         // Command-line overrides
         if (args.Contains("--log")) enableLogging = true;
         if (args.Contains("--verbose")) enableVerbose = true;
-
-#if DEBUG
-        enableLogging = true;
-        // Note: HID daemon only enables verbose if explicitly requested
-#endif
 
         // Initialize logging
         DiagnosticLogger.Initialize(enableLogging, enableVerbose);

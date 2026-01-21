@@ -112,11 +112,6 @@ public partial class App : Application
         LoggingEnabled = enableLogging;
         VerboseLoggingEnabled = enableVerbose;
 
-#if DEBUG
-        enableLogging = true;
-        enableVerbose = false;
-#endif
-
         // Initialize logging
         DiagnosticLogger.Initialize(enableLogging, enableVerbose);
         DiagnosticLogger.ResetLog();

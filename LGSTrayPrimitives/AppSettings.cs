@@ -1,8 +1,9 @@
 ﻿namespace LGSTrayPrimitives;
 
-public static class SettingsFile 
+public static class SettingsFile
 {
     public static readonly string Name = "appsettings.toml";
+    public static readonly string LocalName = "appsettings.local.toml";
 }
 
 public class AppSettings
