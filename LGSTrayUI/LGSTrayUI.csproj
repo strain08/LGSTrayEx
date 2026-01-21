@@ -12,8 +12,8 @@
     <UseWPF>true</UseWPF>
     <PublishSingleFile>true</PublishSingleFile>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <VersionPrefix>3.1.5</VersionPrefix>
-    <VersionSuffix></VersionSuffix>
+    <VersionPrefix>3.1.6</VersionPrefix>
+    <VersionSuffix>dev</VersionSuffix>
     <AssemblyName>LGSTray</AssemblyName>
     <ApplicationIcon>Resources\logo_black.ico</ApplicationIcon>
     <StartupObject>LGSTrayUI.Program</StartupObject>
