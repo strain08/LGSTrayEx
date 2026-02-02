@@ -28,6 +28,32 @@ public class AppSettings
 public class UISettings
 {
     public bool EnableRichToolTips { get; set; }
+
+    /// <summary>
+    /// Enable the battery bar indicator at the bottom of numeric display icons.
+    /// Shows a colored progress bar representing battery level.
+    /// </summary>
+    public bool EnableBatteryBar { get; set; } = true;
+
+    /// <summary>
+    /// Battery bar color for mouse devices (hex format: "#RRGGBB" or named color).
+    /// </summary>
+    public string MouseColor { get; set; } = "SlateBlue";
+
+    /// <summary>
+    /// Battery bar color for keyboard devices (hex format: "#RRGGBB" or named color).
+    /// </summary>
+    public string KeyboardColor { get; set; } = "SlateGray";
+
+    /// <summary>
+    /// Battery bar color for headset devices (hex format: "#RRGGBB" or named color).
+    /// </summary>
+    public string HeadsetColor { get; set; } = "Blue";
+
+    /// <summary>
+    /// Battery bar color for other/unknown device types (hex format: "#RRGGBB" or named color).
+    /// </summary>
+    public string DefaultColor { get; set; } = "Gray";
 }
 
 public class HttpServerSettings

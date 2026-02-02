@@ -24,6 +24,53 @@ public static partial class BatteryIconDrawing
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool DestroyIcon(IntPtr handle);
 
+    // Configurable battery bar settings
+    private static bool _enableBatteryBar = true;
+    private static Color _mouseColor = Color.SlateBlue;
+    private static Color _keyboardColor = Color.SlateGray;
+    private static Color _headsetColor = Color.Blue;
+    private static Color _defaultColor = Color.Gray;
+
+    /// <summary>
+    /// Configures battery bar settings from application settings.
+    /// Should be called once at application startup.
+    /// </summary>
+    public static void Configure(UISettings settings)
+    {
+        _enableBatteryBar = settings.EnableBatteryBar;
+        _mouseColor = ParseColor(settings.MouseColor, Color.SlateBlue);
+        _keyboardColor = ParseColor(settings.KeyboardColor, Color.SlateGray);
+        _headsetColor = ParseColor(settings.HeadsetColor, Color.Blue);
+        _defaultColor = ParseColor(settings.DefaultColor, Color.Gray);
+    }
+
+    private static Color ParseColor(string colorString, Color fallback)
+    {
+        if (string.IsNullOrWhiteSpace(colorString))
+            return fallback;
+
+        try
+        {
+            // Try parsing as named color first (e.g., "SlateBlue")
+            var namedColor = Color.FromName(colorString);
+            if (namedColor.IsKnownColor || namedColor.A != 0)
+                return namedColor;
+
+            // Try parsing as hex color (e.g., "#6A5ACD" or "6A5ACD")
+            var hex = colorString.TrimStart('#');
+            if (hex.Length == 6 && int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out int rgb))
+            {
+                return Color.FromArgb(255, (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+            }
+        }
+        catch
+        {
+            // Fall through to return fallback
+        }
+
+        return fallback;
+    }
+
     private static Bitmap Mouse => CheckTheme.LightTheme ? Resources.Mouse : Resources.Mouse_dark;
     private static Bitmap Keyboard => CheckTheme.LightTheme ? Resources.Keyboard : Resources.Keyboard_dark;
     private static Bitmap Headset => CheckTheme.LightTheme ? Resources.Headset : Resources.Headset_dark;
@@ -175,23 +222,20 @@ public static partial class BatteryIconDrawing
 
             bool isCharging = device.PowerSupplyStatus == PowerSupplyStatus.CHARGING;
 
-            // Background Logic
-            //if (isCharging)
-            //{
-            //    // If charging, use Green background
-            //    // We use ClearType here because we have a solid background!
-            //    g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
-
-            //    System.Drawing.Color bgColor = CheckTheme.LightTheme
-            //    ? System.Drawing.Color.LimeGreen
-            //    : System.Drawing.Color.DarkGreen;
-
-            //    using System.Drawing.Brush bgBrush = new SolidBrush(bgColor);
-            //    g.FillRectangle(bgBrush, 0, 0, width, height);
-            //}
-
-
-            //bool device100Percent = device.BatteryPercentage == 100;
+            // Draw battery bar if enabled
+            if (_enableBatteryBar && device.IsVisuallyOnline && device.BatteryPercentage >= 0)
+            {
+                Color barColor = device.DeviceType switch
+                {
+                    DeviceType.Mouse => _mouseColor,
+                    DeviceType.Keyboard => _keyboardColor,
+                    DeviceType.Headset => _headsetColor,
+                    _ => _defaultColor,
+                };
+                // Draw 2px bottom battery bar
+                using Brush bgBrush = new SolidBrush(barColor);
+                g.FillRectangle(bgBrush, 0, height - 2, (int)Math.Round(device.BatteryPercentage / 100 * width), 2);
+            }
 
             // Font style and color
             FontStyle fontStyle = isCharging ? FontStyle.Bold : FontStyle.Regular;
@@ -207,9 +251,7 @@ public static partial class BatteryIconDrawing
             }
 
             // Font size 
-            //float emSize = height * (device.BatteryPercentage == 100 ? 0.7f : 0.8f);
             float emSize = height * 0.7f;
-            //emSize = height * 0.7f;
             using Font font = new("Segoe UI Variable", emSize, fontStyle, GraphicsUnit.Pixel);
             string text = (!device.IsVisuallyOnline || device.BatteryPercentage < 0) ? "?" : $"{device.BatteryPercentage:f0}";
 

@@ -124,6 +124,9 @@ public partial class App : Application
         // Load Windows theme based on OS version
         LoadWindowsTheme();
 
+        // Configure battery icon drawing settings
+        BatteryIconDrawing.Configure(appSettings.UI);
+
         // DI setup
         builder.Services.Configure<AppSettings>(config);
         builder.Services.AddSingleton(appSettings);
