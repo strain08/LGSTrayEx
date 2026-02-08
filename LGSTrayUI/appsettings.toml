@@ -3,9 +3,20 @@
 [UI]
 # Setting related to Hardcodet NotifyIcon for WPF component
 # When false renders the standard, native Windows system tray tooltip.
-# When true renders a custom control. No current benefits. 
+# When true renders a custom control. No current benefits.
 # Could remain visible when using full-screen applications.
 enableRichToolTips = false
+
+# Numeric display battery bar settings
+# Enable/disable the colored progress bar at the bottom of numeric icons
+enableBatteryBar = true
+
+# Battery bar colors per device type
+# Accepts named colors (SlateBlue, Red, etc.) or hex format (#RRGGBB)
+mouseColor = "SlateBlue"
+keyboardColor = "SlateGray"
+headsetColor = "Blue"
+defaultColor = "Gray"
 
 [HTTPServer]
 # Enable built-in HTTP server for status and control
