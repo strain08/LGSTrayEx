@@ -1,4 +1,4 @@
-# LGSTrayBattery (strain08 fork)
+# LGSTrayEx
 
 **Note:** This is a community-maintained fork of the original 
 [andyvorld/LGSTrayBattery](https://github.com/andyvorld/LGSTrayBattery).<br>
