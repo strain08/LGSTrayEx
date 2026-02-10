@@ -33,7 +33,7 @@ Currently tested and working with:
 - ✅(Lightspeed) G Pro X 2 Mouse
 - ✅(Lightspeed) G305 Mouse
 - ✅(Lightspeed) G705 Mouse 
-- 🟨(Lightspeed) G515 TKL (after closing https://github.com/strain08/LGSTrayBattery/issues/3)
+- ✅(Lightspeed) G515 TKL
 
 ## OS Compatibility
 - currently Windows 11 only
