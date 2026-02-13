@@ -7,7 +7,7 @@ This fork continues development with bug fixes and new features.
 #### Check the original page for detailed documentation.
 
 ## Install
-[![GitHub Release](https://img.shields.io/github/v/release/strain08/LGSTrayBattery?sort=semver)](https://github.com/strain08/LGSTrayBattery/releases/latest)
+[![GitHub Release](https://img.shields.io/github/v/release/strain08/LGSTrayEx?sort=semver)](https://github.com/strain08/LGSTrayBattery/releases/latest)
 
 ## Configuration
 See included [settings file](https://github.com/strain08/LGSTrayBattery/blob/master/LGSTrayUI/appsettings.toml) for documentation.
