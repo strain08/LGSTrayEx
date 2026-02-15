@@ -137,93 +137,89 @@ public sealed class HidppManagerContext
 
     private unsafe int DeviceLeft(HidHotPlugCallbackHandle callbackHandle, HidDeviceInfo* deviceInfo, HidApiHotPlugEvent hidApiHotPlugEvent, nint userData)
     {
-        string devPath = (*deviceInfo).GetPath();
-
-        // TEST HARNESS: Log device removal event with path
+        string devPath = (*deviceInfo).GetPath();                
         DiagnosticLogger.Log($"HID device removal detected: {devPath}");
 
-        if (_containerMap.TryGetValue(devPath, out var containerId))
+        if (!_containerMap.TryGetValue(devPath, out var containerId)) return 0;
+
+        // Extract and log device information BEFORE disposal
+        var hidppDevices = _deviceMap[containerId];
+        var deviceCollection = hidppDevices.DeviceCollection;
+
+        DiagnosticLogger.Log($"Container ID: {containerId}");
+        DiagnosticLogger.Log($"Device count in container: {deviceCollection.Count}");
+
+        // Log each device in the container
+        foreach (var (deviceIdx, device) in deviceCollection)
         {
-            // TEST HARNESS: Extract and log device information BEFORE disposal
-            var hidppDevices = _deviceMap[containerId];
-            var deviceCollection = hidppDevices.DeviceCollection;
-
-            DiagnosticLogger.Log($"Container ID: {containerId}");
-            DiagnosticLogger.Log($"Device count in container: {deviceCollection.Count}");
-
-            // Log each device in the container
-            foreach (var (deviceIdx, device) in deviceCollection)
-            {
-                string logMessage = $"Removing device - " +
-                                  $"Identifier: {device.Identifier}, " +
-                                  $"Name: {device.DeviceName}, " +
-                                  $"Type: {(DeviceType)device.DeviceType}, " +
-                                  $"Index: {device.DeviceIdx}";
-                DiagnosticLogger.Log(logMessage);
-            }
-
-            // Send offline notifications to UI before disposal
-            foreach (var (deviceIdx, device) in deviceCollection)
-            {
-                // Only send for devices that completed initialization
-                if (!string.IsNullOrEmpty(device.Identifier))
-                {
-                    // FIX: Check if device is active on another receiver (e.g., wireless when wired is unplugged)
-                    // This prevents mode-switch keyboards from showing offline when switching wired→wireless
-                    bool hasAlternativeSource = _deviceMap
-                        .Where(kvp => kvp.Key != containerId) // Ignore the container being removed
-                        .SelectMany(kvp => kvp.Value.DeviceCollection.Values)
-                        .Any(d => d.Identifier == device.Identifier && d.IsOnline && !d.Disposed);
-
-                    if (hasAlternativeSource)
-                    {
-                        DiagnosticLogger.Log($"[{device.DeviceName}] Device removed from {containerId:D} but active on alternative source - skipping offline notification");
-
-                        // Proactively update battery on the alternative source to refresh UI immediately
-                        // instead of waiting for the next polling cycle (default 600s)
-                        var altDevice = _deviceMap
-                            .Where(kvp => kvp.Key != containerId)
-                            .SelectMany(kvp => kvp.Value.DeviceCollection.Values)
-                            .FirstOrDefault(d => d.Identifier == device.Identifier && d.IsOnline && !d.Disposed);
-
-                        if (altDevice != null)
-                        {
-                            // Capture device reference for async operation (avoid unsafe context in lambda)
-                            var deviceToUpdate = altDevice;
-                            var deviceName = device.DeviceName;
-
-                            // Trigger battery update asynchronously (via helper method to avoid unsafe context)
-                            _ = Task.Run(() => TriggerModeSwitchBatteryUpdate(deviceToUpdate, deviceName));
-                        }
-
-                        // Skip sending offline notification - device is still connected via alternative path
-                        continue;
-                    }
-
-                    // Device has no alternative source - send offline notification
-                    HidppManagerContext.Instance.SignalDeviceEvent(
-                        IPCMessageType.UPDATE,
-                        new UpdateMessage(
-                            deviceId: device.Identifier,
-                            batteryPercentage: -1,  // Convention: -1 = offline
-                            powerSupplyStatus: PowerSupplyStatus.UNKNOWN,
-                            batteryMVolt: 0,
-                            updateTime: DateTimeOffset.Now,
-                            mileage: -1
-                        )
-                    );
-                    DiagnosticLogger.Log($"[{device.DeviceName}] Receiver removal - offline notification sent to UI");
-                }
-            }
-
-            // Original disposal logic
-            _deviceMap[containerId].Dispose();
-            _deviceMap.Remove(containerId);
-            _containerMap.Remove(devPath);
-
-            // TEST HARNESS: Confirm cleanup completed
-            DiagnosticLogger.Log($"Device removal complete - Path: {devPath}, Container: {containerId}");
+            string logMessage = $"Removing device - " +
+                              $"Identifier: {device.Identifier}, " +
+                              $"Name: {device.DeviceName}, " +
+                              $"Type: {(DeviceType)device.DeviceType}, " +
+                              $"Index: {device.DeviceIdx}";
+            DiagnosticLogger.Log(logMessage);
         }
+
+        // Send offline notifications to UI before disposal
+        foreach (var (deviceIdx, device) in deviceCollection)
+        {
+            // Only send for devices that completed initialization
+            if (string.IsNullOrEmpty(device.Identifier)) continue;
+
+            // FIX: Check if device is active on another receiver (e.g., wireless when wired is unplugged)
+            // This prevents mode-switch keyboards from showing offline when switching wired→wireless
+            bool hasAlternativeSource = _deviceMap
+                .Where(kvp => kvp.Key != containerId) // Ignore the container being removed
+                .SelectMany(kvp => kvp.Value.DeviceCollection.Values)
+                .Any(d => d.Identifier == device.Identifier && d.IsOnline && !d.Disposed);
+
+            if (hasAlternativeSource)
+            {
+                DiagnosticLogger.Log($"[{device.DeviceName}] Device removed from {containerId:D} but active on alternative source - skipping offline notification");
+
+                // Proactively update battery on the alternative source to refresh UI immediately
+                // instead of waiting for the next polling cycle (default 600s)
+                var altDevice = _deviceMap
+                    .Where(kvp => kvp.Key != containerId)
+                    .SelectMany(kvp => kvp.Value.DeviceCollection.Values)
+                    .FirstOrDefault(d => d.Identifier == device.Identifier && d.IsOnline && !d.Disposed);
+
+                if (altDevice is null) continue;
+
+                // Capture device reference for async operation (avoid unsafe context in lambda)
+                var deviceToUpdate = altDevice;
+                var deviceName = device.DeviceName;
+
+                // Trigger battery update asynchronously (via helper method to avoid unsafe context)
+                _ = Task.Run(() => TriggerModeSwitchBatteryUpdate(deviceToUpdate, deviceName));
+
+                // Skip sending offline notification - device is still connected via alternative path
+                continue;
+            }
+
+            // Device has no alternative source - send offline notification
+            HidppManagerContext.Instance.SignalDeviceEvent(
+                IPCMessageType.UPDATE,
+                new UpdateMessage(
+                    deviceId: device.Identifier,
+                    batteryPercentage: -1,  // Convention: -1 = offline
+                    powerSupplyStatus: PowerSupplyStatus.UNKNOWN,
+                    batteryMVolt: 0,
+                    updateTime: DateTimeOffset.Now,
+                    mileage: -1
+                )
+            );
+            DiagnosticLogger.Log($"[{device.DeviceName}] Receiver removal - offline notification sent to UI");
+        }
+
+        // Original disposal logic
+        _deviceMap[containerId].Dispose();
+        _deviceMap.Remove(containerId);
+        _containerMap.Remove(devPath);
+
+        // Confirm cleanup completed
+        DiagnosticLogger.Log($"Device removal complete - Path: {devPath}, Container: {containerId}");
+
         return 0;
     }
     public void SignalDeviceEvent(IPCMessageType messageType, IPCMessage message)
