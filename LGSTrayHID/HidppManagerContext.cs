@@ -245,6 +245,10 @@ public sealed class HidppManagerContext
     /// </summary>
     private void TrackUsbArrival(ushort productId, Guid containerId, string devicePath)
     {
+        // Only track direct wired device arrivals. Wireless receivers have PIDs
+        // in the 0xC500–0xC5FF range and are not mode-switch candidates.
+        if (productId is >= 0xC500 and <= 0xC5FF) return;
+
         lock (_arrivalLock)
         {
             var now = DateTimeOffset.Now;
