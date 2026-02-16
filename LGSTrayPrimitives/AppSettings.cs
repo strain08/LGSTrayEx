@@ -193,6 +193,13 @@ public class LoggingSettings
     /// Can be overridden by --verbose command-line flag.
     /// </summary>
     public bool Verbose { get; set; } = false;
+
+    /// <summary>
+    /// Maximum number of lines to keep in diagnostic.log (default: 1000).
+    /// When the log exceeds this limit, older lines are trimmed.
+    /// Set to 0 to disable line limiting (unlimited log growth).
+    /// </summary>
+    public int MaxLines { get; set; } = 1000;
 }
 
 public class BackoffSettings

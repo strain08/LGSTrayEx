@@ -109,6 +109,11 @@ enabled = false
 # Can be overridden by --verbose command-line flag
 verbose = false
 
+# Maximum number of lines to keep in diagnostic.log
+# Older lines are trimmed when the limit is exceeded
+# Set to 0 to disable (unlimited log growth)
+maxLines = 1000
+
 # Exponential backoff configuration for retry operations
 # Each profile controls retry behavior for specific operations
 

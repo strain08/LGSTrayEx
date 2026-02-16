@@ -113,7 +113,8 @@ public partial class App : Application
         VerboseLoggingEnabled = enableVerbose;
 
         // Initialize logging
-        DiagnosticLogger.Initialize(enableLogging, enableVerbose);
+        int maxLogLines = appSettings.Logging?.MaxLines ?? 1000;
+        DiagnosticLogger.Initialize(enableLogging, enableVerbose, maxLogLines);
         DiagnosticLogger.ResetLog();
         DiagnosticLogger.Log($"LGSTray {NotifyIconViewModel.AssemblyVersion} logging started.");
         if (enableVerbose)

@@ -51,7 +51,8 @@ internal class Program
         if (args.Contains("--verbose")) enableVerbose = true;
 
         // Initialize logging
-        DiagnosticLogger.Initialize(enableLogging, enableVerbose);
+        int maxLogLines = loggingSettings?.MaxLines ?? 1000;
+        DiagnosticLogger.Initialize(enableLogging, enableVerbose, maxLogLines);
 
         GlobalSettings.settings = builder.Configuration.GetSection("Native")
             .Get<NativeDeviceManagerSettings>() ?? GlobalSettings.settings;

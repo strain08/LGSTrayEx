@@ -13,6 +13,13 @@ public static class DiagnosticLogger
 
     private static bool _isEnabled = false;
     private static bool _isVerboseEnabled = false;
+    private static int _maxLines = 1000;
+    private static int _writesSinceTrim = 0;
+
+    /// <summary>
+    /// Number of writes between trim checks. Avoids checking file size on every write.
+    /// </summary>
+    private const int TrimCheckInterval = 100;
 
     /// <summary>
     /// Gets whether logging is enabled (--log flag).
@@ -30,15 +37,36 @@ public static class DiagnosticLogger
     /// </summary>
     /// <param name="enableLogging">Enable standard logging (--log)</param>
     /// <param name="enableVerbose">Enable verbose logging (--verbose)</param>
-    public static void Initialize(bool enableLogging, bool enableVerbose)
+    /// <param name="maxLines">Maximum lines to keep in log file (0 = unlimited)</param>
+    public static void Initialize(bool enableLogging, bool enableVerbose, int maxLines = 1000)
     {
         _isEnabled = enableLogging;
         _isVerboseEnabled = enableVerbose;
+        _maxLines = maxLines;
+        _writesSinceTrim = 0;
 
         // If verbose is enabled, standard logging must also be enabled
         if (_isVerboseEnabled && !_isEnabled)
         {
             _isEnabled = true;
+        }
+
+        // Trim log file at startup if it exceeds the limit
+        if (_isEnabled && _maxLines > 0)
+        {
+            try
+            {
+                using var mutex = new Mutex(false, "LOG_WRITE");
+                if (mutex.WaitOne(Timeout.Infinite, false))
+                {
+                    try { TrimLogFile(); }
+                    finally { mutex.ReleaseMutex(); }
+                }
+            }
+            catch (Exception)
+            {
+                // Silently ignore trim failures at startup
+            }
         }
     }
 
@@ -105,6 +133,13 @@ public static class DiagnosticLogger
             hasHandle = mutex.WaitOne(Timeout.Infinite, false);
 
             File.AppendAllText(_logFilePath, message + Environment.NewLine);
+
+            _writesSinceTrim++;
+            if (_maxLines > 0 && _writesSinceTrim >= TrimCheckInterval)
+            {
+                _writesSinceTrim = 0;
+                TrimLogFile();
+            }
         }
         catch (Exception)
         {
@@ -115,6 +150,26 @@ public static class DiagnosticLogger
             if (hasHandle)
                 mutex.ReleaseMutex();
         }
+    }
+
+    /// <summary>
+    /// Trims the log file to MaxLines if it exceeds the limit.
+    /// Must be called while holding the LOG_WRITE mutex.
+    /// </summary>
+    private static void TrimLogFile()
+    {
+        try
+        {
+            if (!File.Exists(_logFilePath)) return;
+
+            var lines = File.ReadAllLines(_logFilePath);
+            if (lines.Length <= _maxLines) return;
+
+            // Keep the last _maxLines lines
+            var trimmed = lines[^_maxLines..];
+            File.WriteAllLines(_logFilePath, trimmed);
+        }
+        catch { }
     }
 
     private static void WriteToConsole(string formatted)
