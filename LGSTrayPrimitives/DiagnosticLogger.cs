@@ -180,26 +180,4 @@ public static class DiagnosticLogger
     }
 
 
-    public static void ResetLog()
-    {
-        if (!_isEnabled) return;
-
-        using var mutex = new Mutex(false, "LOG_WRITE");
-        var hasHandle = false;
-        try
-        {
-            hasHandle = mutex.WaitOne(Timeout.Infinite, false);
-
-            File.WriteAllText(_logFilePath, string.Empty);
-        }
-        catch (Exception)
-        {
-            Console.WriteLine("Failed to clear diagnostic log file.");
-        }
-        finally
-        {
-            if (hasHandle)
-                mutex.ReleaseMutex();
-        }
-    }
 }
