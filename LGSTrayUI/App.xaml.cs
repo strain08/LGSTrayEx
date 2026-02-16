@@ -301,6 +301,15 @@ public partial class App : Application
         {
             if (args.ExceptionObject is Exception ex)
             {
+                // Suppress ObjectDisposedException from MessagePipe's NamedPipeWorker during shutdown.
+                // This is a known race condition: the CTS is disposed before RunPublishLoop exits.
+                if (ex is ObjectDisposedException ode
+                    && ode.StackTrace?.Contains("NamedPipeWorker") == true)
+                {
+                    DiagnosticLogger.Log("Suppressed NamedPipeWorker ObjectDisposedException during shutdown");
+                    return;
+                }
+
                 string crashFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "LGSTrayUI_Crash.txt");
                 var sb = new System.Text.StringBuilder();
                 sb.AppendLine($"[{DateTime.Now}] CRASH OCCURRED");

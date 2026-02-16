@@ -116,6 +116,13 @@ internal class Program
         {
             if (e.ExceptionObject is Exception ex)
             {
+                // Suppress ObjectDisposedException from MessagePipe's NamedPipeWorker during shutdown.
+                if (ex is ObjectDisposedException ode
+                    && ode.StackTrace?.Contains("NamedPipeWorker") == true)
+                {
+                    return;
+                }
+
                 var unixTime = DateTimeOffset.Now.ToUnixTimeSeconds();
                 string crashFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"LGSTrayHID_Crash_{unixTime}.txt");
                 var sb = new System.Text.StringBuilder();
