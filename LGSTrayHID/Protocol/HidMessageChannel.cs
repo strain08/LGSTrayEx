@@ -42,7 +42,7 @@ public class HidMessageChannel : IDisposable
             Priority = ThreadPriority.BelowNormal,
             Name = "HID-SHORT-Reader"
         };
-        _readerThreads.Add(shortThread);
+        lock (_readerThreads) { _readerThreads.Add(shortThread); }
         shortThread.Start();
 
         Thread longThread = new(async () => { await ReadThreadAsync(devLong, 20); })
@@ -50,7 +50,7 @@ public class HidMessageChannel : IDisposable
             Priority = ThreadPriority.BelowNormal,
             Name = "HID-LONG-Reader"
         };
-        _readerThreads.Add(longThread);
+        lock (_readerThreads) { _readerThreads.Add(longThread); }
         longThread.Start();
     }
 
@@ -164,8 +164,16 @@ public class HidMessageChannel : IDisposable
         // Signal threads to stop via cancellation token
         _cancellationSource.Cancel();
 
+        // Snapshot the list to avoid "collection was modified" if accessed concurrently
+        List<Thread> threads;
+        lock (_readerThreads)
+        {
+            threads = [.. _readerThreads];
+            _readerThreads.Clear();
+        }
+
         // Wait for all threads to exit
-        foreach (var thread in _readerThreads)
+        foreach (var thread in threads)
         {
             if (thread.IsAlive)
             {
@@ -181,7 +189,6 @@ public class HidMessageChannel : IDisposable
             }
         }
 
-        _readerThreads.Clear();
         _cancellationSource.Dispose();
 
         DiagnosticLogger.Log("HidMessageChannel.Dispose completed");
