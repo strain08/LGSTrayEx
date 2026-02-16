@@ -73,13 +73,15 @@ public static class BatteryStatusParser
     }
 
     /// <summary>
-    /// Validate battery level flags from HID++ Unified Battery features (0x1000 and 0x1004).
+    /// Validate battery level flags from HID++ Unified Battery feature (0x1004).
     /// Battery level flags should have exactly ONE bit set (mutually exclusive).
     /// </summary>
     /// <param name="levelFlags">Level flags byte from response parameter 1</param>
     /// <returns>True if flags are valid, false if corrupt/invalid</returns>
     /// <remarks>
-    /// (!) Not used for Feature 1001 (Voltage), which uses a different encoding.
+    /// (!) Not used for Feature 1000 (Unified Level) or 1001 (Voltage).
+    /// Feature 0x1004 uses these flags to indicate state.
+    /// Feature 0x1000 uses this byte for 'next percentage'.
     /// Valid flags (only one bit set in lower nibble):
     /// - 0x01: Critical
     /// - 0x02: Low
