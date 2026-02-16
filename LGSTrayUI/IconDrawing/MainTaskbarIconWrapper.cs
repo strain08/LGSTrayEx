@@ -2,7 +2,6 @@
 using LGSTrayPrimitives;
 using System;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
 
 namespace LGSTrayUI.IconDrawing;
@@ -160,39 +159,32 @@ public class MainTaskbarIconWrapper : IDisposable
                 if (dispatcher == null || dispatcher.HasShutdownStarted)
                     return;
 
-                try
+                dispatcher.BeginInvoke(() =>
                 {
-                    dispatcher.Invoke(() =>
+                    lock (_timerLock)
                     {
-                        lock (_timerLock)
+                        // Final safety checks with early returns to reduce nesting
+                        if (currentVersion != _timerVersion)
+                            return;
+
+                        if (disposedValue)
+                            return;
+
+                        if (LogiDeviceIcon.RefCount != 0)
+                            return;
+
+                        if (_taskbarIcon != null)
+                            return;
+
+                        _taskbarIcon = new MainTaskBarIcon();
+
+                        // Set DataContext on the new icon's ContextMenu
+                        if (_contextMenuDataContext != null && _taskbarIcon.ContextMenu != null)
                         {
-                            // Final safety checks with early returns to reduce nesting
-                            if (currentVersion != _timerVersion)
-                                return;
-
-                            if (disposedValue)
-                                return;
-
-                            if (LogiDeviceIcon.RefCount != 0)
-                                return;
-
-                            if (_taskbarIcon != null)
-                                return;
-
-                            _taskbarIcon = new MainTaskBarIcon();
-
-                            // Set DataContext on the new icon's ContextMenu
-                            if (_contextMenuDataContext != null && _taskbarIcon.ContextMenu != null)
-                            {
-                                _taskbarIcon.ContextMenu.DataContext = _contextMenuDataContext;
-                            }
+                            _taskbarIcon.ContextMenu.DataContext = _contextMenuDataContext;
                         }
-                    });
-                }
-                catch (TaskCanceledException)
-                {
-                    // Dispatcher shutdown during invoke - ignore
-                }
+                    }
+                });
             }, state: null,
                dueTime: 500,
                period: Timeout.Infinite);
