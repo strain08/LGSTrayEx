@@ -175,30 +175,25 @@ public partial class App : Application
         Dispatcher.InvokeShutdown();
     }
 
-    private async void AppExtensions_PowerModeChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    private void AppExtensions_PowerModeChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs e)
     {
         switch (e.Mode)
         {
-            case Microsoft.Win32.PowerModes.Resume:
-                DiagnosticLogger.Log("System resumed from sleep (SystemEvents.PowerModeChanged)");
-
-                // Send message to resume notifications
-                _resumePublisher?.Publish(new SystemResumingMessage());
-
-                await HandleSystemResumeAsync();
-                break;
             case Microsoft.Win32.PowerModes.Suspend:
                 DiagnosticLogger.Log("System is suspending to sleep (SystemEvents.PowerModeChanged)");
 
                 // Send message to suspend notifications
                 _suspendPublisher?.Publish(new SystemSuspendingMessage());
                 break;
+            // Resume is handled exclusively by WM_POWERBROADCAST (PowerNotificationWindow),
+            // which fires for both S3 and Modern Standby. PowerModeChanged.Resume would
+            // trigger a duplicate daemon restart ~2s after the first one.
         }
     }
 
     /// <summary>
     /// Handle system wake - give USB devices time to stabilize, then rediscover.
-    /// Called by both SystemEvents.PowerModeChanged (S3) and WM_POWERBROADCAST (Modern Standby).
+    /// Called exclusively by WM_POWERBROADCAST (covers both S3 and Modern Standby).
     /// </summary>
     public async Task HandleSystemResumeAsync()
     {
