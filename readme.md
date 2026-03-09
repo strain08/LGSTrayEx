@@ -25,6 +25,10 @@ See included [settings file](https://github.com/strain08/LGSTrayBattery/blob/mas
 See [release notes](https://github.com/strain08/LGSTrayBattery/releases/latest)
 
 ## Device compatibility
+- 🔋 Wireless mice/keyboards/headsets using Unifying, Bolt, Lightspeed or direct Bluetooth receivers
+- 🔋 Devices from roughly 2010+ that support HID++ 2.0
+- 🪫 Older HID++ 1.0 devices are likely unsupported (ping will fail)
+
 Currently tested and working with:
 - ✅(Bolt) MX Keys S
 - ✅(Bolt) MX Anywhere 3S
