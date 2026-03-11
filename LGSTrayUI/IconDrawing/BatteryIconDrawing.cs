@@ -31,6 +31,21 @@ public static partial class BatteryIconDrawing
     private static Color _headsetColor = Color.Blue;
     private static Color _defaultColor = Color.Gray;
 
+    // Icon mode battery fill colors (level-based, per theme)
+    private static Color _iconLowColorLight = Color.FromArgb(255, 0xB0, 0x30, 0x30);
+    private static Color _iconMediumColorLight = Color.FromArgb(255, 0xB0, 0x90, 0x20);
+    private static Color _iconHighColorLight = Color.FromArgb(255, 0x40, 0xA0, 0x20);
+    private static Color _iconLowColorDark = Color.FromArgb(255, 0xE8, 0x8B, 0x8B);
+    private static Color _iconMediumColorDark = Color.FromArgb(255, 0xF2, 0xD4, 0x79);
+    private static Color _iconHighColorDark = Color.FromArgb(255, 0xB4, 0xF2, 0xA0);
+
+    // Battery interior bounds as fractions of imageSize (measured from Indicator*.png)
+    // Inset from the inner border edge to avoid bleeding under anti-aliased frame pixels
+    private const float FillLeft = 314f / 512f;
+    private const float FillRight = 442f / 512f;
+    private const float FillTop = 148f / 512f;
+    private const float FillBottom = 400f / 512f;
+
     /// <summary>
     /// Configures battery bar settings from application settings.
     /// Should be called once at application startup.
@@ -42,6 +57,13 @@ public static partial class BatteryIconDrawing
         _keyboardColor = ParseColor(settings.KeyboardColor, Color.SlateGray);
         _headsetColor = ParseColor(settings.HeadsetColor, Color.Blue);
         _defaultColor = ParseColor(settings.DefaultColor, Color.Gray);
+
+        _iconLowColorLight = ParseColor(settings.IconLowColorLight, _iconLowColorLight);
+        _iconMediumColorLight = ParseColor(settings.IconMediumColorLight, _iconMediumColorLight);
+        _iconHighColorLight = ParseColor(settings.IconHighColorLight, _iconHighColorLight);
+        _iconLowColorDark = ParseColor(settings.IconLowColorDark, _iconLowColorDark);
+        _iconMediumColorDark = ParseColor(settings.IconMediumColorDark, _iconMediumColorDark);
+        _iconHighColorDark = ParseColor(settings.IconHighColorDark, _iconHighColorDark);
     }
 
     private static Color ParseColor(string colorString, Color fallback)
@@ -96,20 +118,37 @@ public static partial class BatteryIconDrawing
         _ => Mouse,
     };
 
-    private static Bitmap GetBatteryValue(LogiDevice device)
+    private static void DrawBatteryFill(Graphics g, LogiDevice device, int imageSize)
     {
         if (!device.IsVisuallyOnline || device.BatteryPercentage < 0)
-        {
-            return Missing;
-        }
+            return;
 
-        return device.BatteryPercentage switch
-        {
-            < 10 => Resources.Indicator_10,
-            < 50 => Resources.Indicator_30,
-            < 85 => Resources.Indicator_50,
-            _ => Resources.Indicator_100
-        };
+        // Select color based on battery level and theme
+        Color fillColor;
+        bool light = CheckTheme.LightTheme;
+        if (device.BatteryPercentage < 10)
+            fillColor = light ? _iconLowColorLight : _iconLowColorDark;
+        else if (device.BatteryPercentage < 50)
+            fillColor = light ? _iconMediumColorLight : _iconMediumColorDark;
+        else
+            fillColor = light ? _iconHighColorLight : _iconHighColorDark;
+
+        // Calculate interior bounds scaled to current image size
+        int left = (int)(FillLeft * imageSize);
+        int right = (int)(FillRight * imageSize);
+        int top = (int)(FillTop * imageSize);
+        int bottom = (int)(FillBottom * imageSize);
+
+        int interiorWidth = right - left;
+        int interiorHeight = bottom - top;
+
+        // Fill height proportional to battery percentage, drawn from bottom
+        double pct = Math.Clamp(device.BatteryPercentage, 0, 100);
+        int fillHeight = (int)(pct / 100.0 * interiorHeight);
+        int fillY = bottom - fillHeight;
+
+        using Brush brush = new SolidBrush(fillColor);
+        g.FillRectangle(brush, left, fillY, interiorWidth, fillHeight);
     }
 
     public static void DrawUnknown(TaskbarIcon taskbarIcon)
@@ -137,11 +176,20 @@ public static partial class BatteryIconDrawing
         using var wrapMode = new ImageAttributes();
         wrapMode.SetWrapMode(WrapMode.TileFlipXY);
 
-        Bitmap[] layers = [
-            GetBatteryValue(device),
-            Battery,
-            GetDeviceIcon(device),
-        ];
+        // Draw battery fill or missing indicator (bottom layer)
+        if (!device.IsVisuallyOnline || device.BatteryPercentage < 0)
+        {
+            Bitmap missing = Missing;
+            g.DrawImage(missing, destRect, 0, 0, missing.Width, missing.Height, GraphicsUnit.Pixel, wrapMode);
+            missing.Dispose();
+        }
+        else
+        {
+            DrawBatteryFill(g, device, ImageSize);
+        }
+
+        // Draw battery frame and device icon layers
+        Bitmap[] layers = [Battery, GetDeviceIcon(device)];
 
         foreach (var image in layers)
         {

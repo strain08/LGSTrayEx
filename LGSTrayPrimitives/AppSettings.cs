@@ -54,6 +54,40 @@ public class UISettings
     /// Battery bar color for other/unknown device types (hex format: "#RRGGBB" or named color).
     /// </summary>
     public string DefaultColor { get; set; } = "Gray";
+
+    // Icon mode battery fill colors — light theme
+
+    /// <summary>
+    /// Icon mode fill color for low battery (&lt;10%) on light theme.
+    /// </summary>
+    public string IconLowColorLight { get; set; } = "#B03030";
+
+    /// <summary>
+    /// Icon mode fill color for medium battery (10-49%) on light theme.
+    /// </summary>
+    public string IconMediumColorLight { get; set; } = "#B09020";
+
+    /// <summary>
+    /// Icon mode fill color for high battery (>=50%) on light theme.
+    /// </summary>
+    public string IconHighColorLight { get; set; } = "#40A020";
+
+    // Icon mode battery fill colors — dark theme
+
+    /// <summary>
+    /// Icon mode fill color for low battery (&lt;10%) on dark theme.
+    /// </summary>
+    public string IconLowColorDark { get; set; } = "#E88B8B";
+
+    /// <summary>
+    /// Icon mode fill color for medium battery (10-49%) on dark theme.
+    /// </summary>
+    public string IconMediumColorDark { get; set; } = "#F2D479";
+
+    /// <summary>
+    /// Icon mode fill color for high battery (>=50%) on dark theme.
+    /// </summary>
+    public string IconHighColorDark { get; set; } = "#B4F2A0";
 }
 
 public class HttpServerSettings

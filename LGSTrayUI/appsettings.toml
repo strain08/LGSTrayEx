@@ -18,6 +18,17 @@ keyboardColor = "SlateGray"
 headsetColor = "Blue"
 defaultColor = "Gray"
 
+# Icon mode battery fill colors (light theme)
+# <10% = low, 10-49% = medium, >=50% = high
+iconLowColorLight = "#B03030"       # Dark red for low battery
+iconMediumColorLight = "#B09020"    # Dark yellow for medium battery
+iconHighColorLight = "#40A020"      # Dark green for high battery
+
+# Icon mode battery fill colors (dark theme)
+iconLowColorDark = "#E88B8B"
+iconMediumColorDark = "#F2D479"
+iconHighColorDark = "#B4F2A0"
+
 [HTTPServer]
 # Enable built-in HTTP server for status and control
 enabled = false
