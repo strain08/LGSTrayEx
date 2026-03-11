@@ -33,6 +33,7 @@ Currently tested with:
 - ✅(Bolt) MX Keys S
 - ✅(Bolt) MX Anywhere 3S
 - ✅(Bolt) MX Master 3
+- ✅(Bolt) MX Mechanical
 - ✅(Unifying) M330 Silent
 - ✅(Lightspeed) G Pro X 2 Mouse
 - ✅(Lightspeed) G305 Mouse
