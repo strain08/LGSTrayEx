@@ -29,7 +29,7 @@ See [release notes](https://github.com/strain08/LGSTrayBattery/releases/latest)
 - 🔋 Devices from roughly 2010+ that support HID++ 2.0
 - 🪫 Older HID++ 1.0 devices are likely unsupported (ping will fail)
 
-Currently tested and working with:
+Currently tested with:
 - ✅(Bolt) MX Keys S
 - ✅(Bolt) MX Anywhere 3S
 - ✅(Bolt) MX Master 3
@@ -38,6 +38,8 @@ Currently tested and working with:
 - ✅(Lightspeed) G305 Mouse
 - ✅(Lightspeed) G705 Mouse 
 - ✅(Lightspeed) G515 TKL
+- 🟥(Lightspeed) G522 Headset Native - not detected, cannot fix
+- 🟨(Lightspeed) G522 Headset Ghub - awaiting confirmation
 
 ## OS Compatibility
 - currently Windows 11 only
@@ -46,6 +48,8 @@ Currently tested and working with:
 - `enableRichToolsips = true` coud result in tooltips not closing properly when using fullscreen apps<br>
   Set this to `false` for classic windows tooltips. There is no specific functionality implemented for this.<br>
   It will default to `false` in versions after v3.1.3
+- if application does not start / does not produce log file please ensure proper permissions in install folder:
+  Current user and SYSTEM must have Full Control over folder and files.
 
 ## Issue reporting
 1. Edit `appsettings.toml`
