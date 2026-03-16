@@ -7,7 +7,8 @@ public enum HidppMessageType : short
     NONE = 0,
     SHORT,
     LONG,
-    VERY_LONG
+    VERY_LONG,
+    PROBE  // Non-FF00 vendor page with usage 0x0001 — Centurion headset candidate
 }
 
 internal static class HidDeviceInfoHelpers
@@ -24,7 +25,8 @@ internal static class HidDeviceInfoHelpers
     {
         unsafe
         {
-            if ((deviceInfo.UsagePage & 0xFF00) == 0xFF00)
+            // Standard HID++ usage page (FF00 only — not FF13, FFA0, etc.)
+            if (deviceInfo.UsagePage == 0xFF00)
             {
                 return deviceInfo.Usage switch
                 {
@@ -33,10 +35,14 @@ internal static class HidDeviceInfoHelpers
                     _ => HidppMessageType.NONE,
                 };
             }
-            else
+
+            // Other vendor-specific pages with usage 0x0001 — Centurion headset interfaces
+            if ((deviceInfo.UsagePage & 0xFF00) == 0xFF00 && deviceInfo.Usage == 0x0001)
             {
-                return HidppMessageType.NONE;
+                return HidppMessageType.PROBE;
             }
+
+            return HidppMessageType.NONE;
         }
     }
 

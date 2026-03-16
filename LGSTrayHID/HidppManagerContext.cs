@@ -1,4 +1,5 @@
-﻿using LGSTrayHID.HidApi;
+﻿using LGSTrayHID.Centurion;
+using LGSTrayHID.HidApi;
 using LGSTrayPrimitives;
 using LGSTrayPrimitives.MessageStructs;
 using System.Collections.Concurrent;
@@ -81,6 +82,16 @@ public sealed class HidppManagerContext
             case HidppMessageType.VERY_LONG:
                 DiagnosticLogger.Log($"Skipping device with unsupported message type: {messageType}");
                 return 0;
+
+            case HidppMessageType.PROBE:
+            {
+                string probePath = deviceInfo.GetPath();
+                DiagnosticLogger.Log($"[Centurion] Detected Centurion interface 0x{deviceInfo.UsagePage:X4}: {probePath}");
+                HidDevicePtr probeDev = HidOpenPath(ref deviceInfo);
+                var centurion = new CenturionDevice(probeDev, deviceInfo.UsagePage);
+                _ = Task.Run(() => centurion.InitAsync());
+                return 0;
+            }
         }
 
         string devPath = deviceInfo.GetPath();
