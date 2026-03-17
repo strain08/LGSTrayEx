@@ -36,8 +36,9 @@ internal static class HidDeviceInfoHelpers
                 };
             }
 
-            // Other vendor-specific pages with usage 0x0001 — Centurion headset interfaces
-            if ((deviceInfo.UsagePage & 0xFF00) == 0xFF00 && deviceInfo.Usage == 0x0001)
+            // Centurion transport interface (usage page 0xFFA0, report ID 0x51)
+            // Other vendor pages (e.g. 0xFF13) are unrelated and ignored.
+            if (deviceInfo.UsagePage == 0xFFA0 && deviceInfo.Usage == 0x0001)
             {
                 return HidppMessageType.PROBE;
             }

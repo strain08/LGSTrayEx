@@ -38,6 +38,7 @@ public class CenturionDevice : IDisposable
     // Battery polling
     private readonly BatteryUpdatePublisher _batteryPublisher = new();
     private readonly CancellationTokenSource _cts = new();
+    private readonly SemaphoreSlim _ioLock = new(1, 1);
     private Task? _pollingTask;
     private Task? _readLoopTask;
 
@@ -106,7 +107,7 @@ public class CenturionDevice : IDisposable
             await UpdateBattery(forceUpdate: true);
 
             // Step 6: Start background read loop for unsolicited events
-            _readLoopTask = Task.Run(() => BackgroundReadLoop(_cts.Token), _cts.Token);
+            _readLoopTask = BackgroundReadLoopAsync(_cts.Token);
 
             // Step 7: Start polling loop
             _pollingTask = Task.Run(() => PollBattery(_cts.Token), _cts.Token);
@@ -302,15 +303,23 @@ public class CenturionDevice : IDisposable
         {
             CenturionResponse? resp;
 
-            if (_isDongleMode)
+            await _ioLock.WaitAsync(_cts.Token).ConfigureAwait(false);
+            try
             {
-                await _transport.SendBridgeRequest(_bridgeIdx, _subDeviceId, _batterySocIdx, 0x00, []);
-                resp = _transport.ReadBridgeResponse(_bridgeIdx, timeoutMs: 3000);
+                if (_isDongleMode)
+                {
+                    await _transport.SendBridgeRequest(_bridgeIdx, _subDeviceId, _batterySocIdx, 0x00, []);
+                    resp = _transport.ReadBridgeResponse(_bridgeIdx, timeoutMs: 3000);
+                }
+                else
+                {
+                    await _transport.SendRequest(_batterySocIdx, 0x00, []);
+                    resp = _transport.ReadResponse(timeoutMs: 2000);
+                }
             }
-            else
+            finally
             {
-                await _transport.SendRequest(_batterySocIdx, 0x00, []);
-                resp = _transport.ReadResponse(timeoutMs: 2000);
+                _ioLock.Release();
             }
 
             if (resp == null)
@@ -326,6 +335,10 @@ public class CenturionDevice : IDisposable
             var now = DateTimeOffset.Now;
             _batteryPublisher.PublishUpdate(_identifier, _deviceName, batState.Value, now, "poll", forceUpdate);
             return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
         }
         catch (Exception ex)
         {
@@ -408,41 +421,70 @@ public class CenturionDevice : IDisposable
 
     // ---- Background read loop for unsolicited events ----
 
-    private void BackgroundReadLoop(CancellationToken ct)
+    // Async loop so it can yield the _ioLock between reads, allowing UpdateBattery
+    // to interleave without both sides calling _dev.Read() concurrently.
+    private async Task BackgroundReadLoopAsync(CancellationToken ct)
     {
         DiagnosticLogger.Log("[Centurion] Background read loop started");
 
-        _transport.ReadLoop(response =>
+        try
         {
-            // Battery event: BatterySOC feature, func=0, swid=0 (unsolicited)
-            if (response.FeatIdx == _batterySocIdx && response.SwId == 0x00)
+            while (!ct.IsCancellationRequested)
             {
-                var batState = ParseBatterySOC(response.Params);
-                if (batState != null)
+                CenturionResponse? frame;
+
+                await _ioLock.WaitAsync(ct).ConfigureAwait(false);
+                try
                 {
-                    var now = DateTimeOffset.Now;
-                    _batteryPublisher.PublishUpdate(_identifier, _deviceName, batState.Value, now, "event");
+                    // Short timeout so the lock is released frequently, letting
+                    // UpdateBattery acquire it without a long wait.
+                    frame = _transport.ReadResponse(timeoutMs: 100);
                 }
-            }
-
-            // Dongle mode: watch for bridge connection state changes
-            if (_isDongleMode && response.FeatIdx == _bridgeIdx && response.SwId == 0x00)
-            {
-                DiagnosticLogger.Log($"[Centurion] Bridge event received: func={response.FuncId} " +
-                                     $"params={BitConverter.ToString(response.Params)}");
-
-                // ConnectionStateChanged typically comes as func=0 event
-                // Re-query battery on reconnect
-                if (response.FuncId == 0x00)
+                finally
                 {
-                    _ = Task.Run(async () =>
+                    _ioLock.Release();
+                }
+
+                if (frame == null)
+                    continue;
+
+                // Battery event: BatterySOC feature, swid=0 (unsolicited)
+                if (frame.Value.FeatIdx == _batterySocIdx && frame.Value.SwId == 0x00)
+                {
+                    var batState = ParseBatterySOC(frame.Value.Params);
+                    if (batState != null)
                     {
-                        await Task.Delay(1000); // Let device stabilize
-                        await UpdateBattery(forceUpdate: true);
-                    });
+                        var now = DateTimeOffset.Now;
+                        _batteryPublisher.PublishUpdate(_identifier, _deviceName, batState.Value, now, "event");
+                    }
+                }
+
+                // Dongle mode: watch for bridge connection state changes
+                if (_isDongleMode && frame.Value.FeatIdx == _bridgeIdx && frame.Value.SwId == 0x00)
+                {
+                    DiagnosticLogger.Log($"[Centurion] Bridge event received: func={frame.Value.FuncId} " +
+                                         $"params={BitConverter.ToString(frame.Value.Params)}");
+
+                    // ConnectionStateChanged (func=0): re-query battery after device stabilises
+                    if (frame.Value.FuncId == 0x00)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                await Task.Delay(1000, ct);
+                                await UpdateBattery(forceUpdate: true);
+                            }
+                            catch (OperationCanceledException) { }
+                        }, ct);
+                    }
                 }
             }
-        }, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown
+        }
 
         DiagnosticLogger.Log("[Centurion] Background read loop ended");
     }
@@ -478,6 +520,7 @@ public class CenturionDevice : IDisposable
         }
 
         _transport.Dispose();
+        _ioLock.Dispose();
         _cts.Dispose();
 
         GC.SuppressFinalize(this);
