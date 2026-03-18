@@ -36,7 +36,7 @@ public class CenturionDevice : IDisposable
 
     // Device state
     private bool _isDongleMode;
-    private byte _subDeviceId = 0x01;   // Default sub-device ID for bridge mode
+    private const byte _subDeviceId = 0x00;   // Solaar's comment # device_id=0 for the headset 
     private string _deviceName = "Centurion Headset";
     private string _identifier = string.Empty;
     private string? _serialNumber;
