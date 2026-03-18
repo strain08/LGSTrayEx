@@ -30,16 +30,43 @@ public readonly record struct CenturionResponse(byte FeatIdx, byte FuncId, byte 
 public class CenturionTransport : IDisposable
 {
     private readonly HidDevicePtr _dev;
-    private readonly byte _reportId;
+    private readonly byte? _reportId; // null = passive (sniff-only) mode — unknown report ID
+
+    /// <summary>True when the report ID could not be detected; the transport can read but not send.</summary>
+    public bool IsPassive => !_reportId.HasValue;
 
     private const int FRAME_SIZE = 64;
     private const byte FLAGS_SINGLE = 0x00;
     public const byte SWID = 0x0A; // Match GlobalSettings default
 
-    public CenturionTransport(HidDevicePtr dev, byte reportId = 0x51)
+    public CenturionTransport(HidDevicePtr dev)
     {
         _dev = dev;
-        _reportId = reportId;
+        _reportId = DetectReportId(dev);
+        if (_reportId.HasValue)
+            DiagnosticLogger.Log($"[Centurion] Detected variant: report ID 0x{_reportId:X2}");
+        else
+            DiagnosticLogger.LogWarning("[Centurion] Unknown report ID — passive sniff mode (RX logging only)");
+    }
+
+    // Candidate report IDs tried in order. hid_write returns -1 immediately if the report ID
+    // is not accepted by the device. First successful write wins.
+    // If none match, the transport enters passive (sniff-only) mode — frames are logged but
+    // no requests are sent, allowing the unknown variant to be analysed from logs.
+    // 0x51 = PRO X 2 / Centurion LONG (most common, symmetric RX)
+    // 0x50 = G522 / Centurion SHORT (RX has extra device-address byte)
+    private static readonly byte[] ReportIdCandidates = [0x51, 0x50];
+
+    private static byte? DetectReportId(HidDevicePtr dev)
+    {
+        byte[] probe = new byte[FRAME_SIZE];
+        foreach (byte reportId in ReportIdCandidates)
+        {
+            probe[0] = reportId;
+            if (HidWrite(dev, probe, FRAME_SIZE) > 0)
+                return reportId;
+        }
+        return null;
     }
 
     /// <summary>
@@ -174,8 +201,10 @@ public class CenturionTransport : IDisposable
 
     private byte[] BuildFrame(byte featIdx, byte func, byte[] parameters)
     {
+        if (!_reportId.HasValue)
+            throw new InvalidOperationException("Cannot send: transport is in passive sniff mode");
         byte[] frame = new byte[FRAME_SIZE];
-        frame[0] = _reportId;
+        frame[0] = _reportId.Value;
         frame[1] = (byte)(3 + parameters.Length); // cpl_length = flags + featIdx + func|swid + params
         frame[2] = FLAGS_SINGLE;
         frame[3] = featIdx;
@@ -184,26 +213,54 @@ public class CenturionTransport : IDisposable
         return frame;
     }
 
+    // RX frame layout: byte offsets vary by report ID.
+    //
+    // 0x51 (PRO X 2, Centurion LONG) — symmetric, no device address:
+    //   [0] reportId  [1] cplLen  [2] flags  [3] featIdx  [4] func|swid  [5+] params
+    //
+    // 0x50 (G522, Centurion SHORT) — device address 0x23 inserted at [1] in every RX frame:
+    //   [0] reportId  [1] 0x23(devAddr)  [2] cplLen  [3] flags  [4] featIdx  [5] func|swid  [6+] params
+    //
+    // TX frames are always symmetric (no device address) regardless of report ID.
+    private readonly record struct FrameLayout(
+        int CplLenOffset,   // byte index of payloadLen
+        int FeatIdxOffset,  // byte index of feature index
+        int FuncSwidOffset, // byte index of func<<4|swid
+        int ParamsOffset    // byte index of first param byte
+    );
+
+    private static readonly FrameLayout Layout_0x51 = new(CplLenOffset: 1, FeatIdxOffset: 3, FuncSwidOffset: 4, ParamsOffset: 5);
+    private static readonly FrameLayout Layout_0x50 = new(CplLenOffset: 2, FeatIdxOffset: 4, FuncSwidOffset: 5, ParamsOffset: 6);
+
+    private static FrameLayout GetLayout(byte reportId) => reportId switch
+    {
+        0x50 => Layout_0x50,
+        _    => Layout_0x51,   // 0x51 and any future symmetric variants
+    };
+
     private static CenturionResponse? ParseFrame(byte[] buffer, int bytesRead)
     {
-        // Minimum valid frame: reportId + cplLen + flags + featIdx + func|swid = 5 bytes
-        if (bytesRead < 5)
-            return null;
+        if (bytesRead < 3) return null;
 
-        byte cplLen = buffer[1];
-        byte featIdx = buffer[3];
-        byte funcSwid = buffer[4];
-        byte funcId = (byte)((funcSwid >> 4) & 0x0F);
-        byte swId = (byte)(funcSwid & 0x0F);
+        var layout = GetLayout(buffer[0]);
 
-        // Params start at byte 5, length is cplLen - 3 (flags + featIdx + func|swid)
-        int paramLen = Math.Max(0, cplLen - 3);
-        int available = Math.Max(0, bytesRead - 5);
-        paramLen = Math.Min(paramLen, available);
+        // Need at least all header bytes up to and including func|swid
+        if (bytesRead <= layout.FuncSwidOffset) return null;
+
+        byte cplLen   = buffer[layout.CplLenOffset];
+        byte featIdx  = buffer[layout.FeatIdxOffset];
+        byte funcSwid = buffer[layout.FuncSwidOffset];
+        byte funcId   = (byte)((funcSwid >> 4) & 0x0F);
+        byte swId     = (byte)(funcSwid & 0x0F);
+
+        // Params length = cplLen - 3 (flags + featIdx + func|swid)
+        int paramLen  = Math.Max(0, cplLen - 3);
+        int available = Math.Max(0, bytesRead - layout.ParamsOffset);
+        paramLen      = Math.Min(paramLen, available);
 
         byte[] parameters = new byte[paramLen];
         if (paramLen > 0)
-            Array.Copy(buffer, 5, parameters, 0, paramLen);
+            Array.Copy(buffer, layout.ParamsOffset, parameters, 0, paramLen);
 
         return new CenturionResponse(featIdx, funcId, swId, parameters);
     }

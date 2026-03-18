@@ -69,9 +69,9 @@ public class CenturionDevice : IDisposable
     private const ushort FEAT_DEVICE_NAME = 0x0101;
     private const ushort FEAT_BATTERY_SOC = 0x0104;
 
-    public CenturionDevice(HidDevicePtr dev, ushort usagePage, byte reportId = 0x50)
+    public CenturionDevice(HidDevicePtr dev, ushort usagePage)
     {
-        _transport = new CenturionTransport(dev, reportId);
+        _transport = new CenturionTransport(dev);
         _usagePage = usagePage;
     }
 
@@ -85,6 +85,12 @@ public class CenturionDevice : IDisposable
             // from the read loop and routes them to pending requests or event handlers.
             _readLoopTask = _transport.RunReadLoopAsync(_frameChannel.Writer, _cts.Token);
             _dispatcherTask = ResponseDispatcherAsync(_cts.Token);
+
+            if (_transport.IsPassive)
+            {
+                DiagnosticLogger.Log($"{Tag} Passive mode — logging frames only, no feature discovery");
+                return;
+            }
 
             // Step 1: Discover parent features via CenturionRoot (index 0, func 0)
             _bridgeIdx = await QueryFeatureIndex(FEAT_CENTPP_BRIDGE);
