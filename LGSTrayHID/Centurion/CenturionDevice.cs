@@ -315,9 +315,13 @@ public class CenturionDevice : IDisposable
             DiagnosticLogger.Log($"{Tag} Bridge: headset connected");
             _ = Task.Run(async () =>
             {
-                await Task.Delay(1000); // Wait for RF stability
+                try
+                {
+                    await Task.Delay(1000, _cts.Token); // Wait for RF stability
                 if (_pendingInit) await CompleteInitAsync();
                 else await UpdateBattery(forceUpdate: true);
+                }
+                catch (OperationCanceledException) { } // Prevent accessing disposed objects when shutting down
             });
         }
         else
