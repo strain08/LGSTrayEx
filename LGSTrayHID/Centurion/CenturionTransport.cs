@@ -7,7 +7,11 @@ namespace LGSTrayHID.Centurion;
 /// <summary>
 /// Parsed Centurion CPL response frame.
 /// </summary>
-public readonly record struct CenturionResponse(byte FeatIdx, byte FuncId, byte SwId, byte[] Params);
+public readonly record struct CenturionResponse(byte FeatIdx, byte FuncId, byte SwId, byte[] Params)
+{
+    // All-zero params means no sub-device connected (headset sleeping or absent)
+    public bool IsOffline => Params.Length > 0 && Params.All(b => b == 0);    
+}
 
 /// <summary>
 /// Low-level Centurion CPL frame I/O on a single HID device handle.

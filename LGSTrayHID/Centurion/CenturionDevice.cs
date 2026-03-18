@@ -29,12 +29,16 @@ public class CenturionDevice : IDisposable
     private byte _bridgeIdx = 0xFF;     // CentPPBridge (0x0003) — 0xFF = not found
     private byte _batterySocIdx = 0xFF; // BatterySOC (0x0104) — 0xFF = not found
     private byte _deviceNameIdx = 0xFF; // DeviceName (0x0101) — 0xFF = not found
+    private byte _deviceInfoIdx = 0xFF; // DeviceInfo (0x0100) — 0xFF = not found
 
     // Device state
     private bool _isDongleMode;
     private byte _subDeviceId = 0x01;   // Default sub-device ID for bridge mode
     private string _deviceName = "Centurion Headset";
     private string _identifier = string.Empty;
+    private string? _serialNumber;
+    private string? _modelId;
+    private string? _unitId; // Hardware revision in Centurion terms
 
     // True while dongle is detected but headset has not yet been contacted.
     // No InitMessage is sent until this is cleared by CompleteInitAsync.
@@ -70,6 +74,7 @@ public class CenturionDevice : IDisposable
 
             // Step 1: Discover parent features via CenturionRoot (index 0, func 0)
             _bridgeIdx = await QueryFeatureIndex(FEAT_CENTPP_BRIDGE);
+            _deviceInfoIdx = await QueryFeatureIndex(FEAT_DEVICE_INFO);
             byte directBatterySocIdx = await QueryFeatureIndex(FEAT_BATTERY_SOC);
             _deviceNameIdx = await QueryFeatureIndex(FEAT_DEVICE_NAME);
 
@@ -98,7 +103,8 @@ public class CenturionDevice : IDisposable
                 DiagnosticLogger.Log($"{Tag} Direct mode — BatterySOC at index {_batterySocIdx}");
 
                 await TryGetDeviceName();
-                _identifier = DeviceIdentifierGenerator.GenerateIdentifier(null, null, null, _deviceName);
+                await TryGetDeviceInfo();
+                _identifier = DeviceIdentifierGenerator.GenerateIdentifier(_serialNumber, _unitId, _modelId, _deviceName);
                 string deviceSignature = $"NATIVE.{DeviceType.Headset}.{_identifier}";
 
                 HidppManagerContext.Instance.SignalDeviceEvent(
@@ -142,7 +148,10 @@ public class CenturionDevice : IDisposable
         {
             reached = await InitDongleMode();
             if (reached)
+            {
                 await TryGetDeviceName();
+                await TryGetDeviceInfo();
+            }
         }
         finally
         {
@@ -155,8 +164,8 @@ public class CenturionDevice : IDisposable
             return;
         }
 
-        // --- Step 2: Compute identifier from real device name ---
-        _identifier = DeviceIdentifierGenerator.GenerateIdentifier(null, null, null, _deviceName);
+        // --- Step 2: Compute identifier from real device name and metadata ---
+        _identifier = DeviceIdentifierGenerator.GenerateIdentifier(_serialNumber, _unitId, _modelId, _deviceName);
         string deviceSignature = $"NATIVE.{DeviceType.Headset}.{_identifier}";
 
         // --- Step 3: Register with UI ---
@@ -191,9 +200,8 @@ public class CenturionDevice : IDisposable
             DiagnosticLogger.LogWarning($"{Tag} No response from CentPPBridge.getConnectionInfo");
             return false;
         }
-
-        // All-zero params means no sub-device connected (headset sleeping or absent)
-        if (connResp.Value.Params.Length > 0 && connResp.Value.Params.All(b => b == 0))
+                
+        if (connResp.Value.IsOffline)
         {
             DiagnosticLogger.LogWarning($"{Tag} Headset appears offline (bridge reports no connected device)");
             return false;
@@ -217,6 +225,13 @@ public class CenturionDevice : IDisposable
         if (subNameIdx != 0xFF)
         {
             _deviceNameIdx = subNameIdx; // Prefer sub-device name over dongle name
+        }
+
+        // Discover DeviceInfo on sub-device via bridge
+        byte subInfoIdx = await QueryFeatureIndexViaBridge(FEAT_DEVICE_INFO);
+        if (subInfoIdx != 0xFF)
+        {
+            _deviceInfoIdx = subInfoIdx;
         }
 
         return true;
@@ -292,7 +307,7 @@ public class CenturionDevice : IDisposable
     {
         if (_deviceNameIdx == 0xFF)
             return;
-
+        DiagnosticLogger.Log($"[Centurion] Try get device name for _deviceNameIdx: {_deviceNameIdx}");
         try
         {
             // DeviceName func 0 = getNameLength, func 1 = getNameChunk
@@ -309,14 +324,40 @@ public class CenturionDevice : IDisposable
                 lengthResp = _transport.ReadResponse(timeoutMs: 2000);
             }
 
-            if (lengthResp == null || lengthResp.Value.Params.Length == 0)
+            if (lengthResp == null)
+            {
+                DiagnosticLogger.LogError($"Null response");
                 return;
+            }            
+
+            if (lengthResp.Value.Params.Length == 0)
+            {
+                DiagnosticLogger.LogError($"Empty params");
+                return;
+            }
 
             int nameLen = lengthResp.Value.Params[0];
             if (nameLen == 0 || nameLen > 64)
+            {
+                DiagnosticLogger.LogError($"Device name length: {nameLen}");
                 return;
+            }
 
-            // Read name in chunks
+            // --- INLINE NAME SUPPORT ---
+            // Some Centurion devices return the full name in the first response if it fits.
+            if (lengthResp.Value.Params.Length >= 1 + nameLen)
+            {
+                string inlineName = System.Text.Encoding.UTF8.GetString(lengthResp.Value.Params, 1, nameLen).TrimEnd('\0');
+                if (!string.IsNullOrWhiteSpace(inlineName))
+                {
+                    _deviceName = inlineName;
+                    DiagnosticLogger.Log($"{Tag} Device name (inline): {_deviceName}");
+                    return;
+                }
+            }
+
+            // --- CHUNKED NAME FALLBACK ---
+            // Otherwise, fetch name in chunks via function 1 (standard HID++ 2.0 behavior)
             var nameBytes = new List<byte>();
             for (int offset = 0; offset < nameLen; offset += 16)
             {
@@ -334,8 +375,7 @@ public class CenturionDevice : IDisposable
                 }
 
                 if (chunkResp == null || chunkResp.Value.Params.Length == 0)
-                    break;
-
+                    break;                
                 nameBytes.AddRange(chunkResp.Value.Params);
             }
 
@@ -347,13 +387,73 @@ public class CenturionDevice : IDisposable
                 if (!string.IsNullOrWhiteSpace(name))
                 {
                     _deviceName = name;
-                    DiagnosticLogger.Log($"{Tag} Device name: {_deviceName}");
+                    DiagnosticLogger.Log($"{Tag} Device name (chunked): {_deviceName}");
                 }
             }
         }
         catch (Exception ex)
         {
             DiagnosticLogger.LogWarning($"{Tag} Failed to read device name: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Reads hardware info (model, revision) and serial number via DeviceInfo (0x0100).
+    /// Must be called under _ioLock in dongle mode.
+    /// </summary>
+    private async Task TryGetDeviceInfo()
+    {
+        if (_deviceInfoIdx == 0xFF)
+            return;
+
+        try
+        {
+            // func 0 = getHardwareInfo (modelId, hwRevision, productId)
+            CenturionResponse? hwResp;
+            if (_isDongleMode)
+            {
+                await _transport.SendBridgeRequest(_bridgeIdx, _subDeviceId, _deviceInfoIdx, 0x00, []);
+                hwResp = _transport.ReadBridgeResponse(_bridgeIdx, timeoutMs: 3000);
+            }
+            else
+            {
+                await _transport.SendRequest(_deviceInfoIdx, 0x00, []);
+                hwResp = _transport.ReadResponse(timeoutMs: 2000);
+            }
+
+            if (hwResp != null && hwResp.Value.Params.Length >= 4)
+            {
+                _modelId = hwResp.Value.Params[0].ToString("X2");
+                _unitId = hwResp.Value.Params[1].ToString("X2"); // HW revision
+                DiagnosticLogger.Log($"{Tag} HW Info: Model={_modelId}, Rev={_unitId}");
+            }
+
+            // func 2 = getSerialNumber
+            CenturionResponse? snResp;
+            if (_isDongleMode)
+            {
+                await _transport.SendBridgeRequest(_bridgeIdx, _subDeviceId, _deviceInfoIdx, 0x02, []);
+                snResp = _transport.ReadBridgeResponse(_bridgeIdx, timeoutMs: 3000);
+            }
+            else
+            {
+                await _transport.SendRequest(_deviceInfoIdx, 0x02, []);
+                snResp = _transport.ReadResponse(timeoutMs: 2000);
+            }
+
+            if (snResp != null && snResp.Value.Params.Length >= 1)
+            {
+                int snLen = snResp.Value.Params[0];
+                if (snLen > 0 && snResp.Value.Params.Length >= 1 + snLen)
+                {
+                    _serialNumber = System.Text.Encoding.ASCII.GetString(snResp.Value.Params, 1, snLen).TrimEnd('\0');
+                    DiagnosticLogger.Log($"{Tag} Serial Number: {_serialNumber}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.LogWarning($"{Tag} Failed to read device info: {ex.Message}");
         }
     }
 
