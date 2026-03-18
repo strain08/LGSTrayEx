@@ -228,6 +228,15 @@ public class CenturionDevice : IDisposable
                 // 2. Handle Request Responses (SwId == SWID)
                 if (frame.SwId == CenturionTransport.SWID)
                 {
+                    // Outer ACK for CentPPBridge.sendMessage (func=0x01) — this is just the
+                    // dongle confirming it forwarded the message. The headset's actual response
+                    // arrives as a MessageEvent with swid=0 caught above.
+                    if (_isDongleMode && frame.FeatIdx == _bridgeIdx && frame.FuncId == 0x01)
+                    {
+                        DiagnosticLogger.Verbose($"{Tag} Dispatcher: bridge sendMessage ACK (ignored, awaiting MessageEvent)");
+                        continue;
+                    }
+
                     if (_pendingRequests.TryRemove(frame.SwId, out var tcs))
                     {
                         tcs.TrySetResult(frame);
@@ -262,23 +271,31 @@ public class CenturionDevice : IDisposable
 
         // Dongle mode: watch for bridge connection state changes
         if (_isDongleMode && frame.FeatIdx == _bridgeIdx)
-        {
-            // func=0x00: ConnectionStateChanged (event)
-            // func=0x01: MessageEvent (wrapped sub-device response)
-            if (frame.FuncId == 0x00)
+        {            
+            switch (frame.FuncId)
             {
-                await HandleBridgeConnectionEvent(frame);
-            }
-            else if (frame.FuncId == 0x01)
-            {
-                // Unwrap and dispatch sub-device frame
-                var subFrame = CenturionTransport.UnwrapBridgePayload(frame.Params);
-                if (subFrame != null)
-                {
-                    // Recurse to handle the unwrapped sub-device frame
-                    await HandleAsyncEvent(subFrame.Value);
-                }
-            }
+                case 0x00: // ConnectionStateChanged (event)
+                    await HandleBridgeConnectionEvent(frame);
+                    break;
+
+                case 0x01: // MessageEvent (wrapped sub-device response)                    
+                    var subFrame = CenturionTransport.UnwrapBridgePayload(frame.Params);
+                    if (subFrame != null)
+                    {
+                        // Solicited response: inner swid matches ours — complete the pending bridge request
+                        if (subFrame.Value.SwId == CenturionTransport.SWID &&
+                            _pendingRequests.TryRemove(subFrame.Value.SwId, out var tcs))
+                        {
+                            tcs.TrySetResult(subFrame.Value);
+                        }
+                        else
+                        {
+                            // Unsolicited sub-device event (swid=0) — recurse for battery/connection handling
+                            await HandleAsyncEvent(subFrame.Value);
+                        }
+                    }
+                    break;
+            }            
         }
     }
 
@@ -347,12 +364,12 @@ public class CenturionDevice : IDisposable
 
     private async Task<CenturionResponse?> SendBridgeRequestWithResponseAsync(byte subFeatIdx, byte subFunc, byte[] subParams, int timeoutMs = 3000)
     {
-        // We get an immediate ACK (swid=ours) 
-        // AND then an async MessageEvent (swid=0).
-        // For simplicity, we wait for the ACK first, then wait for the sub-device SWID in the dispatcher.
-        // ACTUALLY: The sub-device frame inside the bridge frame HAS its own SWID.
-        // In CenturionTransport.cs, we hardcode SWID=0x0A into the sub-frame func|swid byte.
-        
+        // Two-phase bridge response:
+        //   1. Outer ACK  (swid=ours, feat=bridgeIdx, func=0x01) — dongle confirms it forwarded the
+        //      message; dispatcher ignores this frame.
+        //   2. MessageEvent (swid=0, feat=bridgeIdx, func=0x01) — dongle delivers the headset's reply;
+        //      dispatcher unwraps the inner sub-frame, sees swid=0x0A (embedded by SendBridgeRequest),
+        //      and completes this TCS with the real headset response data.
         var tcs = new TaskCompletionSource<CenturionResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pendingRequests[CenturionTransport.SWID] = tcs;
 
