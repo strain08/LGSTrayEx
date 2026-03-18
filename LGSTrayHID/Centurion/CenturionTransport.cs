@@ -1,5 +1,6 @@
 using LGSTrayHID.HidApi;
 using LGSTrayPrimitives;
+using System.Threading.Channels;
 using static LGSTrayHID.HidApi.HidApi;
 
 namespace LGSTrayHID.Centurion;
@@ -9,8 +10,14 @@ namespace LGSTrayHID.Centurion;
 /// </summary>
 public readonly record struct CenturionResponse(byte FeatIdx, byte FuncId, byte SwId, byte[] Params)
 {
-    // All-zero params means no sub-device connected (headset sleeping or absent)
-    public bool IsOffline => Params.Length > 0 && Params.All(b => b == 0);    
+    /// <summary>
+    /// All-zero params means no sub-device connected (headset sleeping or absent)
+    /// </summary>
+    public bool HeadsetOffline => Params.Length > 0 && Params.All(b => b == 0);
+    /// <summary>
+    /// Not All-zero params means subdevice is present
+    /// </summary>
+    public bool HeadsetOnline => Params.Length > 0 && !Params.All(b => b == 0);
 }
 
 /// <summary>
@@ -18,7 +25,7 @@ public readonly record struct CenturionResponse(byte FeatIdx, byte FuncId, byte 
 /// Handles both direct and bridge-wrapped (dongle) communication.
 ///
 /// CPL frame format (64 bytes, zero-padded):
-///   [reportId] [cpl_length] [flags] [feat_idx] [func&lt;&lt;4 | swid] [params...]
+///   [reportId] [cpl_length] [flags] [feat_idx] [func<<4 | swid] [params...]
 /// </summary>
 public class CenturionTransport : IDisposable
 {
@@ -27,7 +34,7 @@ public class CenturionTransport : IDisposable
 
     private const int FRAME_SIZE = 64;
     private const byte FLAGS_SINGLE = 0x00;
-    private const byte SWID = 0x0A; // Match GlobalSettings default
+    public const byte SWID = 0x0A; // Match GlobalSettings default
 
     public CenturionTransport(HidDevicePtr dev, byte reportId = 0x51)
     {
@@ -50,7 +57,7 @@ public class CenturionTransport : IDisposable
     ///
     /// Bridge envelope format:
     ///   [reportId] [cpl_length] [flags=0x00] [bridge_idx] [0x10|swid]
-    ///   [dev_id&lt;&lt;4 | len_hi] [len_lo]
+    ///   [dev_id<<4 | len_hi] [len_lo]
     ///   [sub_cpl=0x00] [sub_feat_idx] [sub_func|swid] [params...]
     /// </summary>
     public async Task SendBridgeRequest(byte bridgeIdx, byte devId, byte subFeatIdx, byte subFunc, byte[] subParams)
@@ -78,87 +85,78 @@ public class CenturionTransport : IDisposable
     }
 
     /// <summary>
-    /// Read a single CPL response frame with timeout.
-    /// Returns null on timeout or disconnect.
+    /// Continuous read loop that pumps frames into a System.Threading.Channel.
+    /// This is the sole consumer of the HID handle's read buffer.
     /// </summary>
-    public CenturionResponse? ReadResponse(int timeoutMs = 2000)
+    public async Task RunReadLoopAsync(ChannelWriter<CenturionResponse> writer, CancellationToken ct)
     {
+        DiagnosticLogger.Log("[Centurion] Transport read loop started");
         byte[] buffer = new byte[FRAME_SIZE];
-        int bytesRead = _dev.Read(buffer, FRAME_SIZE, timeoutMs);
 
-        if (bytesRead <= 0)
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                // Task.Run yields to prevent CPU spinning if read is fast but dispatcher is busy
+                int bytesRead = await Task.Run(() => _dev.Read(buffer, FRAME_SIZE, 500), ct);
+
+                if (bytesRead < 0)
+                {
+                    DiagnosticLogger.LogWarning("[Centurion] Device disconnected or read error");
+                    break;
+                }
+
+                if (bytesRead > 0)
+                {
+                    LogRx(buffer, bytesRead);
+                    var parsed = ParseFrame(buffer, bytesRead);
+                    if (parsed != null)
+                    {
+                        if (!writer.TryWrite(parsed.Value))
+                        {
+                            await writer.WriteAsync(parsed.Value, ct);
+                        }
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.LogError($"[Centurion] Transport read loop exception: {ex.Message}");
+        }
+        finally
+        {
+            writer.TryComplete();
+            DiagnosticLogger.Log("[Centurion] Transport read loop ended");
+        }
+    }
+
+    /// <summary>
+    /// Unwrap a bridge payload from a MessageEvent parameter buffer.
+    /// Static so it can be used by the Dispatcher in CenturionDevice.
+    /// </summary>
+    public static CenturionResponse? UnwrapBridgePayload(byte[] bridgeParams)
+    {
+        // Bridge payload: [devId<<4|lenHi] [lenLo] [sub_flags] [sub_featIdx] [sub_func|swid] [params...]
+        if (bridgeParams.Length < 5)
             return null;
 
-        LogRx(buffer, bytesRead);
-        return ParseFrame(buffer, bytesRead);
-    }
+        int subMsgLen = ((bridgeParams[0] & 0x0F) << 8) | bridgeParams[1];
+        if (bridgeParams.Length < 2 + subMsgLen || subMsgLen < 3)
+            return null;
 
-    /// <summary>
-    /// Read a bridge response: discard the immediate ACK, then read the async MessageEvent
-    /// and unwrap the bridge envelope to return the sub-device payload.
-    /// </summary>
-    public CenturionResponse? ReadBridgeResponse(byte bridgeIdx, int timeoutMs = 3000)
-    {
-        var deadline = DateTimeOffset.UtcNow.AddMilliseconds(timeoutMs);
+        byte subFeatIdx = bridgeParams[3];
+        byte subFuncSwid = bridgeParams[4];
+        byte subFuncId = (byte)((subFuncSwid >> 4) & 0x0F);
+        byte subSwId = (byte)(subFuncSwid & 0x0F);
 
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            int remainingMs = Math.Max(50, (int)(deadline - DateTimeOffset.UtcNow).TotalMilliseconds);
-            var response = ReadResponse(remainingMs);
+        int subParamLen = subMsgLen - 3;
+        byte[] subParams = new byte[subParamLen];
+        if (subParamLen > 0)
+            Array.Copy(bridgeParams, 5, subParams, 0, Math.Min(subParamLen, bridgeParams.Length - 5));
 
-            if (response == null)
-                return null;
-
-            var r = response.Value;
-
-            // Skip ACK frames (func=0x01 sendMessage ACK, swid matches ours)
-            if (r.FeatIdx == bridgeIdx && r.FuncId == 0x01 && r.SwId == SWID)
-            {
-                DiagnosticLogger.Verbose("[Centurion] Bridge ACK received, waiting for MessageEvent...");
-                continue;
-            }
-
-            // MessageEvent: bridge feature, func=0x01, swid=0x00 (async event)
-            // Or func=0x00 with swid=0x00 for some firmware versions
-            if (r.FeatIdx == bridgeIdx && r.SwId == 0x00 && r.Params.Length >= 5)
-            {
-                return UnwrapBridgePayload(r.Params);
-            }
-
-            // Not a bridge response - could be unsolicited event, skip
-            DiagnosticLogger.Verbose($"[Centurion] Skipping non-bridge frame: feat=0x{r.FeatIdx:X2} func={r.FuncId} swid={r.SwId}");
-        }
-
-        DiagnosticLogger.LogWarning("[Centurion] Bridge response timeout");
-        return null;
-    }
-
-    /// <summary>
-    /// Continuously read frames, invoking the callback for each one.
-    /// Runs until cancellation or disconnect.
-    /// </summary>
-    public void ReadLoop(Action<CenturionResponse> onFrame, CancellationToken ct)
-    {
-        byte[] buffer = new byte[FRAME_SIZE];
-
-        while (!ct.IsCancellationRequested)
-        {
-            int bytesRead = _dev.Read(buffer, FRAME_SIZE, 500);
-
-            if (bytesRead < 0)
-            {
-                DiagnosticLogger.Log("[Centurion] Device disconnected (read loop)");
-                break;
-            }
-
-            if (bytesRead > 0)
-            {
-                LogRx(buffer, bytesRead);
-                var parsed = ParseFrame(buffer, bytesRead);
-                if (parsed != null)
-                    onFrame(parsed.Value);
-            }
-        }
+        return new CenturionResponse(subFeatIdx, subFuncId, subSwId, subParams);
     }
 
     public void Close()
@@ -208,29 +206,6 @@ public class CenturionTransport : IDisposable
             Array.Copy(buffer, 5, parameters, 0, paramLen);
 
         return new CenturionResponse(featIdx, funcId, swId, parameters);
-    }
-
-    private static CenturionResponse? UnwrapBridgePayload(byte[] bridgeParams)
-    {
-        // Bridge payload: [devId<<4|lenHi] [lenLo] [sub_flags] [sub_featIdx] [sub_func|swid] [params...]
-        if (bridgeParams.Length < 5)
-            return null;
-
-        int subMsgLen = ((bridgeParams[0] & 0x0F) << 8) | bridgeParams[1];
-        if (bridgeParams.Length < 2 + subMsgLen || subMsgLen < 3)
-            return null;
-
-        byte subFeatIdx = bridgeParams[3];
-        byte subFuncSwid = bridgeParams[4];
-        byte subFuncId = (byte)((subFuncSwid >> 4) & 0x0F);
-        byte subSwId = (byte)(subFuncSwid & 0x0F);
-
-        int subParamLen = subMsgLen - 3;
-        byte[] subParams = new byte[subParamLen];
-        if (subParamLen > 0)
-            Array.Copy(bridgeParams, 5, subParams, 0, Math.Min(subParamLen, bridgeParams.Length - 5));
-
-        return new CenturionResponse(subFeatIdx, subFuncId, subSwId, subParams);
     }
 
     private static void LogTx(string mode, byte featIdx, byte func, byte[] parameters)
