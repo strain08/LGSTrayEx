@@ -4,7 +4,6 @@ using LGSTrayHID.HidApi;
 using LGSTrayHID.Metadata;
 using LGSTrayPrimitives;
 using LGSTrayPrimitives.MessageStructs;
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading.Channels;
 
@@ -49,7 +48,20 @@ public class CenturionDevice : IDisposable
 
     // Channel-based I/O infrastructure
     private readonly Channel<CenturionResponse> _frameChannel = Channel.CreateUnbounded<CenturionResponse>();
-    private readonly ConcurrentDictionary<byte, TaskCompletionSource<CenturionResponse>> _pendingRequests = new();
+
+    /// Bundles the TCS with the expected response key so the dispatcher can reject stale responses
+    /// from timed-out requests. Must be a class so Interlocked.Exchange works on the reference.
+    private sealed class PendingRequest(byte featIdx, byte funcId, TaskCompletionSource<CenturionResponse> tcs)
+    {
+        public byte FeatIdx => featIdx;
+        public byte FuncId => funcId;        
+        public TaskCompletionSource<CenturionResponse> Tcs => tcs;
+        public bool MatchesResponse(CenturionResponse? resp) =>
+            resp.HasValue &&
+            resp.Value.FeatIdx == FeatIdx && 
+            resp.Value.FuncId == FuncId;
+    }
+    private PendingRequest? _pendingRequest; // at most one in-flight request (serialised by _ioLock)
 
     // Background tasks
     private readonly CancellationTokenSource _cts = new();
@@ -194,24 +206,28 @@ public class CenturionDevice : IDisposable
         }
         finally
         {
+            if (initCompleted)
+            {
+                // Step 4: Compute identifier and register with UI.
+                // _pendingInit is cleared here, inside the lock, so a concurrent CompleteInitAsync
+                // caller cannot slip through and emit a duplicate InitMessage.
+                _identifier = DeviceIdentifierGenerator.GenerateIdentifier(_serialNumber, _unitId, _modelId, _deviceName);
+                string deviceSignature = $"NATIVE.{DeviceType.Headset}.{_identifier}";
+
+                HidppManagerContext.Instance.SignalDeviceEvent(
+                    IPCMessageType.INIT,
+                    new InitMessage(_identifier, _deviceName, true, DeviceType.Headset, deviceSignature)
+                );
+
+                DiagnosticLogger.Log($"{Tag} Device registered: {_deviceName} ({_identifier})");
+                _pendingInit = false; // volatile write — establishes happens-before for _identifier visibility
+            }
             _initLock.Release();
         }
 
         if (initCompleted)
         {
-            // Step 4: Compute identifier and register with UI
-            _identifier = DeviceIdentifierGenerator.GenerateIdentifier(_serialNumber, _unitId, _modelId, _deviceName);
-            string deviceSignature = $"NATIVE.{DeviceType.Headset}.{_identifier}";
-            
-            HidppManagerContext.Instance.SignalDeviceEvent(
-                IPCMessageType.INIT, 
-                new InitMessage(_identifier, _deviceName, true, DeviceType.Headset, deviceSignature)
-            );
-            
-            DiagnosticLogger.Log($"{Tag} Device registered: {_deviceName} ({_identifier})");
-
-            // Step 5: Clear pending flag and do first battery read
-            _pendingInit = false;
+            // Step 5: First battery read (outside the lock — no need to block concurrent init callers).
             await UpdateBattery(forceUpdate: true);
         }
     }
@@ -246,10 +262,11 @@ public class CenturionDevice : IDisposable
                         continue;
                     }
 
-                    if (_pendingRequests.TryRemove(frame.SwId, out var tcs))
-                    {
-                        tcs.TrySetResult(frame);
-                    }
+                    var pending = Interlocked.Exchange(ref _pendingRequest, null);
+                    if (pending != null && pending.MatchesResponse(frame))
+                        pending.Tcs.TrySetResult(frame);
+                    else if (pending != null)
+                        DiagnosticLogger.LogWarning($"{Tag} Dispatcher: stale/mismatched response dropped (expected feat=0x{pending.FeatIdx:X2} func={pending.FuncId}, got feat=0x{frame.FeatIdx:X2} func={frame.FuncId})");
                     continue;
                 }
 
@@ -268,7 +285,7 @@ public class CenturionDevice : IDisposable
     private async Task HandleAsyncEvent(CenturionResponse frame)
     {
         // Battery event: BatterySOC feature, swid=0 (unsolicited)
-        if (frame.FeatIdx == _batterySocIdx && frame.FuncId == 0x00) // Usually func 0 for unsolicited
+        if (_batterySocIdx != 0xFF && frame.FeatIdx == _batterySocIdx && frame.FuncId == 0x00)
         {
             var batState = ParseBatterySOC(frame.Params);
             if (batState != null && !string.IsNullOrEmpty(_identifier))
@@ -289,20 +306,24 @@ public class CenturionDevice : IDisposable
 
                 case 0x01: // MessageEvent (wrapped sub-device response)                    
                     var subFrame = CenturionTransport.UnwrapBridgePayload(frame.Params);
-                    if (subFrame != null)
+                    if (subFrame == null) return;
+                    
+                    if (subFrame.Value.SwId == CenturionTransport.SWID)
                     {
-                        // Solicited response: inner swid matches ours — complete the pending bridge request
-                        if (subFrame.Value.SwId == CenturionTransport.SWID &&
-                            _pendingRequests.TryRemove(subFrame.Value.SwId, out var tcs))
-                        {
-                            tcs.TrySetResult(subFrame.Value);
-                        }
-                        else
-                        {
-                            // Unsolicited sub-device event (swid=0) — recurse for battery/connection handling
-                            await HandleAsyncEvent(subFrame.Value);
-                        }
+                        // Solicited response: complete the pending bridge request if it matches
+                        var pending = Interlocked.Exchange(ref _pendingRequest, null);
+                            
+                        if (pending != null && pending.MatchesResponse(subFrame))
+                            pending.Tcs.TrySetResult(subFrame.Value);
+                        else if (pending != null)
+                            DiagnosticLogger.LogWarning($"{Tag} Dispatcher: stale bridge response dropped (expected feat=0x{pending.FeatIdx:X2} func={pending.FuncId}, got feat=0x{subFrame.Value.FeatIdx:X2} func={subFrame.Value.FuncId})");
                     }
+                    else
+                    {
+                        // Unsolicited sub-device event (swid=0) — recurse for battery/connection handling
+                        await HandleAsyncEvent(subFrame.Value);
+                    }
+                    
                     break;
             }            
         }
@@ -318,8 +339,8 @@ public class CenturionDevice : IDisposable
                 try
                 {
                     await Task.Delay(1000, _cts.Token); // Wait for RF stability
-                if (_pendingInit) await CompleteInitAsync();
-                else await UpdateBattery(forceUpdate: true);
+                    if (_pendingInit) await CompleteInitAsync();
+                    else await UpdateBattery(forceUpdate: true);
                 }
                 catch (OperationCanceledException) { } // Prevent accessing disposed objects when shutting down
             });
@@ -345,14 +366,15 @@ public class CenturionDevice : IDisposable
     /// </summary>    
     private async Task<CenturionResponse?> SendRequestWithResponseAsync(byte featIdx, byte func, byte[] parameters, int timeoutMs = 2000)
     {
-        var tcs = new TaskCompletionSource<CenturionResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _pendingRequests[CenturionTransport.SWID] = tcs;
+        var pending = new PendingRequest(featIdx, func, new TaskCompletionSource<CenturionResponse>(TaskCreationOptions.RunContinuationsAsynchronously));
 
         try
         {
             await _ioLock.WaitAsync(_cts.Token);
             try
             {
+                // Register inside the lock so concurrent callers cannot overwrite each other.
+                _pendingRequest = pending;
                 await _transport.SendRequest(featIdx, func, parameters);
             }
             finally
@@ -362,8 +384,8 @@ public class CenturionDevice : IDisposable
 
             using var delayCts = new CancellationTokenSource(timeoutMs);
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, delayCts.Token);
-            
-            return await tcs.Task.WaitAsync(linkedCts.Token);
+
+            return await pending.Tcs.Task.WaitAsync(linkedCts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -371,7 +393,7 @@ public class CenturionDevice : IDisposable
         }
         finally
         {
-            _pendingRequests.TryRemove(CenturionTransport.SWID, out _);
+            Interlocked.Exchange(ref _pendingRequest, null);
         }
     }
 
@@ -383,14 +405,16 @@ public class CenturionDevice : IDisposable
         //   2. MessageEvent (swid=0, feat=bridgeIdx, func=0x01) — dongle delivers the headset's reply;
         //      dispatcher unwraps the inner sub-frame, sees swid=0x0A (embedded by SendBridgeRequest),
         //      and completes this TCS with the real headset response data.
-        var tcs = new TaskCompletionSource<CenturionResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _pendingRequests[CenturionTransport.SWID] = tcs;
+        // Key on the inner (sub-device) feat/func — that's what arrives in the unwrapped MessageEvent.
+        var pending = new PendingRequest(subFeatIdx, subFunc, new TaskCompletionSource<CenturionResponse>(TaskCreationOptions.RunContinuationsAsynchronously));
 
         try
         {
             await _ioLock.WaitAsync(_cts.Token);
             try
             {
+                // Register inside the lock so concurrent callers cannot overwrite each other.
+                _pendingRequest = pending;
                 await _transport.SendBridgeRequest(_bridgeIdx, _subDeviceId, subFeatIdx, subFunc, subParams);
             }
             finally
@@ -401,7 +425,7 @@ public class CenturionDevice : IDisposable
             using var delayCts = new CancellationTokenSource(timeoutMs);
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, delayCts.Token);
 
-            return await tcs.Task.WaitAsync(linkedCts.Token);
+            return await pending.Tcs.Task.WaitAsync(linkedCts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -409,7 +433,7 @@ public class CenturionDevice : IDisposable
         }
         finally
         {
-            _pendingRequests.TryRemove(CenturionTransport.SWID, out _);
+            Interlocked.Exchange(ref _pendingRequest, null);
         }
     }
 

@@ -27,7 +27,7 @@ public readonly record struct CenturionResponse(byte FeatIdx, byte FuncId, byte 
 /// CPL frame format (64 bytes, zero-padded):
 ///   [reportId] [cpl_length] [flags] [feat_idx] [func<<4 | swid] [params...]
 /// </summary>
-public class CenturionTransport : IDisposable
+public partial class CenturionTransport : IDisposable
 {
     private readonly HidDevicePtr _dev;
     private readonly byte? _reportId; // null = passive (sniff-only) mode — unknown report ID
@@ -212,37 +212,12 @@ public class CenturionTransport : IDisposable
         Array.Copy(parameters, 0, frame, 5, parameters.Length);
         return frame;
     }
-
-    // RX frame layout: byte offsets vary by report ID.
-    //
-    // 0x51 (PRO X 2, Centurion LONG) — symmetric, no device address:
-    //   [0] reportId  [1] cplLen  [2] flags  [3] featIdx  [4] func|swid  [5+] params
-    //
-    // 0x50 (G522, Centurion SHORT) — device address 0x23 inserted at [1] in every RX frame:
-    //   [0] reportId  [1] 0x23(devAddr)  [2] cplLen  [3] flags  [4] featIdx  [5] func|swid  [6+] params
-    //
-    // TX frames are always symmetric (no device address) regardless of report ID.
-    private readonly record struct FrameLayout(
-        int CplLenOffset,   // byte index of payloadLen
-        int FeatIdxOffset,  // byte index of feature index
-        int FuncSwidOffset, // byte index of func<<4|swid
-        int ParamsOffset    // byte index of first param byte
-    );
-
-    private static readonly FrameLayout Layout_0x51 = new(CplLenOffset: 1, FeatIdxOffset: 3, FuncSwidOffset: 4, ParamsOffset: 5);
-    private static readonly FrameLayout Layout_0x50 = new(CplLenOffset: 2, FeatIdxOffset: 4, FuncSwidOffset: 5, ParamsOffset: 6);
-
-    private static FrameLayout GetLayout(byte reportId) => reportId switch
-    {
-        0x50 => Layout_0x50,
-        _    => Layout_0x51,   // 0x51 and any future symmetric variants
-    };
-
+    
     private static CenturionResponse? ParseFrame(byte[] buffer, int bytesRead)
     {
         if (bytesRead < 3) return null;
 
-        var layout = GetLayout(buffer[0]);
+        var layout = FrameLayout.GetLayout(buffer[0]);
 
         // Need at least all header bytes up to and including func|swid
         if (bytesRead <= layout.FuncSwidOffset) return null;
