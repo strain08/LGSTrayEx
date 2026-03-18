@@ -58,7 +58,8 @@ public class CenturionDevice : IDisposable
     private Task? _pollingTask;
 
     // Concurrency
-    private readonly SemaphoreSlim _ioLock = new(1, 1); // Protects Write path
+    private readonly SemaphoreSlim _ioLock = new(1, 1);   // Serialises concurrent HID writes
+    private readonly SemaphoreSlim _initLock = new(1, 1); // Guards CompleteInitAsync — non-blocking tryacquire
     private readonly BatteryUpdatePublisher _batteryPublisher = new();
     private int _disposeCount = 0;
 
@@ -160,11 +161,13 @@ public class CenturionDevice : IDisposable
     {
         if (!_pendingInit) return;
 
+        // Allow only one concurrent init attempt.
+        if (!_initLock.Wait(0)) return;
+
         bool initCompleted = false;
-        await _ioLock.WaitAsync(_cts.Token);
         try
         {
-            if (!_pendingInit) return; // Double-check
+            if (!_pendingInit) return; // Double-check after winning the race
 
             // Step 1: Contact headset via CentPPBridge.getConnectionInfo (func 0)
             var connResp = await SendRequestWithResponseAsync(_bridgeIdx, 0x00, []);
@@ -191,7 +194,7 @@ public class CenturionDevice : IDisposable
         }
         finally
         {
-            _ioLock.Release();
+            _initLock.Release();
         }
 
         if (initCompleted)
@@ -618,6 +621,7 @@ public class CenturionDevice : IDisposable
 
         _transport.Dispose();
         _ioLock.Dispose();
+        _initLock.Dispose();
         _cts.Dispose();
         GC.SuppressFinalize(this);
     }
