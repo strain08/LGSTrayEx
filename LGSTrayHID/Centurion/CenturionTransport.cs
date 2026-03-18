@@ -49,14 +49,17 @@ public partial class CenturionTransport : IDisposable
             DiagnosticLogger.LogWarning("[Centurion] Unknown report ID — passive sniff mode (RX logging only)");
     }
 
-    // Candidate report IDs tried in order. hid_write returns -1 immediately if the report ID
-    // is not accepted by the device. First successful write wins.
-    // If none match, the transport enters passive (sniff-only) mode — frames are logged but
-    // no requests are sent, allowing the unknown variant to be analysed from logs.
     // 0x51 = PRO X 2 / Centurion LONG (most common, symmetric RX)
     // 0x50 = G522 / Centurion SHORT (RX has extra device-address byte)
     private static readonly byte[] ReportIdCandidates = [0x51, 0x50];
 
+    /// <summary>
+    /// Candidate report IDs tried in order.
+    ///  hid_write fails with -1 immediately on wrong report id
+    /// </summary>    
+    /// <returns>
+    /// report id or null
+    /// </returns>
     private static byte? DetectReportId(HidDevicePtr dev)
     {
         byte[] probe = new byte[FRAME_SIZE];
