@@ -282,10 +282,17 @@ public class CenturionDevice : IDisposable
         DiagnosticLogger.Log($"{Tag} Dispatcher ended");
     }
 
+    /// <summary>
+    /// Handles frame.SwId == 0x00 unsolicited events :
+    /// battery updates or bridge connection changes
+    /// </summary>
+    /// <param name="frame"></param>
+    /// <returns></returns>
     private async Task HandleAsyncEvent(CenturionResponse frame)
     {
-        // Battery event: BatterySOC feature, swid=0 (unsolicited)
-        if (_batterySocIdx != 0xFF && frame.FeatIdx == _batterySocIdx && frame.FuncId == 0x00)
+        // Battery event: BatterySOC feature, any func ID (unsolicited events arrive with swid=0,
+        // func ID is unspecified by the protocol — Solaar accepts any func ID on this feature)
+        if (_batterySocIdx != 0xFF && frame.FeatIdx == _batterySocIdx)
         {
             var batState = ParseBatterySOC(frame.Params);
             if (batState != null && !string.IsNullOrEmpty(_identifier))
