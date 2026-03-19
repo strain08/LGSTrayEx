@@ -34,43 +34,20 @@ public partial class CenturionTransport : IDisposable
 
     /// <summary>True when the report ID could not be detected; the transport can read but not send.</summary>
     public bool IsPassive => !_reportId.HasValue;
-
-    private const int FRAME_SIZE = 64;
     private const byte FLAGS_SINGLE = 0x00;
     public const byte SWID = 0x0A; // Match GlobalSettings default
 
     public CenturionTransport(HidDevicePtr dev)
     {
         _dev = dev;
-        _reportId = DetectReportId(dev);
+        _reportId = FrameLayout.DetectReportId(dev);
         if (_reportId.HasValue)
             DiagnosticLogger.Log($"[Centurion] Detected variant: report ID 0x{_reportId:X2}");
         else
             DiagnosticLogger.LogWarning("[Centurion] Unknown report ID — passive sniff mode (RX logging only)");
     }
 
-    // 0x51 = PRO X 2 / Centurion LONG (most common, symmetric RX)
-    // 0x50 = G522 / Centurion SHORT (RX has extra device-address byte)
-    private static readonly byte[] ReportIdCandidates = [0x51, 0x50];
 
-    /// <summary>
-    /// Candidate report IDs tried in order.
-    ///  hid_write fails with -1 immediately on wrong report id
-    /// </summary>    
-    /// <returns>
-    /// report id or null
-    /// </returns>
-    private static byte? DetectReportId(HidDevicePtr dev)
-    {
-        byte[] probe = new byte[FRAME_SIZE];
-        foreach (byte reportId in ReportIdCandidates)
-        {
-            probe[0] = reportId;
-            if (HidWrite(dev, probe, FRAME_SIZE) > 0)
-                return reportId;
-        }
-        return null;
-    }
 
     /// <summary>
     /// Build and send a direct CPL request frame.
@@ -121,14 +98,14 @@ public partial class CenturionTransport : IDisposable
     public async Task RunReadLoopAsync(ChannelWriter<CenturionResponse> writer, CancellationToken ct)
     {
         DiagnosticLogger.Log("[Centurion] Transport read loop started");
-        byte[] buffer = new byte[FRAME_SIZE];
+        byte[] buffer = new byte[FrameLayout.FRAME_SIZE];
 
         try
         {
             while (!ct.IsCancellationRequested)
             {
                 // Task.Run yields to prevent CPU spinning if read is fast but dispatcher is busy
-                int bytesRead = await Task.Run(() => _dev.Read(buffer, FRAME_SIZE, 500), ct);
+                int bytesRead = await Task.Run(() => _dev.Read(buffer, FrameLayout.FRAME_SIZE, 500), ct);
 
                 if (bytesRead < 0)
                 {
@@ -206,7 +183,7 @@ public partial class CenturionTransport : IDisposable
     {
         if (!_reportId.HasValue)
             throw new InvalidOperationException("Cannot send: transport is in passive sniff mode");
-        byte[] frame = new byte[FRAME_SIZE];
+        byte[] frame = new byte[FrameLayout.FRAME_SIZE];
         frame[0] = _reportId.Value;
         frame[1] = (byte)(3 + parameters.Length); // cpl_length = flags + featIdx + func|swid + params
         frame[2] = FLAGS_SINGLE;

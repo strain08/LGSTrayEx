@@ -1,3 +1,5 @@
+using LGSTrayHID.HidApi;
+using static LGSTrayHID.HidApi.HidApi;
 namespace LGSTrayHID.Centurion;
 
 // RX frame layout: byte offsets vary by report ID.
@@ -22,4 +24,28 @@ public readonly record struct FrameLayout(
         0x50 => Layout_0x50,
         _ => Layout_0x51,   // 0x51 and any future symmetric variants
     };
+    
+    // 0x51 = PRO X 2 / Centurion LONG (most common, symmetric RX)
+    // 0x50 = G522 / Centurion SHORT (RX has extra device-address byte)
+    private static readonly byte[] ReportIdCandidates = [0x51, 0x50];
+    public const int FRAME_SIZE = 64;
+
+    /// <summary>
+    /// Candidate report IDs tried in order.
+    ///  hid_write fails with -1 immediately on wrong report id
+    /// </summary>    
+    /// <returns>
+    /// report id or null
+    /// </returns>
+    public static byte? DetectReportId(HidDevicePtr dev)
+    {
+        byte[] probe = new byte[FRAME_SIZE];
+        foreach (byte reportId in ReportIdCandidates)
+        {
+            probe[0] = reportId;
+            if (HidWrite(dev, probe, FRAME_SIZE) > 0)
+                return reportId;
+        }
+        return null;
+    }
 }
