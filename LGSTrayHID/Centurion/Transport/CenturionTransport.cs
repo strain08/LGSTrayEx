@@ -3,22 +3,7 @@ using LGSTrayPrimitives;
 using System.Threading.Channels;
 using static LGSTrayHID.HidApi.HidApi;
 
-namespace LGSTrayHID.Centurion;
-
-/// <summary>
-/// Parsed Centurion CPL response frame.
-/// </summary>
-public readonly record struct CenturionResponse(byte FeatIdx, byte FuncId, byte SwId, byte[] Params)
-{
-    /// <summary>
-    /// All-zero params means no sub-device connected (headset sleeping or absent)
-    /// </summary>
-    public bool HeadsetOffline => Params.Length > 0 && Params.All(b => b == 0);
-    /// <summary>
-    /// Not All-zero params means subdevice is present
-    /// </summary>
-    public bool HeadsetOnline => Params.Length > 0 && !Params.All(b => b == 0);
-}
+namespace LGSTrayHID.Centurion.Transport;
 
 /// <summary>
 /// Low-level Centurion CPL frame I/O on a single HID device handle.
@@ -27,32 +12,33 @@ public readonly record struct CenturionResponse(byte FeatIdx, byte FuncId, byte 
 /// CPL frame format (64 bytes, zero-padded):
 ///   [reportId] [cpl_length] [flags] [feat_idx] [func<<4 | swid] [params...]
 /// </summary>
-public partial class CenturionTransport : IDisposable
+public class CenturionTransport : IDisposable
 {
     private readonly HidDevicePtr _dev;
-    private readonly byte? _reportId; // null = passive (sniff-only) mode — unknown report ID
+    protected readonly byte ReportId;
 
     /// <summary>True when the report ID could not be detected; the transport can read but not send.</summary>
-    public bool IsPassive => !_reportId.HasValue;
+    public virtual bool IsPassive => false;
+
     private const byte FLAGS_SINGLE = 0x00;
     public const byte SWID = 0x0A; // Match GlobalSettings default
 
-    public CenturionTransport(HidDevicePtr dev)
+    /// <summary>TX frame layout. Override in subclasses if the TX format differs from Layout_0x51.</summary>
+    protected virtual FrameLayout TxLayout => FrameLayout.Layout_0x51;
+
+    /// <summary>RX frame layout. Override in subclasses whose RX frames differ from the symmetric 0x51 format.</summary>
+    protected virtual FrameLayout RxLayout => FrameLayout.Layout_0x51;
+
+    protected CenturionTransport(HidDevicePtr dev, byte reportId)
     {
         _dev = dev;
-        _reportId = FrameLayout.DetectReportId(dev);
-        if (_reportId.HasValue)
-            DiagnosticLogger.Log($"[Centurion] Detected variant: report ID 0x{_reportId:X2}");
-        else
-            DiagnosticLogger.LogWarning("[Centurion] Unknown report ID — passive sniff mode (RX logging only)");
+        ReportId = reportId;
     }
-
-
 
     /// <summary>
     /// Build and send a direct CPL request frame.
     /// </summary>
-    public async Task SendRequest(byte featIdx, byte func, byte[] parameters)
+    public virtual async Task SendDirectRequest(byte featIdx, byte func, byte[] parameters)
     {
         byte[] frame = BuildFrame(featIdx, func, parameters);
         LogTx("Direct", featIdx, func, parameters);
@@ -67,7 +53,7 @@ public partial class CenturionTransport : IDisposable
     ///   [dev_id<<4 | len_hi] [len_lo]
     ///   [sub_cpl=0x00] [sub_feat_idx] [sub_func|swid] [params...]
     /// </summary>
-    public async Task SendBridgeRequest(byte bridgeIdx, byte devId, byte subFeatIdx, byte subFunc, byte[] subParams)
+    public virtual async Task SendBridgeRequest(byte bridgeIdx, byte devId, byte subFeatIdx, byte subFunc, byte[] subParams)
     {
         // Sub-device message: [sub_cpl=0x00] [sub_feat_idx] [sub_func|swid] [params...]
         int subMsgLen = 3 + subParams.Length;
@@ -95,7 +81,7 @@ public partial class CenturionTransport : IDisposable
     /// Continuous read loop that pumps frames into a System.Threading.Channel.
     /// This is the sole consumer of the HID handle's read buffer.
     /// </summary>
-    public async Task RunReadLoopAsync(ChannelWriter<CenturionResponse> writer, CancellationToken ct)
+    public virtual async Task RunReadLoopAsync(ChannelWriter<CenturionResponse> writer, CancellationToken ct)
     {
         DiagnosticLogger.Log("[Centurion] Transport read loop started");
         byte[] buffer = new byte[FrameLayout.FRAME_SIZE];
@@ -116,14 +102,10 @@ public partial class CenturionTransport : IDisposable
                 if (bytesRead > 0)
                 {
                     LogRx(buffer, bytesRead);
-                    var parsed = ParseFrame(buffer, bytesRead);
-                    if (parsed != null)
-                    {
-                        if (!writer.TryWrite(parsed.Value))
-                        {
-                            await writer.WriteAsync(parsed.Value, ct);
-                        }
-                    }
+                    
+                    var parsed = ParseFrame(RxLayout, buffer, bytesRead);
+                    if (parsed != null && !writer.TryWrite(parsed.Value))
+                        await writer.WriteAsync(parsed.Value, ct);
                 }
             }
         }
@@ -141,23 +123,38 @@ public partial class CenturionTransport : IDisposable
 
     /// <summary>
     /// Unwrap a bridge payload from a MessageEvent parameter buffer.
-    /// Static so it can be used by the Dispatcher in CenturionDevice.
+    /// </summary>   
+    public virtual CenturionResponse? UnwrapBridgedFrame(byte[] bridgeParams)
+        => UnwrapBridgePayload(bridgeParams);
+
+    /// <summary>
+    /// Pure algorithm — testable without a device instance.
     /// </summary>
     public static CenturionResponse? UnwrapBridgePayload(byte[] bridgeParams)
     {
+        //                 0                1       2           3             4               5+  
         // Bridge payload: [devId<<4|lenHi] [lenLo] [sub_flags] [sub_featIdx] [sub_func|swid] [params...]
         if (bridgeParams.Length < 5)
+        {
+            DiagnosticLogger.Verbose($"[Centurion] UnwrapBridge: too short ({bridgeParams.Length} bytes, need 5)");
             return null;
+        }
 
+        // total 12 bit max subMessage length = 4095 bytes
         int subMsgLen = ((bridgeParams[0] & 0x0F) << 8) | bridgeParams[1];
+        // sub-message needs at least [flags][featIdx][func|swid]
+        // subMsgLen < 3 rejects malformed frames
         if (bridgeParams.Length < 2 + subMsgLen || subMsgLen < 3)
+        {
+            DiagnosticLogger.Verbose($"[Centurion] UnwrapBridge: malformed subMsgLen={subMsgLen} available={bridgeParams.Length - 2} raw={BitConverter.ToString(bridgeParams)}");
             return null;
+        }
 
         byte subFeatIdx = bridgeParams[3];
         byte subFuncSwid = bridgeParams[4];
         byte subFuncId = (byte)((subFuncSwid >> 4) & 0x0F);
-        byte subSwId = (byte)(subFuncSwid & 0x0F);
-
+        byte subSwId   = (byte)(subFuncSwid & 0x0F);
+        
         int subParamLen = subMsgLen - 3;
         byte[] subParams = new byte[subParamLen];
         if (subParamLen > 0)
@@ -181,23 +178,58 @@ public partial class CenturionTransport : IDisposable
 
     private byte[] BuildFrame(byte featIdx, byte func, byte[] parameters)
     {
-        if (!_reportId.HasValue)
+        if (IsPassive)
             throw new InvalidOperationException("Cannot send: transport is in passive sniff mode");
+        return BuildFrame(TxLayout, ReportId, featIdx, func, parameters);
+    }
+    //private CenturionResponse? ParseFrame(byte[] buffer, int bytesRead) => ParseFrame(RxLayout, buffer, bytesRead);
+
+    // ---- Internal static overloads (testable without a HID device) ----
+
+    /// <summary>
+    /// Build a 64-byte CPL request frame. TX layout is always Layout_0x51 (no device
+    /// address) for both variants — the 0x23 source-address byte only appears in RX.
+    /// </summary>
+    internal static byte[] BuildFrame(FrameLayout layout, byte reportId, byte featIdx, byte func, byte[] parameters)
+    {
+        // CPL TX frame (64 bytes, zero-padded):
+        //   [0]              reportId
+        //   [CplLenOffset]   3 + params.Length  (counts flags + featIdx + func|swid + params)
+        //   [FlagsOffset]    0x00
+        //   [FeatIdxOffset]  featIdx
+        //   [FuncSwidOffset] func<<4 | SWID
+        //   [ParamsOffset..] params[0..n]
+        //   [rest]           0x00 padding
         byte[] frame = new byte[FrameLayout.FRAME_SIZE];
-        frame[0] = _reportId.Value;
-        frame[1] = (byte)(3 + parameters.Length); // cpl_length = flags + featIdx + func|swid + params
-        frame[2] = FLAGS_SINGLE;
-        frame[3] = featIdx;
-        frame[4] = (byte)((func << 4) | SWID);
-        Array.Copy(parameters, 0, frame, 5, parameters.Length);
+        frame[0] = reportId;
+        frame[layout.CplLenOffset]   = (byte)(3 + parameters.Length);
+        frame[layout.FlagsOffset]    = FLAGS_SINGLE;
+        frame[layout.FeatIdxOffset]  = featIdx;
+        frame[layout.FuncSwidOffset] = (byte)((func << 4) | SWID);
+        Array.Copy(parameters, 0, frame, layout.ParamsOffset, parameters.Length);
         return frame;
     }
-    
-    private static CenturionResponse? ParseFrame(byte[] buffer, int bytesRead)
-    {
-        if (bytesRead < 3) return null;
 
-        var layout = FrameLayout.GetLayout(buffer[0]);
+    /// <summary>
+    /// Parse a received CPL frame. Returns null if too short to hold a valid header.
+    /// RX layout differs by variant: Layout_0x50 (G522) has an extra device-address byte
+    /// (0x23) at [1] that shifts all field offsets by one vs Layout_0x51 (PRO X 2).
+    /// </summary>
+    internal static CenturionResponse? ParseFrame(FrameLayout layout, byte[] buffer, int bytesRead)
+    {
+        // CPL RX frame — Layout_0x51 (PRO X 2, symmetric):         Layout_0x50 (G522, indexed):
+        //   [0]  reportId (0x51)                                      [0]  reportId (0x50)
+        //                                                             [1]  0x23 (device address, RX only)
+        //   [CplLenOffset]   cplLen  (flags+featIdx+func|swid+params) [CplLenOffset]   cplLen
+        //   [FlagsOffset]    0x00                                     [FlagsOffset]    0x00
+        //   [FeatIdxOffset]  featIdx                                  [FeatIdxOffset]  featIdx
+        //   [FuncSwidOffset] func<<4 | swId                           [FuncSwidOffset] func<<4 | swId
+        //   [ParamsOffset..] params[0..n]                             [ParamsOffset..] params[0..n]
+        //
+        // swId==0x00 → unsolicited device event
+        // swId==SWID → response to our request
+        // swId==other → foreign software frame, ignored by dispatcher
+        if (bytesRead < 3) return null;
 
         // Need at least all header bytes up to and including func|swid
         if (bytesRead <= layout.FuncSwidOffset) return null;
