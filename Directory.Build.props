@@ -1,4 +1,9 @@
 <Project>
+  <PropertyGroup>
+    <VersionPrefix>3.2.0</VersionPrefix>
+    <VersionSuffix>dev</VersionSuffix>
+  </PropertyGroup>
+
   <!--
     Run after InitializeSourceControlInformation (which sets SourceRevisionId to the full git SHA)
     and before CoreGenerateAssemblyInfo (which writes it into AssemblyInformationalVersion).
