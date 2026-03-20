@@ -1,0 +1,19 @@
+<Project>
+  <!--
+    Run after InitializeSourceControlInformation (which sets SourceRevisionId to the full git SHA)
+    and before CoreGenerateAssemblyInfo (which writes it into AssemblyInformationalVersion).
+    Result: AssemblyInformationalVersion = "{version}+{short-sha}.{utc-timestamp}"
+  -->
+  <Target Name="SetSourceRevisionId"
+          AfterTargets="InitializeSourceControlInformation"
+          BeforeTargets="AddSourceRevisionToInformationalVersion">
+    <PropertyGroup>
+      <!-- Truncate full SHA to 7 chars; fall back to "unknown" when git is unavailable -->
+      <_FullSha>$(SourceRevisionId)</_FullSha>
+      <_ShortSha Condition="'$(_FullSha)' != '' And $([System.String]::Copy('$(_FullSha)').Length) &gt;= 7">$([System.String]::Copy('$(_FullSha)').Substring(0, 7))</_ShortSha>
+      <_ShortSha Condition="'$(_ShortSha)' == ''">unknown</_ShortSha>
+      <_BuildTs>$([System.DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ"))</_BuildTs>
+      <SourceRevisionId>$(_ShortSha).$(_BuildTs)</SourceRevisionId>
+    </PropertyGroup>
+  </Target>
+</Project>

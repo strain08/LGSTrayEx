@@ -13,6 +13,7 @@
     <Nullable>enable</Nullable>
     <PublishSingleFile>true</PublishSingleFile>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <VersionPrefix>3.1.9</VersionPrefix>
   </PropertyGroup>
 
   <ItemGroup>

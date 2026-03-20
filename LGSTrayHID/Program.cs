@@ -1,5 +1,6 @@
 ﻿using LGSTrayHID.Protocol;
 using LGSTrayPrimitives;
+using System.Reflection;
 using LGSTrayPrimitives.IPC;
 using LGSTrayPrimitives.Retry;
 using Microsoft.Extensions.Configuration;
@@ -53,6 +54,13 @@ internal class Program
         // Initialize logging
         int maxLogLines = loggingSettings?.MaxLines ?? 1000;
         DiagnosticLogger.Initialize(enableLogging, enableVerbose, maxLogLines);
+
+        var hidVer = "v" + (Assembly.GetEntryAssembly()
+            ?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion?.Split('+')[0] ?? "?");
+        var hidBuildInfo = BuildInfo.FromAssembly(Assembly.GetEntryAssembly()!);
+        var hidBuildSuffix = hidBuildInfo.Length > 0 ? $" [{hidBuildInfo}]" : "";
+        DiagnosticLogger.Log($"LGSTrayHID {hidVer}{hidBuildSuffix} logging started.");
 
         GlobalSettings.settings = builder.Configuration.GetSection("Native")
             .Get<NativeDeviceManagerSettings>() ?? GlobalSettings.settings;
