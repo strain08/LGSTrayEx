@@ -73,7 +73,8 @@ public class CenturionDevice : IDisposable
     private const ushort FEAT_BATTERY_SOC   = 0x0104;
     
     // Workflow delays
-    private const int HEADSET_ONLINE_DELAY_MS = 1000;
+    private const int HEADSET_ONLINE_DELAY_MS = 1000;    // time to wait for RF link to stabilise after wakeup
+    private const int PENDING_INIT_POLL_INTERVAL_S = 15;
 
     public CenturionDevice(HidDevicePtr dev, ushort usagePage)
     {
@@ -150,7 +151,11 @@ public class CenturionDevice : IDisposable
             }
             else
             {
-                DiagnosticLogger.LogWarning($"{Tag} No CentPPBridge or BatterySOC found — cannot monitor battery");
+                // Feature discovery failed — headset is likely asleep. Enter deferred-discovery mode:
+                // the polling loop will retry discovery and bridge events will infer the bridge index.
+                _pendingInit = true;
+                DiagnosticLogger.LogWarning($"{Tag} Feature discovery timed out — entering deferred-discovery mode (headset likely asleep)");
+                _pollingTask = Task.Run(() => PollBattery(_cts.Token), _cts.Token);
             }
         }
         catch (Exception ex)
@@ -296,6 +301,26 @@ public class CenturionDevice : IDisposable
     /// </summary>
     private async Task HandleAsyncEvent(CenturionResponse frame)
     {
+        // Bridge index not yet known — infer it from spontaneous ConnectionStateChanged events.
+        // The dongle emits feat=N, func=0, swid=0 frames when the headset wakes.
+        if (_bridgeIdx == 0xFF && frame.FuncId == 0x00 && frame.HeadsetOnline)
+        {
+            _bridgeIdx = frame.FeatIdx;
+            _subChannel = new CenturionBridgeChannel(_transport, _bridgeIdx, _subDeviceId, _cts.Token);
+            _pendingInit = true;
+            DiagnosticLogger.Log($"{Tag} Bridge index inferred from ConnectionStateChanged event: feat=0x{_bridgeIdx:X2}");
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(HEADSET_ONLINE_DELAY_MS, _cts.Token);
+                    await CompleteInitAsync();
+                }
+                catch (OperationCanceledException) { }
+            });
+            return;
+        }
+
         if (_batteryFeature != null && frame.FeatIdx == _batteryFeature.FeatureIndex)
         {
             var batState = _batteryFeature.ParseBatteryParams(frame.Params);
@@ -389,6 +414,25 @@ public class CenturionDevice : IDisposable
         }
     }
 
+    private async Task RetryBridgeDiscoveryAsync()
+    {
+        DiagnosticLogger.Verbose($"{Tag} Retrying bridge discovery...");
+
+        byte bridgeIdx = await QueryFeatureIndex(_parentChannel, FEAT_CENTPP_BRIDGE);
+        if (bridgeIdx == 0xFF) return; // Still not responding
+
+        // Bridge found — configure channel and trigger init
+        _bridgeIdx     = bridgeIdx;
+        _deviceInfoIdx = await QueryFeatureIndex(_parentChannel, FEAT_DEVICE_INFO);
+        _deviceNameIdx = await QueryFeatureIndex(_parentChannel, FEAT_DEVICE_NAME);
+
+        _subChannel  = new CenturionBridgeChannel(_transport, _bridgeIdx, _subDeviceId, _cts.Token);
+        _pendingInit = true; // still true; CompleteInitAsync will clear it
+
+        DiagnosticLogger.Log($"{Tag} Bridge discovered on retry: index 0x{_bridgeIdx:X2}");
+        await CompleteInitAsync();
+    }
+
     private async Task PollBattery(CancellationToken ct)
     {
         DiagnosticLogger.Log($"{Tag} Battery polling started");
@@ -396,7 +440,9 @@ public class CenturionDevice : IDisposable
         {
             try
             {
-                if (_pendingInit)
+                if (_bridgeIdx == 0xFF)
+                    await RetryBridgeDiscoveryAsync();
+                else if (_pendingInit)
                     await CompleteInitAsync();
                 else
                     await UpdateBattery();
@@ -407,7 +453,10 @@ public class CenturionDevice : IDisposable
                 DiagnosticLogger.LogWarning($"{Tag} Poll error: {ex.Message}");
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(GlobalSettings.settings.PollPeriod, 20, 3600)), ct);
+            TimeSpan delay = (_bridgeIdx == 0xFF || _pendingInit)
+                ? TimeSpan.FromSeconds(PENDING_INIT_POLL_INTERVAL_S)
+                : TimeSpan.FromSeconds(Math.Clamp(GlobalSettings.settings.PollPeriod, 20, 3600));
+            await Task.Delay(delay, ct);
         }
         DiagnosticLogger.Log($"{Tag} Battery polling stopped");
     }

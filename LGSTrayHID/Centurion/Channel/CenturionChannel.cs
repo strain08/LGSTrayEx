@@ -107,7 +107,10 @@ public abstract class CenturionChannel : IDisposable
     {
         var pending = Interlocked.Exchange(ref _pendingRequest, null);
         if (pending == null)
+        {
+            DiagnosticLogger.Verbose($"[Centurion] Late response dropped (no pending): feat=0x{frame.FeatIdx:X2} func={frame.FuncId} swid=0x{frame.SwId:X2} — device may have woken after timeout");
             return false;
+        }
         if (pending.MatchesResponse(frame))
         {
             pending.Tcs.TrySetResult(frame);

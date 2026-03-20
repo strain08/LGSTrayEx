@@ -16,6 +16,4 @@ public sealed class CenturionDirectChannel(CenturionTransport transport, Cancell
             Transport.SendDirectRequest(featIdx, func, parameters));
 
     public override bool TryCompleteRequest(CenturionResponse frame) => TrySetPending(frame);
-
-    // TryHandleEvent → base returns (false, null): all SwId==0 frames go to HandleAsyncEvent
 }
