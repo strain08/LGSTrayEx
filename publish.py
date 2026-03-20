@@ -21,18 +21,21 @@ FILE_TYPES = [
 
 TARGET_PROJ = 'LGSTrayUI'
 PROJ_FILE = f'./{TARGET_PROJ}/{TARGET_PROJ}.csproj'
+BUILD_PROPS_FILE = './Directory.Build.props'
 
-# Parse version with error handling
-if not os.path.exists(PROJ_FILE):
-    raise FileNotFoundError(f"Project file not found: {PROJ_FILE}")
+# Parse version - check Directory.Build.props first, fall back to csproj
+def find_version_prefix(*files):
+    for f in files:
+        if not os.path.exists(f):
+            continue
+        elements = ET.parse(f).getroot().findall('./PropertyGroup/VersionPrefix')
+        if elements and elements[0].text:
+            return elements[0].text, f
+    return None, None
 
-root = ET.parse(PROJ_FILE).getroot()
-version_elements = root.findall('./PropertyGroup/VersionPrefix')
-if not version_elements:
-    raise ValueError(f"VersionPrefix not found in {PROJ_FILE}")
-TARGET_VER = version_elements[0].text
+TARGET_VER, ver_source = find_version_prefix(BUILD_PROPS_FILE, PROJ_FILE)
 if not TARGET_VER:
-    raise ValueError(f"VersionPrefix is empty in {PROJ_FILE}")
+    raise ValueError(f"VersionPrefix not found in {BUILD_PROPS_FILE} or {PROJ_FILE}")
 
 def file_list(zipFolder):
     for fileType in FILE_TYPES:
