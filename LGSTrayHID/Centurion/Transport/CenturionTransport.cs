@@ -187,21 +187,16 @@ public class CenturionTransport : IDisposable
     // ---- Internal static overloads (testable without a HID device) ----
 
     /// <summary>
-    /// Build a 64-byte CPL request frame. TX layout is always Layout_0x51 (no device
-    /// address) for both variants — the 0x23 source-address byte only appears in RX.
+    /// Build a 64-byte CPL request frame.
+    /// For Layout_0x50: includes device address (0x23) at [1], matching the RX format.
+    /// For Layout_0x51: symmetric (no device address).
     /// </summary>
     internal static byte[] BuildFrame(FrameLayout layout, byte reportId, byte featIdx, byte func, byte[] parameters)
     {
-        // CPL TX frame (64 bytes, zero-padded):
-        //   [0]              reportId
-        //   [CplLenOffset]   3 + params.Length  (counts flags + featIdx + func|swid + params)
-        //   [FlagsOffset]    0x00
-        //   [FeatIdxOffset]  featIdx
-        //   [FuncSwidOffset] func<<4 | SWID
-        //   [ParamsOffset..] params[0..n]
-        //   [rest]           0x00 padding
         byte[] frame = new byte[FrameLayout.FRAME_SIZE];
         frame[0] = reportId;
+        if (layout.DeviceAddress.HasValue)
+            frame[1] = layout.DeviceAddress.Value;
         frame[layout.CplLenOffset]   = (byte)(3 + parameters.Length);
         frame[layout.FlagsOffset]    = FLAGS_SINGLE;
         frame[layout.FeatIdxOffset]  = featIdx;

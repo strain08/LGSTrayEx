@@ -170,7 +170,12 @@ public class CenturionDevice : IDisposable
     /// Completes device registration for dongle mode once the headset is reachable.
     /// Safe to call repeatedly — no-ops immediately if already registered (_pendingInit == false).
     /// </summary>
-    public async Task CompleteInitAsync()
+    /// <param name="headsetOnlineConfirmed">
+    /// When true, skip getConnectionInfo — caller already knows the headset is online
+    /// (e.g. from a ConnectionStateChanged event). Avoids a redundant query that may
+    /// time out during the dongle's own post-wakeup enumeration.
+    /// </param>
+    public async Task CompleteInitAsync(bool headsetOnlineConfirmed = false)
     {
         if (!_pendingInit) return;
 
@@ -182,20 +187,31 @@ public class CenturionDevice : IDisposable
         {
             if (!_pendingInit) return; // Double-check after winning the race
 
-            // Step 1: Contact headset via CentPPBridge.getConnectionInfo (func 0).
-            // This is a direct query to the dongle, not a bridge-wrapped request.
-            var connResp = await _parentChannel.SendAsync(_bridgeIdx, 0x00, []);
-            if (connResp == null)
+            bool headsetReachable = headsetOnlineConfirmed;
+
+            if (!headsetReachable)
             {
-                DiagnosticLogger.LogWarning($"{Tag} CompleteInit: getConnectionInfo timed out — headset likely asleep");
+                // Step 1: Contact headset via CentPPBridge.getConnectionInfo (func 0).
+                // This is a direct query to the dongle, not a bridge-wrapped request.
+                var connResp = await _parentChannel.SendAsync(_bridgeIdx, 0x00, []);
+                if (connResp == null)
+                {
+                    DiagnosticLogger.LogWarning($"{Tag} CompleteInit: getConnectionInfo timed out — headset likely asleep");
+                }
+                else
+                {
+                    DiagnosticLogger.Verbose($"{Tag} CompleteInit getConnectionInfo params: {BitConverter.ToString(connResp.Value.Params)}");
+                    if (connResp.Value.HeadsetOffline)
+                        DiagnosticLogger.Log($"{Tag} CompleteInit: headset offline (HeadsetOffline=true), will retry on connect event");
+                    else
+                        headsetReachable = true;
+                }
             }
-            else
+
+            if (headsetReachable)
             {
-                DiagnosticLogger.Verbose($"{Tag} CompleteInit getConnectionInfo params: {BitConverter.ToString(connResp.Value.Params)}");
-            }
-            if (connResp != null && !connResp.Value.HeadsetOffline)
-            {
-                DiagnosticLogger.Log($"{Tag} Headset connected via bridge");
+                DiagnosticLogger.Log($"{Tag} Headset connected via bridge" +
+                    (headsetOnlineConfirmed ? " (confirmed by event)" : ""));
 
                 // Step 2: Discover sub-device features via bridge
                 byte socIdx    = await QueryFeatureIndex(_subChannel, FEAT_BATTERY_SOC);
@@ -220,10 +236,6 @@ public class CenturionDevice : IDisposable
                 {
                     DiagnosticLogger.LogWarning($"{Tag} CompleteInit: BatterySOC feature not found via bridge — cannot monitor battery");
                 }
-            }
-            else if (connResp != null)
-            {
-                DiagnosticLogger.Log($"{Tag} CompleteInit: headset offline (HeadsetOffline=true), will retry on connect event");
             }
         }
         finally
@@ -314,7 +326,7 @@ public class CenturionDevice : IDisposable
                 try
                 {
                     await Task.Delay(HEADSET_ONLINE_DELAY_MS, _cts.Token);
-                    await CompleteInitAsync();
+                    await CompleteInitAsync(headsetOnlineConfirmed: true);
                 }
                 catch (OperationCanceledException) { }
             });
@@ -347,7 +359,7 @@ public class CenturionDevice : IDisposable
                 try
                 {
                     await Task.Delay(HEADSET_ONLINE_DELAY_MS, _cts.Token); // Wait for RF stability
-                    if (_pendingInit) await CompleteInitAsync();
+                    if (_pendingInit) await CompleteInitAsync(headsetOnlineConfirmed: true);
                     else await UpdateBattery(forceUpdate: true);
                 }
                 catch (OperationCanceledException) { } // Prevent access to disposed objects when shutting down
