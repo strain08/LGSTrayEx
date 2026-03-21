@@ -315,7 +315,7 @@ public class CenturionDevice : IDisposable
     {
         // Bridge index not yet known — infer it from spontaneous ConnectionStateChanged events.
         // The dongle emits feat=N, func=0, swid=0 frames when the headset wakes.
-        if (_bridgeIdx == 0xFF && frame.FuncId == 0x00 && frame.HeadsetOnline)
+        if (_bridgeIdx == 0xFF && frame.FuncId == 0x00 && frame.FeatIdx != 0xFF && frame.HeadsetOnline)
         {
             _bridgeIdx = frame.FeatIdx;
             _subChannel = new CenturionBridgeChannel(_transport, _bridgeIdx, _subDeviceId, _cts.Token);
