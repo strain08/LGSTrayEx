@@ -36,6 +36,10 @@ public class CenturionDevice : IDisposable
     private byte _deviceNameIdx = 0xFF; // DeviceName (0x0101) — 0xFF = not found
     private byte _deviceInfoIdx = 0xFF; // DeviceInfo (0x0100) — 0xFF = not found
 
+    // True once InitAsync confirms direct (wired USB) mode — prevents async events from
+    // re-inferring a bridge index and corrupting the channel after init completes.
+    private bool _directMode = false;
+
     // Channel abstraction — _parentChannel is always direct; _subChannel may be a bridge channel
     private CenturionDirectChannel _parentChannel = null!; // initialized in InitAsync
     private CenturionChannel _subChannel = null!;          // = _parentChannel or CenturionBridgeChannel
@@ -133,6 +137,7 @@ public class CenturionDevice : IDisposable
             {
                 // DIRECT MODE: device is always reachable, register immediately.
                 _batteryFeature = new CenturionBatterySOC(directBatterySocIdx, FEAT_BATTERY_SOC);
+                _directMode = true;
                 DiagnosticLogger.Log($"{Tag} Direct mode — BatterySOC at index {directBatterySocIdx}");
 
                 var reader = new CenturionMetadataReader(_subChannel.SendAsync, _deviceNameIdx, _deviceInfoIdx);
@@ -337,7 +342,7 @@ public class CenturionDevice : IDisposable
     {
         // Bridge index not yet known — infer it from spontaneous ConnectionStateChanged events.
         // The dongle emits feat=N, func=0, swid=0 frames when the headset wakes.
-        if (_bridgeIdx == 0xFF && frame.FuncId == 0x00 && frame.FeatIdx != 0xFF && frame.HeadsetOnline)
+        if (!_directMode && _bridgeIdx == 0xFF && frame.FuncId == 0x00 && frame.FeatIdx != 0xFF && frame.HeadsetOnline)
         {
             _bridgeIdx = frame.FeatIdx;
             _subChannel = new CenturionBridgeChannel(_transport, _bridgeIdx, _subDeviceId, _cts.Token);
@@ -364,7 +369,7 @@ public class CenturionDevice : IDisposable
             return;
         }
 
-        if (frame.FeatIdx == _bridgeIdx && frame.FuncId == 0x00)
+        if (!_directMode && _bridgeIdx != 0xFF && frame.FeatIdx == _bridgeIdx && frame.FuncId == 0x00)
             await HandleBridgeConnectionEvent(frame);
     }
 
@@ -474,7 +479,7 @@ public class CenturionDevice : IDisposable
         {
             try
             {
-                if (_bridgeIdx == 0xFF)
+                if (_bridgeIdx == 0xFF && !_directMode)
                     await RetryBridgeDiscoveryAsync();
                 else if (_pendingInit)
                     await CompleteInitAsync();
