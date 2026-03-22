@@ -188,7 +188,7 @@ public class CenturionTransport : IDisposable
 
     /// <summary>
     /// Build a 64-byte CPL request frame.
-    /// For Layout_0x50: includes device address (0x23) at [1], matching the RX format.
+    /// For Layout_0x50: includes probed device address at [1], matching the RX format.
     /// For Layout_0x51: symmetric (no device address).
     /// </summary>
     internal static byte[] BuildFrame(FrameLayout layout, byte reportId, byte featIdx, byte func, byte[] parameters)
