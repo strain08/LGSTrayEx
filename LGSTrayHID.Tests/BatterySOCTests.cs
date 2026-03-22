@@ -68,6 +68,31 @@ public class BatterySOCTests
         Assert.Equal(PowerSupplyStatus.UNKNOWN, result.Value.status);
     }
 
+    // Confirmed params from v3.2.0._T3_wired_then_wireless.diagnostic_working.log (commit 4943be1)
+    // Real frames have param[0] ≠ param[1] (78 vs 80); existing tests use equal pairs.
+
+    [Fact]
+    public void Parse_RealFrame_WiredCharging()
+    {
+        // v3.2.0 log line 224 — G522 0x0B19 wired USB, status=2 (Charging via USB)
+        var result = Feature.ParseBatteryParams([0x4E, 0x50, 0x02]);
+
+        Assert.NotNull(result);
+        Assert.Equal(78, result.Value.batteryPercentage);
+        Assert.Equal(PowerSupplyStatus.CHARGING, result.Value.status);
+    }
+
+    [Fact]
+    public void Parse_RealFrame_WirelessDischarging()
+    {
+        // v3.2.0 log line 390 — G522 0x0B18 wireless, status=0 (Discharging)
+        var result = Feature.ParseBatteryParams([0x4E, 0x50, 0x00]);
+
+        Assert.NotNull(result);
+        Assert.Equal(78, result.Value.batteryPercentage);
+        Assert.Equal(PowerSupplyStatus.DISCHARGING, result.Value.status);
+    }
+
     [Fact]
     public void Parse_TooShort_ReturnsNull()
     {
