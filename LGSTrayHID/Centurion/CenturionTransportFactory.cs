@@ -1,6 +1,7 @@
 using LGSTrayHID.Centurion.Transport;
 using LGSTrayHID.HidApi;
 using LGSTrayPrimitives;
+using System.Diagnostics;
 using static LGSTrayHID.HidApi.HidApi;
 
 namespace LGSTrayHID.Centurion;
@@ -11,32 +12,28 @@ namespace LGSTrayHID.Centurion;
 /// </summary>
 public static class CenturionTransportFactory
 {
-    // Candidate report IDs tried in order    
+    // Candidate report IDs tried in order
     private static readonly byte[] ReportIdCandidates = [0x51, 0x50];
 
     public static CenturionTransport Create(HidDevicePtr dev)
     {
-        byte? reportId = DetectReportId(dev);
+        byte? reportId = ProbeReportId(dev);
         if (reportId.HasValue)
             DiagnosticLogger.Log($"[Centurion] Detected variant: report ID 0x{reportId:X2}");
         else
             DiagnosticLogger.LogWarning("[Centurion] Unknown report ID — passive sniff mode (RX logging only)");
 
-        if (reportId == 0x50)
-        {
-            byte deviceAddr = ProbeDeviceAddress(dev, reportId.Value);
-            return new CenturionTransportShort(dev, deviceAddr);
-        }
-
         return reportId switch
         {
+            0x50 => new CenturionTransportShort(dev, ProbeDeviceAddress(dev, reportId.Value)),
             0x51 => new CenturionTransportLong(dev),
             null => new CenturionTransportPassive(dev),
-            _    => new CenturionTransportLong(dev, reportId.Value) // unknown variant, try base layout
+            // All defined candidates must be assigned to transports
+            _ => throw new UnreachableException($"ProbeReportId returned 0x{reportId:X2}: defined transport not assigned")
         };
     }
 
-    private static byte? DetectReportId(HidDevicePtr dev)
+    private static byte? ProbeReportId(HidDevicePtr dev)
     {
         byte[] probe = new byte[FrameLayout.FRAME_SIZE];
         foreach (byte reportId in ReportIdCandidates)

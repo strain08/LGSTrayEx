@@ -9,14 +9,21 @@ namespace LGSTrayHID.Centurion.Transport;
 /// </summary>
 public sealed class CenturionTransportShort : CenturionTransport
 {
-    private readonly FrameLayout _layout;
+    private readonly byte _deviceAddress;
 
     public CenturionTransportShort(HidDevicePtr dev, byte deviceAddress)
         : base(dev, reportId: 0x50)
     {
-        _layout = FrameLayout.Layout_0x50(deviceAddress);
+        _deviceAddress = deviceAddress;
     }
 
-    protected override FrameLayout TxLayout => _layout;
-    protected override FrameLayout RxLayout => _layout;
+    protected override FrameLayout TxLayout => FrameLayout.Layout_0x50;
+    protected override FrameLayout RxLayout => FrameLayout.Layout_0x50;
+
+    protected override byte[] BuildFrame(byte featIdx, byte func, byte[] parameters)
+    {
+        byte[] frame = base.BuildFrame(featIdx, func, parameters);
+        frame[1] = _deviceAddress;
+        return frame;
+    }
 }
