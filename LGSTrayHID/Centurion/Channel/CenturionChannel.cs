@@ -86,7 +86,7 @@ public abstract class CenturionChannel : IDisposable
         }
         catch (OperationCanceledException) when (!Ct.IsCancellationRequested)
         {
-            DiagnosticLogger.LogWarning($"[Centurion] Request timed out after {timeoutMs}ms (feat=0x{featIdx:X2} func={func})");
+            DiagnosticLogger.LogWarning($"{Transport.Tag} Request timed out after {timeoutMs}ms (feat=0x{featIdx:X2} func={func})");
             return null;
         }
         catch (OperationCanceledException)
@@ -122,7 +122,7 @@ public abstract class CenturionChannel : IDisposable
         var pending = Interlocked.Exchange(ref _pendingRequest, null);
         if (pending == null)
         {
-            DiagnosticLogger.Verbose($"[Centurion] Late response dropped (no pending): feat=0x{frame.FeatIdx:X2} func={frame.FuncId} swid=0x{frame.SwId:X2} — device may have woken after timeout");
+            DiagnosticLogger.Verbose($"{Transport.Tag} Late response dropped (no pending): feat=0x{frame.FeatIdx:X2} func={frame.FuncId} swid=0x{frame.SwId:X2} — device may have woken after timeout");
             return false;
         }
         if (pending.MatchesResponse(frame))
@@ -130,7 +130,7 @@ public abstract class CenturionChannel : IDisposable
             pending.Tcs.TrySetResult(frame);
             return true;
         }
-        DiagnosticLogger.LogWarning($"[Centurion] Channel: stale/mismatched response dropped " +
+        DiagnosticLogger.LogWarning($"{Transport.Tag} stale/mismatched response dropped " +
             $"(expected feat=0x{pending.FeatIdx:X2} func={pending.FuncId}, " +
             $"got feat=0x{frame.FeatIdx:X2} func={frame.FuncId})");
         return false;

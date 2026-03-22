@@ -11,8 +11,8 @@ public sealed class CenturionTransportShort : CenturionTransport
 {
     private readonly byte _deviceAddress;
 
-    public CenturionTransportShort(HidDevicePtr dev, byte deviceAddress)
-        : base(dev, reportId: 0x50)
+    public CenturionTransportShort(HidDevicePtr dev, byte deviceAddress, ushort productId = 0)
+        : base(dev, reportId: 0x50, productId)
     {
         _deviceAddress = deviceAddress;
     }

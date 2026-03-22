@@ -45,7 +45,7 @@ public class CenturionBridgeChannel : CenturionChannel
     {
         if (frame.FeatIdx == _bridgeIdx && frame.FuncId == 0x01)
         {
-            DiagnosticLogger.Verbose("[Centurion] Bridge: sendMessage ACK (ignored, awaiting MessageEvent)");
+            DiagnosticLogger.Verbose($"{Transport.Tag} Bridge: sendMessage ACK (ignored, awaiting MessageEvent)");
             return true;
         }
         return TrySetPending(frame);

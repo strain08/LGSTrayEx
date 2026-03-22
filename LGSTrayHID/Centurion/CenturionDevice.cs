@@ -27,7 +27,9 @@ public class CenturionDevice : IDisposable
     private readonly HidDevicePtr _dev;
     private CenturionTransport _transport = null!;
     private readonly ushort _usagePage;
-    string Tag => $"[Centurion 0x{_usagePage:X4}]";
+    private readonly ushort _productId;
+
+    string Tag => $"[0x{_productId:X4}] Device";
 
     // Feature indices discovered at init
     private byte _bridgeIdx = 0xFF;     // CentPPBridge (0x0003) — 0xFF = not found
@@ -77,10 +79,11 @@ public class CenturionDevice : IDisposable
     private const int HEADSET_ONLINE_DELAY_MS = 1000;    // time to wait for RF link to stabilise after wakeup
     private const int PENDING_INIT_POLL_INTERVAL_S = 15;
 
-    public CenturionDevice(HidDevicePtr dev, ushort usagePage, string? productName = null)
+    public CenturionDevice(HidDevicePtr dev, ushort usagePage, ushort productId, string? productName = null)
     {
         _dev = dev;
         _usagePage = usagePage;
+        _productId = productId;
         _deviceName = productName ?? "Centurion Headset";
     }
 
@@ -88,7 +91,7 @@ public class CenturionDevice : IDisposable
     {
         try
         {
-            _transport = await CenturionTransportFactory.CreateAsync(_dev, _cts.Token);
+            _transport = await CenturionTransportFactory.CreateAsync(_dev, _productId, _cts.Token);
             DiagnosticLogger.Log($"{Tag} Starting feature discovery...");
 
             // Initialize channels as Direct

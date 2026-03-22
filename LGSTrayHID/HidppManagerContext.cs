@@ -95,7 +95,7 @@ public sealed class HidppManagerContext
                     return 0;
                 }
                 string? productName = deviceInfo.GetProductString();
-                var centurion = new CenturionDevice(probeDev, deviceInfo.UsagePage, productName);
+                var centurion = new CenturionDevice(probeDev, deviceInfo.UsagePage, deviceInfo.ProductId, productName);
                 _centurionMap[probePath] = centurion;
                 _ = Task.Run(() => centurion.InitAsync());
                 return 0;

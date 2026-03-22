@@ -15,19 +15,19 @@ public static class CenturionTransportFactory
     // Candidate report IDs tried in order
     private static readonly byte[] ReportIdCandidates = [0x51, 0x50];
 
-    public static async Task<CenturionTransport> CreateAsync(HidDevicePtr dev, CancellationToken ct)
+    public static async Task<CenturionTransport> CreateAsync(HidDevicePtr dev, ushort productId, CancellationToken ct)
     {
         byte? reportId = ProbeReportId(dev);
         if (reportId.HasValue)
-            DiagnosticLogger.Log($"[Centurion] Detected variant: report ID 0x{reportId:X2}");
+            DiagnosticLogger.Log($"[Cent 0x{productId:X4}] Detected variant: report ID 0x{reportId:X2}");
         else
-            DiagnosticLogger.LogWarning("[Centurion] Unknown report ID — passive sniff mode (RX logging only)");
+            DiagnosticLogger.LogWarning($"[Cent 0x{productId:X4}] Unknown report ID — passive sniff mode (RX logging only)");
 
         return reportId switch
         {
-            0x50 => new CenturionTransportShort(dev, await ProbeDeviceAddressAsync(dev, reportId.Value, ct)),
-            0x51 => new CenturionTransportLong(dev),
-            null => new CenturionTransportPassive(dev),
+            0x50 => new CenturionTransportShort(dev, await ProbeDeviceAddressAsync(dev, reportId.Value, ct, productId), productId),
+            0x51 => new CenturionTransportLong(dev, productId),
+            null => new CenturionTransportPassive(dev, productId),
             // All defined candidates must be assigned to transports
             _ => throw new UnreachableException($"ProbeReportId returned 0x{reportId:X2}: defined transport not assigned")
         };
@@ -52,10 +52,11 @@ public static class CenturionTransportFactory
     /// Loops indefinitely until a valid frame arrives or cancellation is requested —
     /// without the address, TX frames cannot be addressed correctly.
     /// </summary>
-    private static async Task<byte> ProbeDeviceAddressAsync(HidDevicePtr dev, byte reportId, CancellationToken ct)
+    private static async Task<byte> ProbeDeviceAddressAsync(HidDevicePtr dev, byte reportId, CancellationToken ct, ushort productId = 0)
     {
+        string tag = $"[0x{productId:X4}] Cent";
         byte[] buffer = new byte[FrameLayout.FRAME_SIZE];
-        DiagnosticLogger.Log("[Centurion] Waiting for device address frame...");
+        DiagnosticLogger.Log($"{tag} Waiting for DEVICE_ADDRESS frame...");
 
         while (!ct.IsCancellationRequested)
         {
@@ -64,19 +65,19 @@ public static class CenturionTransportFactory
 
             if (bytesRead < 0)
             {
-                DiagnosticLogger.LogError("[Centurion] Device error while probing address — aborting");
+                DiagnosticLogger.LogError($"{tag} Device error while probing DEVICE_ADDRESS — aborting");
                 break;
             }
 
             if (bytesRead >= 2 && buffer[0] == reportId)
             {
                 byte addr = buffer[1];
-                DiagnosticLogger.Log($"[Centurion] Probed device address: 0x{addr:X2}");
+                DiagnosticLogger.Log($"{tag} Probed DEVICE_ADDRESS: 0x{addr:X2}");
                 return addr;
             }
         }
 
         ct.ThrowIfCancellationRequested();
-        throw new InvalidOperationException("[Centurion] Could not probe device address: device error");
+        throw new InvalidOperationException($"{tag} Could not probe DEVICE_ADDRESS: device error");
     }
 }

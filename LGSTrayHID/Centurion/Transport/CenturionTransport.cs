@@ -16,6 +16,9 @@ public class CenturionTransport : IDisposable
 {
     private readonly HidDevicePtr _dev;
     protected readonly byte ReportId;
+    private readonly ushort _productId;
+
+    public string Tag => $"[0x{_productId:X4}] Transport";
 
     /// <summary>True when the report ID could not be detected; the transport can read but not send.</summary>
     public virtual bool IsPassive => false;
@@ -29,10 +32,11 @@ public class CenturionTransport : IDisposable
     /// <summary>RX frame layout. Override in subclasses whose RX frames differ from the symmetric 0x51 format.</summary>
     protected virtual FrameLayout RxLayout => FrameLayout.Layout_0x51;
 
-    protected CenturionTransport(HidDevicePtr dev, byte reportId)
+    protected CenturionTransport(HidDevicePtr dev, byte reportId, ushort productId = 0)
     {
         _dev = dev;
         ReportId = reportId;
+        _productId = productId;
     }
 
     /// <summary>
@@ -40,7 +44,7 @@ public class CenturionTransport : IDisposable
     /// </summary>
     public virtual async Task SendDirectRequest(byte featIdx, byte func, byte[] parameters)
     {
-        if (IsPassive) { DiagnosticLogger.LogWarning("[Centurion] Cannot send direct request: passive transport"); return; }
+        if (IsPassive) { DiagnosticLogger.LogWarning($"{Tag} Cannot send direct request: passive transport"); return; }
         byte[] frame = BuildFrame(featIdx, func, parameters);
         LogTx("Direct", featIdx, func, parameters);
         await _dev.WriteAsync(frame);
@@ -56,7 +60,7 @@ public class CenturionTransport : IDisposable
     /// </summary>
     public virtual async Task SendBridgeRequest(byte bridgeIdx, byte devId, byte subFeatIdx, byte subFunc, byte[] subParams)
     {
-        if (IsPassive) { DiagnosticLogger.LogWarning("[Centurion] Cannot send bridge request: passive transport"); return; }
+        if (IsPassive) { DiagnosticLogger.LogWarning($"{Tag} Cannot send bridge request: passive transport"); return; }
         // Sub-device message: [sub_cpl=0x00] [sub_feat_idx] [sub_func|swid] [params...]
         int subMsgLen = 3 + subParams.Length;
 
@@ -72,7 +76,7 @@ public class CenturionTransport : IDisposable
         // Bridge outer frame: func=0x01 (sendMessage)
         byte[] frame = BuildFrame(bridgeIdx, 0x01, bridgeParams);
 
-        DiagnosticLogger.Verbose($"[Centurion] TX Bridge: bridgeIdx={bridgeIdx} devId={devId} " +
+        DiagnosticLogger.Verbose($"{Tag} TX Bridge: bridgeIdx={bridgeIdx} devId={devId} " +
                                  $"subFeat=0x{subFeatIdx:X2} subFunc={subFunc} " +
                                  $"payload={BitConverter.ToString(frame, 0, Math.Min(frame.Length, 20))}...");
 
@@ -85,7 +89,7 @@ public class CenturionTransport : IDisposable
     /// </summary>
     public virtual async Task RunReadLoopAsync(ChannelWriter<CenturionResponse> writer, CancellationToken ct)
     {
-        DiagnosticLogger.Log("[Centurion] Transport read loop started");
+        DiagnosticLogger.Log($"{Tag} Read loop started");
         byte[] buffer = new byte[FrameLayout.FRAME_SIZE];
 
         try
@@ -97,7 +101,7 @@ public class CenturionTransport : IDisposable
 
                 if (bytesRead < 0)
                 {
-                    DiagnosticLogger.LogWarning("[Centurion] Device disconnected or read error");
+                    DiagnosticLogger.LogWarning($"{Tag} Device disconnected or read error");
                     break;
                 }
 
@@ -114,12 +118,12 @@ public class CenturionTransport : IDisposable
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            DiagnosticLogger.LogError($"[Centurion] Transport read loop exception: {ex.Message}");
+            DiagnosticLogger.LogError($"{Tag} Transport read loop exception: {ex.Message}");
         }
         finally
         {
             writer.TryComplete();
-            DiagnosticLogger.Log("[Centurion] Transport read loop ended");
+            DiagnosticLogger.Log($"{Tag} Transport read loop ended");
         }
     }
 
@@ -242,14 +246,14 @@ public class CenturionTransport : IDisposable
         return new CenturionResponse(featIdx, funcId, swId, parameters);
     }
 
-    private static void LogTx(string mode, byte featIdx, byte func, byte[] parameters)
+    private void LogTx(string mode, byte featIdx, byte func, byte[] parameters)
     {
-        DiagnosticLogger.Verbose($"[Centurion] TX {mode}: feat=0x{featIdx:X2} func={func} " +
+        DiagnosticLogger.Verbose($"{Tag} TX {mode}: feat=0x{featIdx:X2} func={func} " +
                                  $"params={BitConverter.ToString(parameters)}");
     }
 
-    private static void LogRx(byte[] buffer, int bytesRead)
+    private void LogRx(byte[] buffer, int bytesRead)
     {
-        DiagnosticLogger.Verbose($"[Centurion] RX ({bytesRead} bytes): {BitConverter.ToString(buffer, 0, bytesRead)}");
+        DiagnosticLogger.Verbose($"{Tag} RX ({bytesRead} bytes): {BitConverter.ToString(buffer, 0, bytesRead)}");
     }
 }
