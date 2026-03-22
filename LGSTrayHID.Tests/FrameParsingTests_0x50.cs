@@ -6,7 +6,7 @@ namespace LGSTrayHID.Tests;
 public class FrameParsingTests_0x50
 {
     private static CenturionResponse? Parse(string hexDash) =>
-        CenturionTransport.ParseFrame(FrameLayout.Layout_0x50, LogFrame.Parse(hexDash), 64);
+        CenturionTransport.ParseFrame(FrameLayout.Layout_0x50_RxOnly, LogFrame.Parse(hexDash), 64);
 
     [Fact]
     public void GetFeatureResponse()
@@ -59,7 +59,7 @@ public class FrameParsingTests_0x50
     [Fact]
     public void TooShort_ReturnsNull()
     {
-        var result = CenturionTransport.ParseFrame(FrameLayout.Layout_0x50, LogFrame.Parse("50-23"), 2);
+        var result = CenturionTransport.ParseFrame(FrameLayout.Layout_0x50_RxOnly, LogFrame.Parse("50-23"), 2);
         Assert.Null(result);
     }
 
@@ -67,7 +67,7 @@ public class FrameParsingTests_0x50
     public void BufferNotReachingFuncSwidOffset_ReturnsNull()
     {
         // FuncSwidOffset=5; bytesRead=5 is not > 5
-        var result = CenturionTransport.ParseFrame(FrameLayout.Layout_0x50, LogFrame.Parse("50-23-06-00-00"), 5);
+        var result = CenturionTransport.ParseFrame(FrameLayout.Layout_0x50_RxOnly, LogFrame.Parse("50-23-06-00-00"), 5);
         Assert.Null(result);
     }
 }
