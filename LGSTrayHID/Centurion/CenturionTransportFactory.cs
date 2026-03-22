@@ -7,7 +7,7 @@ using static LGSTrayHID.HidApi.HidApi;
 namespace LGSTrayHID.Centurion;
 
 /// <summary>
-/// Determines the appropriate Centurion transport implementation 
+/// Determines the appropriate Centurion transport implementation
 /// by probing the connected HID device for supported report IDs.
 /// </summary>
 public static class CenturionTransportFactory
@@ -15,7 +15,7 @@ public static class CenturionTransportFactory
     // Candidate report IDs tried in order
     private static readonly byte[] ReportIdCandidates = [0x51, 0x50];
 
-    public static CenturionTransport Create(HidDevicePtr dev)
+    public static async Task<CenturionTransport> CreateAsync(HidDevicePtr dev, CancellationToken ct)
     {
         byte? reportId = ProbeReportId(dev);
         if (reportId.HasValue)
@@ -25,7 +25,7 @@ public static class CenturionTransportFactory
 
         return reportId switch
         {
-            0x50 => new CenturionTransportShort(dev, ProbeDeviceAddress(dev, reportId.Value)),
+            0x50 => new CenturionTransportShort(dev, await ProbeDeviceAddressAsync(dev, reportId.Value, ct)),
             0x51 => new CenturionTransportLong(dev),
             null => new CenturionTransportPassive(dev),
             // All defined candidates must be assigned to transports
@@ -49,25 +49,34 @@ public static class CenturionTransportFactory
     /// <summary>
     /// Probe the device address for 0x50-variant devices by reading the first RX frame.
     /// The address is always at byte[1] of every frame the device sends.
-    /// Falls back to 0x23 (G522 default) if no frame arrives within the timeout.
+    /// Loops indefinitely until a valid frame arrives or cancellation is requested —
+    /// without the address, TX frames cannot be addressed correctly.
     /// </summary>
-    private static byte ProbeDeviceAddress(HidDevicePtr dev, byte reportId)
+    private static async Task<byte> ProbeDeviceAddressAsync(HidDevicePtr dev, byte reportId, CancellationToken ct)
     {
-        const byte FALLBACK_ADDR = 0x23;
-
-        // The ProbeReportId write (all-zeros with valid report ID) may have triggered
-        // a response or error frame. Try reading it. Also catches any pending unsolicited frame.
         byte[] buffer = new byte[FrameLayout.FRAME_SIZE];
-        int bytesRead = dev.Read(buffer, FrameLayout.FRAME_SIZE, 500);
+        DiagnosticLogger.Log("[Centurion] Waiting for device address frame...");
 
-        if (bytesRead >= 2 && buffer[0] == reportId)
+        while (!ct.IsCancellationRequested)
         {
-            byte addr = buffer[1];
-            DiagnosticLogger.Log($"[Centurion] Probed device address: 0x{addr:X2}");
-            return addr;
+            // 2000ms read timeout so we can check cancellation between attempts
+            int bytesRead = await Task.Run(() => dev.Read(buffer, FrameLayout.FRAME_SIZE, 2000), ct);
+
+            if (bytesRead < 0)
+            {
+                DiagnosticLogger.LogError("[Centurion] Device error while probing address — aborting");
+                break;
+            }
+
+            if (bytesRead >= 2 && buffer[0] == reportId)
+            {
+                byte addr = buffer[1];
+                DiagnosticLogger.Log($"[Centurion] Probed device address: 0x{addr:X2}");
+                return addr;
+            }
         }
 
-        DiagnosticLogger.LogWarning($"[Centurion] Could not probe device address, using fallback 0x{FALLBACK_ADDR:X2}");
-        return FALLBACK_ADDR;
+        ct.ThrowIfCancellationRequested();
+        throw new InvalidOperationException("[Centurion] Could not probe device address: device error");
     }
 }

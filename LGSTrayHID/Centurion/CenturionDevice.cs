@@ -24,7 +24,8 @@ namespace LGSTrayHID.Centurion;
 /// </summary>
 public class CenturionDevice : IDisposable
 {
-    private readonly CenturionTransport _transport;
+    private readonly HidDevicePtr _dev;
+    private CenturionTransport _transport = null!;
     private readonly ushort _usagePage;
     string Tag => $"[Centurion 0x{_usagePage:X4}]";
 
@@ -78,7 +79,7 @@ public class CenturionDevice : IDisposable
 
     public CenturionDevice(HidDevicePtr dev, ushort usagePage, string? productName = null)
     {
-        _transport = CenturionTransportFactory.Create(dev);
+        _dev = dev;
         _usagePage = usagePage;
         _deviceName = productName ?? "Centurion Headset";
     }
@@ -87,6 +88,7 @@ public class CenturionDevice : IDisposable
     {
         try
         {
+            _transport = await CenturionTransportFactory.CreateAsync(_dev, _cts.Token);
             DiagnosticLogger.Log($"{Tag} Starting feature discovery...");
 
             // Initialize channels as Direct
@@ -158,6 +160,10 @@ public class CenturionDevice : IDisposable
                 DiagnosticLogger.LogWarning($"{Tag} Feature discovery timed out — entering deferred-discovery mode (headset likely asleep)");
                 _pollingTask = Task.Run(() => PollBattery(_cts.Token), _cts.Token);
             }
+        }
+        catch (OperationCanceledException)
+        {
+            DiagnosticLogger.Log($"{Tag} Init cancelled (device removed during startup)");
         }
         catch (Exception ex)
         {
@@ -517,7 +523,10 @@ public class CenturionDevice : IDisposable
         _parentChannel?.Dispose();
         if (_subChannel != null && !ReferenceEquals(_subChannel, _parentChannel))
             _subChannel.Dispose();
-        _transport.Dispose();
+        if (_transport != null)
+            _transport.Dispose();
+        else
+            HidApi.HidApi.HidClose(_dev); // transport never created — close handle directly
         _initLock.Dispose();
         _cts.Dispose();
         GC.SuppressFinalize(this);
