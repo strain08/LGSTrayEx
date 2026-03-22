@@ -176,7 +176,7 @@ public class CenturionTransport : IDisposable
 
     // ---- Private helpers ----
 
-    private byte[] BuildFrame(byte featIdx, byte func, byte[] parameters)
+    protected virtual byte[] BuildFrame(byte featIdx, byte func, byte[] parameters)
     {
         if (IsPassive)
             throw new InvalidOperationException("Cannot send: transport is in passive sniff mode");
@@ -187,16 +187,13 @@ public class CenturionTransport : IDisposable
     // ---- Internal static overloads (testable without a HID device) ----
 
     /// <summary>
-    /// Build a 64-byte CPL request frame.
-    /// For Layout_0x50: includes probed device address at [1], matching the RX format.
-    /// For Layout_0x51: symmetric (no device address).
+    /// Build a 64-byte CPL request frame using the given layout offsets.
+    /// Device-address injection (0x50 variant) is handled by CenturionTransportShort.
     /// </summary>
     internal static byte[] BuildFrame(FrameLayout layout, byte reportId, byte featIdx, byte func, byte[] parameters)
     {
         byte[] frame = new byte[FrameLayout.FRAME_SIZE];
         frame[0] = reportId;
-        if (layout.DeviceAddress.HasValue)
-            frame[1] = layout.DeviceAddress.Value;
         frame[layout.CplLenOffset]   = (byte)(3 + parameters.Length);
         frame[layout.FlagsOffset]    = FLAGS_SINGLE;
         frame[layout.FeatIdxOffset]  = featIdx;
