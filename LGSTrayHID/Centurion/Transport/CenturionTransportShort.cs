@@ -22,7 +22,7 @@ public sealed class CenturionTransportShort : CenturionTransport
 
     protected override byte[] BuildFrame(byte featIdx, byte func, byte[] parameters)
     {
-        byte[] frame = base.BuildFrame(featIdx, func, parameters);
+        byte[] frame = CenturionTransport.BuildFrame(TxLayout, ReportId, featIdx, func, parameters);
         frame[1] = _deviceAddress;
         return frame;
     }

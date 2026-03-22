@@ -55,7 +55,7 @@ public static class CenturionTransportFactory
     {
         const byte FALLBACK_ADDR = 0x23;
 
-        // The DetectReportId write (all-zeros with valid report ID) may have triggered
+        // The ProbeReportId write (all-zeros with valid report ID) may have triggered
         // a response or error frame. Try reading it. Also catches any pending unsolicited frame.
         byte[] buffer = new byte[FrameLayout.FRAME_SIZE];
         int bytesRead = dev.Read(buffer, FrameLayout.FRAME_SIZE, 500);

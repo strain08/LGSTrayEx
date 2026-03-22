@@ -40,6 +40,7 @@ public class CenturionTransport : IDisposable
     /// </summary>
     public virtual async Task SendDirectRequest(byte featIdx, byte func, byte[] parameters)
     {
+        if (IsPassive) { DiagnosticLogger.LogWarning("[Centurion] Cannot send direct request: passive transport"); return; }
         byte[] frame = BuildFrame(featIdx, func, parameters);
         LogTx("Direct", featIdx, func, parameters);
         await _dev.WriteAsync(frame);
@@ -55,6 +56,7 @@ public class CenturionTransport : IDisposable
     /// </summary>
     public virtual async Task SendBridgeRequest(byte bridgeIdx, byte devId, byte subFeatIdx, byte subFunc, byte[] subParams)
     {
+        if (IsPassive) { DiagnosticLogger.LogWarning("[Centurion] Cannot send bridge request: passive transport"); return; }
         // Sub-device message: [sub_cpl=0x00] [sub_feat_idx] [sub_func|swid] [params...]
         int subMsgLen = 3 + subParams.Length;
 
@@ -177,11 +179,7 @@ public class CenturionTransport : IDisposable
     // ---- Private helpers ----
 
     protected virtual byte[] BuildFrame(byte featIdx, byte func, byte[] parameters)
-    {
-        if (IsPassive)
-            throw new InvalidOperationException("Cannot send: transport is in passive sniff mode");
-        return BuildFrame(TxLayout, ReportId, featIdx, func, parameters);
-    }
+        => BuildFrame(TxLayout, ReportId, featIdx, func, parameters);
     //private CenturionResponse? ParseFrame(byte[] buffer, int bytesRead) => ParseFrame(RxLayout, buffer, bytesRead);
 
     // ---- Internal static overloads (testable without a HID device) ----
