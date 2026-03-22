@@ -21,6 +21,15 @@ internal static class HidDeviceInfoHelpers
         }
     }
 
+    internal static string? GetProductString(this HidDeviceInfo deviceInfo)
+    {
+        unsafe
+        {
+            if (deviceInfo.ProductString == null) return null;
+            return Marshal.PtrToStringUni((nint)deviceInfo.ProductString);
+        }
+    }
+
     internal static HidppMessageType GetHidppMessageType(this HidDeviceInfo deviceInfo)
     {
         unsafe

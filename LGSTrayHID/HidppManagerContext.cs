@@ -94,7 +94,8 @@ public sealed class HidppManagerContext
                     DiagnosticLogger.LogError($"[Centurion] Failed to open HID device: {probePath}");
                     return 0;
                 }
-                var centurion = new CenturionDevice(probeDev, deviceInfo.UsagePage);
+                string? productName = deviceInfo.GetProductString();
+                var centurion = new CenturionDevice(probeDev, deviceInfo.UsagePage, productName);
                 _centurionMap[probePath] = centurion;
                 _ = Task.Run(() => centurion.InitAsync());
                 return 0;

@@ -42,7 +42,7 @@ public class CenturionDevice : IDisposable
 
     // Device state
     private const byte _subDeviceId = 0x00;   // Solaar's comment: device_id=0 for the headset
-    private string _deviceName = "Centurion Headset";
+    private string _deviceName;
     private string _identifier = string.Empty;
     private string? _serialNumber;
     private string? _modelId;
@@ -76,10 +76,11 @@ public class CenturionDevice : IDisposable
     private const int HEADSET_ONLINE_DELAY_MS = 1000;    // time to wait for RF link to stabilise after wakeup
     private const int PENDING_INIT_POLL_INTERVAL_S = 15;
 
-    public CenturionDevice(HidDevicePtr dev, ushort usagePage)
+    public CenturionDevice(HidDevicePtr dev, ushort usagePage, string? productName = null)
     {
         _transport = CenturionTransportFactory.Create(dev);
         _usagePage = usagePage;
+        _deviceName = productName ?? "Centurion Headset";
     }
 
     public async Task InitAsync()
