@@ -289,6 +289,18 @@ public class CenturionDevice : IDisposable
 
                 if (frame.SwId == 0x00)
                 {
+                    // Centurion error response: feat=0xFF, swid=0, params=[original_swid, error_code].
+                    // The device sends this when a feature doesn't exist on the parent.
+                    // Fail the pending request immediately instead of letting it timeout.
+                    if (frame.FeatIdx == 0xFF && frame.Params.Length >= 1 && frame.Params[0] == CenturionTransport.SWID)
+                    {
+                        DiagnosticLogger.Verbose($"{Tag} Dispatcher: error response (feat=0xFF) — feature not found");
+                        bool handled = _subChannel.TryCompleteError(frame);
+                        if (!handled && !ReferenceEquals(_subChannel, _parentChannel))
+                            _parentChannel.TryCompleteError(frame);
+                        continue;
+                    }
+
                     var toForward = _subChannel.RouteEvent(frame);
                     if (toForward != null)
                         await HandleAsyncEvent(toForward.Value);

@@ -100,6 +100,20 @@ public abstract class CenturionChannel : IDisposable
     }
 
     /// <summary>
+    /// Called by the dispatcher for error frames (feat=0xFF, swid=0).
+    /// Cancels the pending request so SendCoreAsync returns null immediately.
+    /// Returns false if no pending request exists (allows dispatcher to try another channel).
+    /// </summary>
+    public bool TryCompleteError(CenturionResponse frame)
+    {
+        var pending = Interlocked.Exchange(ref _pendingRequest, null);
+        if (pending == null)
+            return false;
+        pending.Tcs.TrySetCanceled();
+        return true;
+    }
+
+    /// <summary>
     /// Atomically exchange out _pendingRequest and complete it if it matches the frame.
     /// Returns false if there was no pending request (allows caller to try another channel).
     /// </summary>
