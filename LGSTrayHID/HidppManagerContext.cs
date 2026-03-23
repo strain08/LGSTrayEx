@@ -84,7 +84,7 @@ public sealed class HidppManagerContext
                 DiagnosticLogger.Log($"Skipping device with unsupported message type: {messageType}");
                 return 0;
 
-            case HidppMessageType.PROBE:
+            case HidppMessageType.CENTURION:
             {
                 string probePath = deviceInfo.GetPath();
                 DiagnosticLogger.Log($"[Centurion] Detected Centurion interface 0x{deviceInfo.UsagePage:X4}: {probePath}");

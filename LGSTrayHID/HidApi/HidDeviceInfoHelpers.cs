@@ -8,7 +8,7 @@ public enum HidppMessageType : short
     SHORT,
     LONG,
     VERY_LONG,
-    PROBE  // Non-FF00 vendor page with usage 0x0001 — Centurion headset candidate
+    CENTURION  // Non-FF00 vendor page with usage 0x0001 — Centurion headset candidate
 }
 
 internal static class HidDeviceInfoHelpers
@@ -32,28 +32,17 @@ internal static class HidDeviceInfoHelpers
 
     internal static HidppMessageType GetHidppMessageType(this HidDeviceInfo deviceInfo)
     {
-        unsafe
+        return (deviceInfo.UsagePage, deviceInfo.Usage) switch
         {
-            // Standard HID++ usage page (FF00 only — not FF13, FFA0, etc.)
-            if (deviceInfo.UsagePage == 0xFF00)
-            {
-                return deviceInfo.Usage switch
-                {
-                    0x0001 => HidppMessageType.SHORT,
-                    0x0002 => HidppMessageType.LONG,
-                    _ => HidppMessageType.NONE,
-                };
-            }
+            // Standard HID++
+            (0xFF00, 0x0001) => HidppMessageType.SHORT,
+            (0xFF00, 0x0002) => HidppMessageType.LONG,
 
-            // Centurion transport interface (usage page 0xFFA0, report ID 0x51)
-            // Other vendor pages (e.g. 0xFF13) are unrelated and ignored.
-            if (deviceInfo.UsagePage == 0xFFA0 && deviceInfo.Usage == 0x0001)
-            {
-                return HidppMessageType.PROBE;
-            }
+            // Centurion transport: wireless Lightspeed dongles (PRO X 2, G522 dongle)
+            (0xFFA0, 0x0001) => HidppMessageType.CENTURION,
 
-            return HidppMessageType.NONE;
-        }
+            _ => HidppMessageType.NONE,
+        };
     }
 
 }
