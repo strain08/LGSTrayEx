@@ -31,14 +31,22 @@ public class CenturionDevice : IDisposable
 
     string Tag => $"[0x{_productId:X4}] Device";
 
+    /// <summary>Operational mode — set once during InitAsync, then updated by bridge lifecycle events.</summary>
+    private enum CenturionMode
+    {
+        Discovering,       // InitAsync in progress — feature queries not yet complete
+        DirectUSB,         // Wired USB: battery queried directly on the parent channel
+        DonglePending,     // Dongle found, headset not yet reachable (asleep or connecting)
+        DongleReady,       // Dongle + headset reachable, normal battery polling via bridge
+        DeferredDiscovery, // Both init paths failed — periodic retry until bridge appears
+    }
+
+    private volatile CenturionMode _mode = CenturionMode.Discovering;
+
     // Feature indices discovered at init
     private byte _bridgeIdx = 0xFF;     // CentPPBridge (0x0003) — 0xFF = not found
     private byte _deviceNameIdx = 0xFF; // DeviceName (0x0101) — 0xFF = not found
     private byte _deviceInfoIdx = 0xFF; // DeviceInfo (0x0100) — 0xFF = not found
-
-    // True once InitAsync confirms direct (wired USB) mode — prevents async events from
-    // re-inferring a bridge index and corrupting the channel after init completes.
-    private bool _directMode = false;
 
     // Channel abstraction — _parentChannel is always direct; _subChannel may be a bridge channel
     private CenturionDirectChannel _parentChannel = null!; // initialized in InitAsync
@@ -54,10 +62,6 @@ public class CenturionDevice : IDisposable
     private string? _serialNumber;
     private string? _modelId;
     private string? _unitId; // Hardware revision in Centurion terms
-
-    // True while dongle is detected but headset has not yet been contacted.
-    // No InitMessage is sent until this is cleared by CompleteInitAsync.
-    private volatile bool _pendingInit = false;
 
     // Channel-based I/O infrastructure
     private readonly Channel<CenturionResponse> _frameChannel = System.Threading.Channels.Channel.CreateUnbounded<CenturionResponse>();
@@ -78,7 +82,7 @@ public class CenturionDevice : IDisposable
     private const ushort FEAT_DEVICE_INFO   = 0x0100;
     private const ushort FEAT_DEVICE_NAME   = 0x0101;
     private const ushort FEAT_BATTERY_SOC   = 0x0104;
-    
+
     // Workflow delays
     private const int HEADSET_ONLINE_DELAY_MS = 1000;    // time to wait for RF link to stabilise after wakeup
     private const int PENDING_INIT_POLL_INTERVAL_S = 15;
@@ -99,7 +103,7 @@ public class CenturionDevice : IDisposable
             DiagnosticLogger.Log($"{Tag} Starting feature discovery...");
 
             // Initialize channels as Direct
-            _subChannel = _parentChannel = new CenturionDirectChannel(_transport, _cts.Token);             
+            _subChannel = _parentChannel = new CenturionDirectChannel(_transport, _cts.Token);
 
             // Start infrastructure tasks first. The dispatcher handles all incoming frames
             // from the read loop and routes them to pending requests or event handlers.
@@ -124,7 +128,7 @@ public class CenturionDevice : IDisposable
                 // DONGLE MODE: headset may be asleep — defer registration until reachable.
                 // We start the background loops immediately so bridge events are not missed.
                 _subChannel = new CenturionBridgeChannel(_transport, _bridgeIdx, _subDeviceId, _cts.Token);
-                _pendingInit = true;
+                _mode = CenturionMode.DonglePending;
                 DiagnosticLogger.Log($"{Tag} Dongle mode — CentPPBridge at index {_bridgeIdx}");
 
                 // Start polling loop
@@ -137,7 +141,7 @@ public class CenturionDevice : IDisposable
             {
                 // DIRECT MODE: device is always reachable, register immediately.
                 _batteryFeature = new CenturionBatterySOC(directBatterySocIdx, FEAT_BATTERY_SOC);
-                _directMode = true;
+                _mode = CenturionMode.DirectUSB;
                 DiagnosticLogger.Log($"{Tag} Direct mode — BatterySOC at index {directBatterySocIdx}");
 
                 var reader = new CenturionMetadataReader(_subChannel.SendAsync, _deviceNameIdx, _deviceInfoIdx);
@@ -164,7 +168,7 @@ public class CenturionDevice : IDisposable
             {
                 // Feature discovery failed — headset is likely asleep. Enter deferred-discovery mode:
                 // the polling loop will retry discovery and bridge events will infer the bridge index.
-                _pendingInit = true;
+                _mode = CenturionMode.DeferredDiscovery;
                 DiagnosticLogger.LogWarning($"{Tag} Feature discovery timed out — entering deferred-discovery mode (headset likely asleep)");
                 _pollingTask = Task.Run(() => PollBattery(_cts.Token), _cts.Token);
             }
@@ -183,7 +187,7 @@ public class CenturionDevice : IDisposable
 
     /// <summary>
     /// Completes device registration for dongle mode once the headset is reachable.
-    /// Safe to call repeatedly — no-ops immediately if already registered (_pendingInit == false).
+    /// Safe to call repeatedly — no-ops immediately if mode is not DonglePending.
     /// </summary>
     /// <param name="headsetOnlineConfirmed">
     /// When true, skip getConnectionInfo — caller already knows the headset is online
@@ -192,7 +196,7 @@ public class CenturionDevice : IDisposable
     /// </param>
     public async Task CompleteInitAsync(bool headsetOnlineConfirmed = false)
     {
-        if (!_pendingInit) return;
+        if (_mode != CenturionMode.DonglePending) return;
 
         // Allow only one concurrent init attempt.
         if (!_initLock.Wait(0)) return;
@@ -200,11 +204,9 @@ public class CenturionDevice : IDisposable
         bool initCompleted = false;
         try
         {
-            if (!_pendingInit) return; // Double-check after winning the race
+            if (_mode != CenturionMode.DonglePending) return; // Double-check after winning the race
 
-            bool headsetReachable = headsetOnlineConfirmed;
-
-            if (!headsetReachable)
+            if (!headsetOnlineConfirmed)
             {
                 // Step 1: Contact headset via CentPPBridge.getConnectionInfo (func 0).
                 // This is a direct query to the dongle, not a bridge-wrapped request.
@@ -212,45 +214,42 @@ public class CenturionDevice : IDisposable
                 if (connResp == null)
                 {
                     DiagnosticLogger.LogWarning($"{Tag} CompleteInit: getConnectionInfo timed out — headset likely asleep");
+                    return;
                 }
-                else
+
+                DiagnosticLogger.Verbose($"{Tag} CompleteInit getConnectionInfo params: {BitConverter.ToString(connResp.Value.Params)}");
+                if (connResp.Value.HeadsetOffline)
                 {
-                    DiagnosticLogger.Verbose($"{Tag} CompleteInit getConnectionInfo params: {BitConverter.ToString(connResp.Value.Params)}");
-                    if (connResp.Value.HeadsetOffline)
-                        DiagnosticLogger.Log($"{Tag} CompleteInit: headset offline (HeadsetOffline=true), will retry on connect event");
-                    else
-                        headsetReachable = true;
+                    DiagnosticLogger.Log($"{Tag} CompleteInit: headset offline (HeadsetOffline=true), will retry on connect event");
+                    return;
                 }
             }
 
-            if (headsetReachable)
+            DiagnosticLogger.Log($"{Tag} Headset connected via bridge" +
+                (headsetOnlineConfirmed ? " (confirmed by event)" : ""));
+
+            // Step 2: Discover sub-device features via bridge
+            byte socIdx     = await QueryFeatureIndex(_subChannel, FEAT_BATTERY_SOC);
+            byte subNameIdx = await QueryFeatureIndex(_subChannel, FEAT_DEVICE_NAME);
+            if (subNameIdx != 0xFF) _deviceNameIdx = subNameIdx;
+
+            byte subInfoIdx = await QueryFeatureIndex(_subChannel, FEAT_DEVICE_INFO);
+            if (subInfoIdx != 0xFF) _deviceInfoIdx = subInfoIdx;
+
+            DiagnosticLogger.Log($"{Tag} Bridge sub-features: BatterySOC=0x{socIdx:X2} DeviceName=0x{subNameIdx:X2} DeviceInfo=0x{subInfoIdx:X2}");
+
+            if (socIdx != 0xFF)
             {
-                DiagnosticLogger.Log($"{Tag} Headset connected via bridge" +
-                    (headsetOnlineConfirmed ? " (confirmed by event)" : ""));
+                _batteryFeature = new CenturionBatterySOC(socIdx, FEAT_BATTERY_SOC);
 
-                // Step 2: Discover sub-device features via bridge
-                byte socIdx    = await QueryFeatureIndex(_subChannel, FEAT_BATTERY_SOC);
-                byte subNameIdx = await QueryFeatureIndex(_subChannel, FEAT_DEVICE_NAME);
-                if (subNameIdx != 0xFF) _deviceNameIdx = subNameIdx;
-
-                byte subInfoIdx = await QueryFeatureIndex(_subChannel, FEAT_DEVICE_INFO);
-                if (subInfoIdx != 0xFF) _deviceInfoIdx = subInfoIdx;
-
-                DiagnosticLogger.Log($"{Tag} Bridge sub-features: BatterySOC=0x{socIdx:X2} DeviceName=0x{subNameIdx:X2} DeviceInfo=0x{subInfoIdx:X2}");
-
-                if (socIdx != 0xFF)
-                {
-                    _batteryFeature = new CenturionBatterySOC(socIdx, FEAT_BATTERY_SOC);
-
-                    // Step 3: Fetch metadata (name, HW info, serial)
-                    var reader = new CenturionMetadataReader(_subChannel.SendAsync, _deviceNameIdx, _deviceInfoIdx);
-                    (_deviceName, _serialNumber, _modelId, _unitId) = await reader.ReadAsync(_deviceName);
-                    initCompleted = true;
-                }
-                else
-                {
-                    DiagnosticLogger.LogWarning($"{Tag} CompleteInit: BatterySOC feature not found via bridge — cannot monitor battery");
-                }
+                // Step 3: Fetch metadata (name, HW info, serial)
+                var reader = new CenturionMetadataReader(_subChannel.SendAsync, _deviceNameIdx, _deviceInfoIdx);
+                (_deviceName, _serialNumber, _modelId, _unitId) = await reader.ReadAsync(_deviceName);
+                initCompleted = true;
+            }
+            else
+            {
+                DiagnosticLogger.LogWarning($"{Tag} CompleteInit: BatterySOC feature not found via bridge — cannot monitor battery");
             }
         }
         finally
@@ -258,7 +257,7 @@ public class CenturionDevice : IDisposable
             if (initCompleted)
             {
                 // Step 4: Compute identifier and register with UI.
-                // _pendingInit is cleared here, inside the lock, so a concurrent CompleteInitAsync
+                // _mode is set to DongleReady here, inside the lock, so a concurrent CompleteInitAsync
                 // caller cannot slip through and emit a duplicate InitMessage.
                 _identifier = DeviceIdentifierGenerator.GenerateIdentifier(_serialNumber, _unitId, _modelId, _deviceName);
                 string deviceSignature = $"NATIVE.{DeviceType.Headset}.{_identifier}";
@@ -269,7 +268,7 @@ public class CenturionDevice : IDisposable
                 );
 
                 DiagnosticLogger.Log($"{Tag} Device registered: {_deviceName} ({_identifier})");
-                _pendingInit = false; // volatile write — establishes happens-before for _identifier visibility
+                _mode = CenturionMode.DongleReady; // volatile write — establishes happens-before for _identifier visibility
             }
             _initLock.Release();
         }
@@ -292,7 +291,7 @@ public class CenturionDevice : IDisposable
             await foreach (var frame in _frameChannel.Reader.ReadAllAsync(ct))
             {
                 if (frame.SwId == CenturionTransport.SWID)
-                {                    
+                {
                     // Fall back to parent channel for direct queries in bridge mode
                     // (e.g. CentPPBridge.getConnectionInfo sent via _parentChannel).
                     bool handled = _subChannel.TryCompleteRequest(frame);
@@ -342,11 +341,11 @@ public class CenturionDevice : IDisposable
     {
         // Bridge index not yet known — infer it from spontaneous ConnectionStateChanged events.
         // The dongle emits feat=N, func=0, swid=0 frames when the headset wakes.
-        if (!_directMode && _bridgeIdx == 0xFF && frame.FuncId == 0x00 && frame.FeatIdx != 0xFF && frame.HeadsetOnline)
+        if (_mode == CenturionMode.DeferredDiscovery && frame.FuncId == 0x00 && frame.FeatIdx != 0xFF && frame.HeadsetOnline)
         {
             _bridgeIdx = frame.FeatIdx;
             _subChannel = new CenturionBridgeChannel(_transport, _bridgeIdx, _subDeviceId, _cts.Token);
-            _pendingInit = true;
+            _mode = CenturionMode.DonglePending;
             DiagnosticLogger.Log($"{Tag} Bridge index inferred from ConnectionStateChanged event: feat=0x{_bridgeIdx:X2}");
             _ = Task.Run(async () =>
             {
@@ -369,7 +368,8 @@ public class CenturionDevice : IDisposable
             return;
         }
 
-        if (!_directMode && _bridgeIdx != 0xFF && frame.FeatIdx == _bridgeIdx && frame.FuncId == 0x00)
+        if (_mode is CenturionMode.DonglePending or CenturionMode.DongleReady
+            && frame.FeatIdx == _bridgeIdx && frame.FuncId == 0x00)
             await HandleBridgeConnectionEvent(frame);
     }
 
@@ -386,7 +386,7 @@ public class CenturionDevice : IDisposable
                 try
                 {
                     await Task.Delay(HEADSET_ONLINE_DELAY_MS, _cts.Token); // Wait for RF stability
-                    if (_pendingInit) await CompleteInitAsync(headsetOnlineConfirmed: true);
+                    if (_mode == CenturionMode.DonglePending) await CompleteInitAsync(headsetOnlineConfirmed: true);
                     else await UpdateBattery(forceUpdate: true);
                 }
                 catch (OperationCanceledException) { } // Prevent access to disposed objects when shutting down
@@ -395,7 +395,7 @@ public class CenturionDevice : IDisposable
         else
         {
             DiagnosticLogger.Log($"{Tag} Bridge: headset disconnected");
-            if (!_pendingInit && !string.IsNullOrEmpty(_identifier))
+            if (_mode == CenturionMode.DongleReady && !string.IsNullOrEmpty(_identifier))
             {
                 HidppManagerContext.Instance.SignalDeviceEvent(
                     IPCMessageType.UPDATE,
@@ -413,13 +413,13 @@ public class CenturionDevice : IDisposable
     {
         byte[] featureIdBytes = [(byte)(featureId >> 8), (byte)(featureId & 0xFF)];
         var resp = await channel.SendAsync(0x00, 0x00, featureIdBytes);
-        if (resp == null || resp.Value.Params.Length == 0) 
+        if (resp == null || resp.Value.Params.Length == 0)
             return 0xFF;
-        
+
         byte index = resp.Value.Params[0];
-        if (index == 0 && featureId != 0x0000) 
+        if (index == 0 && featureId != 0x0000)
             return 0xFF;
-        
+
         return index;
     }
 
@@ -465,8 +465,8 @@ public class CenturionDevice : IDisposable
         _deviceInfoIdx = await QueryFeatureIndex(_parentChannel, FEAT_DEVICE_INFO);
         _deviceNameIdx = await QueryFeatureIndex(_parentChannel, FEAT_DEVICE_NAME);
 
-        _subChannel  = new CenturionBridgeChannel(_transport, _bridgeIdx, _subDeviceId, _cts.Token);
-        _pendingInit = true; // still true; CompleteInitAsync will clear it
+        _subChannel = new CenturionBridgeChannel(_transport, _bridgeIdx, _subDeviceId, _cts.Token);
+        _mode = CenturionMode.DonglePending;
 
         DiagnosticLogger.Log($"{Tag} Bridge discovered on retry: index 0x{_bridgeIdx:X2}");
         await CompleteInitAsync();
@@ -479,12 +479,18 @@ public class CenturionDevice : IDisposable
         {
             try
             {
-                if (_bridgeIdx == 0xFF && !_directMode)
-                    await RetryBridgeDiscoveryAsync();
-                else if (_pendingInit)
-                    await CompleteInitAsync();
-                else
-                    await UpdateBattery();
+                switch (_mode)
+                {
+                    case CenturionMode.DeferredDiscovery: 
+                        await RetryBridgeDiscoveryAsync(); 
+                        break;
+                    case CenturionMode.DonglePending:     
+                        await CompleteInitAsync();         
+                        break;
+                    case CenturionMode.DongleReady or CenturionMode.DirectUSB:                    
+                        await UpdateBattery();
+                        break;
+                }
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
@@ -492,7 +498,7 @@ public class CenturionDevice : IDisposable
                 DiagnosticLogger.LogWarning($"{Tag} Poll error: {ex.Message}");
             }
 
-            TimeSpan delay = (_bridgeIdx == 0xFF || _pendingInit)
+            TimeSpan delay = _mode is CenturionMode.DeferredDiscovery or CenturionMode.DonglePending
                 ? TimeSpan.FromSeconds(PENDING_INIT_POLL_INTERVAL_S)
                 : TimeSpan.FromSeconds(Math.Clamp(GlobalSettings.settings.PollPeriod, 20, 3600));
             await Task.Delay(delay, ct);
@@ -514,7 +520,8 @@ public class CenturionDevice : IDisposable
         try { _dispatcherTask?.Wait(TimeSpan.FromSeconds(2)); } catch { }
 
         // Only send offline notification if device was fully registered with the UI
-        if (!_pendingInit && !string.IsNullOrEmpty(_identifier))
+        if (_mode is CenturionMode.DongleReady or CenturionMode.DirectUSB
+            && !string.IsNullOrEmpty(_identifier))
         {
             HidppManagerContext.Instance.SignalDeviceEvent(
                 IPCMessageType.UPDATE,
