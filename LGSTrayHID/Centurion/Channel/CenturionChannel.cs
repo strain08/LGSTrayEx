@@ -3,6 +3,8 @@ using LGSTrayPrimitives;
 
 namespace LGSTrayHID.Centurion.Channel;
 
+public delegate Task<CenturionResponse?> CenturionSendAsync(byte featIdx, byte func, byte[] parameters, int timeoutMs = 2000);
+
 /// <summary>
 /// Abstract base for Centurion request/response channels.
 /// Owns IoLock, PendingRequest, and the core send+wait implementation.

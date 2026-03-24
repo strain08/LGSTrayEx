@@ -1,4 +1,5 @@
-using LGSTrayHID.Centurion.Transport;
+using LGSTrayHID.Centurion.Channel;
+using LGSTrayHID.Metadata;
 using LGSTrayPrimitives;
 
 namespace LGSTrayHID.Centurion.Features;
@@ -8,23 +9,20 @@ namespace LGSTrayHID.Centurion.Features;
 /// Works for both direct mode and dongle (bridge) mode — the caller provides the appropriate
 /// channel's SendAsync as the delegate.
 /// </summary>
-public sealed class CenturionMetadataReader(
-    Func<byte, byte, byte[], int, Task<CenturionResponse?>> sendAsync,
-    byte deviceNameIdx,
-    byte deviceInfoIdx)
+public sealed class CenturionMetadataReader(CenturionSendAsync sendAsync,
+                                            byte deviceNameIdx,
+                                            byte deviceInfoIdx)
 {
     /// <summary>
-    /// Read all available metadata. Returns the updated device name plus optional hardware details.
+    /// Read all available metadata. Returns the updated device name plus hardware identity fields.
     /// </summary>
-    public async Task<(string deviceName, string? serialNumber, string? modelId, string? unitId)>
-        ReadAsync(string defaultDeviceName)
+    public async Task<(string deviceName, DeviceIdentity ids)> ReadAsync(string defaultDeviceName)
     {
-        string? name = await TryGetDeviceName();
-        name??= defaultDeviceName;
+        string name = await TryGetDeviceName() ?? defaultDeviceName;
 
-        (string? modelId, string? unitId,string?  serialNumber) = await TryGetDeviceInfo();
+        DeviceIdentity ids = await TryGetDeviceInfo();
 
-        return (name, serialNumber, modelId, unitId);
+        return (name, ids);
     }
 
     /// <summary>
@@ -78,9 +76,9 @@ public sealed class CenturionMetadataReader(
     /// <summary>
     /// Reads hardware info (model, revision) and serial number via DeviceInfo (0x0100).
     /// </summary>
-    private async Task<(string? modelId, string? unitId, string? serialNumber)> TryGetDeviceInfo()
+    private async Task<DeviceIdentity> TryGetDeviceInfo()
     {
-        if (deviceInfoIdx == 0xFF) return (null, null, null);
+        if (deviceInfoIdx == 0xFF) return default;
         string? modelId = null, unitId = null, serialNumber = null;
         try
         {
@@ -110,6 +108,6 @@ public sealed class CenturionMetadataReader(
             }
         }
         catch (Exception ex) { DiagnosticLogger.LogWarning($"[Centurion] Device info read failed: {ex.Message}"); }
-        return (modelId, unitId, serialNumber);
+        return new DeviceIdentity(modelId, unitId, serialNumber);
     }
 }

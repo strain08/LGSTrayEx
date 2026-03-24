@@ -11,23 +11,21 @@ public static class DeviceIdentifierGenerator
     /// 2. Unit ID + Model ID combination (if available)
     /// 3. Hash of device name (fallback)
     /// </summary>
-    /// <param name="serialNumber">Device serial number (if Feature 0x0003 supports it)</param>
-    /// <param name="unitId">Device unit ID from firmware info</param>
-    /// <param name="modelId">Device model ID from firmware info</param>
+    /// <param name="ids">Device hardware identity (model, unit, serial)</param>
     /// <param name="deviceName">Device name (used for hash fallback)</param>
     /// <returns>Unique device identifier string</returns>
-    public static string GenerateIdentifier(string? serialNumber, string? unitId, string? modelId, string deviceName)
+    public static string GenerateIdentifier(DeviceIdentity ids, string deviceName)
     {
         // Priority 1: Use serial number if available
-        if (!string.IsNullOrEmpty(serialNumber))
+        if (!string.IsNullOrEmpty(ids.SerialNumber))
         {
-            return serialNumber;
+            return ids.SerialNumber;
         }
 
         // Priority 2: Use UnitID-ModelID combination if available
-        if (!string.IsNullOrEmpty(unitId) && !string.IsNullOrEmpty(modelId))
+        if (!string.IsNullOrEmpty(ids.UnitId) && !string.IsNullOrEmpty(ids.ModelId))
         {
-            return $"{unitId}-{modelId}";
+            return $"{ids.UnitId}-{ids.ModelId}";
         }
 
         // Priority 3: Fallback to hash of device name

@@ -197,12 +197,12 @@ public class HidppDevice : IDisposable
             }
 
 
-            Identifier = DeviceIdentifierGenerator.GenerateIdentifier(serialNumber, fwInfo.UnitId, fwInfo.ModelId, DeviceName);
+            Identifier = DeviceIdentifierGenerator.GenerateIdentifier(new DeviceIdentity(fwInfo.ModelId, fwInfo.UnitId, serialNumber), DeviceName);
         }
         else
         {
             // Device does not have firmware info - use device name hash as identifier
-            Identifier = DeviceIdentifierGenerator.GenerateIdentifier(null, null, null, DeviceName);
+            Identifier = DeviceIdentifierGenerator.GenerateIdentifier(default, DeviceName);
         }
 
         // Select battery feature using factory pattern

@@ -59,9 +59,7 @@ public class CenturionDevice : IDisposable
     private const byte _subDeviceId = 0x00;   // Solaar's comment: device_id=0 for the headset
     private string _deviceName;
     private string _identifier = string.Empty;
-    private string? _serialNumber;
-    private string? _modelId;
-    private string? _unitId; // Hardware revision in Centurion terms
+    private DeviceIdentity _deviceIdentity;
 
     // Channel-based I/O infrastructure
     private readonly Channel<CenturionResponse> _frameChannel = System.Threading.Channels.Channel.CreateUnbounded<CenturionResponse>();
@@ -145,10 +143,10 @@ public class CenturionDevice : IDisposable
                 DiagnosticLogger.Log($"{Tag} Direct mode — BatterySOC at index {directBatterySocIdx}");
 
                 var reader = new CenturionMetadataReader(_subChannel.SendAsync, _deviceNameIdx, _deviceInfoIdx);
-                (_deviceName, _serialNumber, _modelId, _unitId) = await reader.ReadAsync(_deviceName);
+                (_deviceName, _deviceIdentity) = await reader.ReadAsync(defaultDeviceName: _deviceName);
 
                 // Generate identifier from real device name and metadata
-                _identifier = DeviceIdentifierGenerator.GenerateIdentifier(_serialNumber, _unitId, _modelId, _deviceName);
+                _identifier = DeviceIdentifierGenerator.GenerateIdentifier(_deviceIdentity, _deviceName);
                 string deviceSignature = $"NATIVE.{DeviceType.Headset}.{_identifier}";
 
                 // Signal INIT to UI
@@ -244,7 +242,7 @@ public class CenturionDevice : IDisposable
 
                 // Step 3: Fetch metadata (name, HW info, serial)
                 var reader = new CenturionMetadataReader(_subChannel.SendAsync, _deviceNameIdx, _deviceInfoIdx);
-                (_deviceName, _serialNumber, _modelId, _unitId) = await reader.ReadAsync(_deviceName);
+                (_deviceName, _deviceIdentity) = await reader.ReadAsync(_deviceName);
                 initCompleted = true;
             }
             else
@@ -259,7 +257,7 @@ public class CenturionDevice : IDisposable
                 // Step 4: Compute identifier and register with UI.
                 // _mode is set to DongleReady here, inside the lock, so a concurrent CompleteInitAsync
                 // caller cannot slip through and emit a duplicate InitMessage.
-                _identifier = DeviceIdentifierGenerator.GenerateIdentifier(_serialNumber, _unitId, _modelId, _deviceName);
+                _identifier = DeviceIdentifierGenerator.GenerateIdentifier(_deviceIdentity, _deviceName);
                 string deviceSignature = $"NATIVE.{DeviceType.Headset}.{_identifier}";
 
                 HidppManagerContext.Instance.SignalDeviceEvent(
