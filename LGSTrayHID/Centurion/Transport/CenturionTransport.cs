@@ -24,7 +24,7 @@ public class CenturionTransport : IDisposable
     public virtual bool IsPassive => false;
 
     private const byte FLAGS_SINGLE = 0x00;
-    public const byte SWID = 0x0A; // Match GlobalSettings default
+    public static byte SWID => GlobalSettings.SoftwareId;
 
     /// <summary>TX frame layout. Override in subclasses if the TX format differs from Layout_0x51.</summary>
     protected virtual FrameLayout TxLayout => FrameLayout.Layout_0x51;
