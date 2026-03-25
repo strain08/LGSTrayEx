@@ -520,10 +520,11 @@ public class CenturionDevice : IDisposable
 
         _cts.Cancel();
 
-        // Wait briefly for tasks to exit
-        try { _pollingTask?.Wait(TimeSpan.FromSeconds(2)); } catch { }
-        try { _readLoopTask?.Wait(TimeSpan.FromSeconds(2)); } catch { }
-        try { _dispatcherTask?.Wait(TimeSpan.FromSeconds(2)); } catch { }
+        // Wait briefly for tasks to exit (in parallel — max 2s total)
+        var tasks = new[] { _pollingTask, _readLoopTask, _dispatcherTask }
+            .Where(t => t != null).Cast<Task>().ToArray();
+        if (tasks.Length > 0)
+            try { Task.WaitAll(tasks, TimeSpan.FromSeconds(2)); } catch { }
 
         // Only send offline notification if device was fully registered with the UI
         if (_mode is CenturionMode.DongleReady or CenturionMode.DirectUSB
