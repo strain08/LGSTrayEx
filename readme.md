@@ -27,6 +27,7 @@ See [release notes](https://github.com/strain08/LGSTrayBattery/releases/latest)
 
 ## Device compatibility
 - 🔋 Wireless mice/keyboards/headsets using Unifying, Bolt, Lightspeed or direct Bluetooth receivers
+- 🔋 Centurion protocol devices - G522, PRO X 2, etc. - reverse-engineered and c#'ed by [@ksanislo](https://github.com/ksanislo)
 - 🔋 Devices from roughly 2010+ that support HID++ 2.0
 - 🪫 Older HID++ 1.0 devices are likely unsupported (ping will fail)
 
@@ -40,8 +41,8 @@ Currently tested with:
 - ✅(Lightspeed) G305 Mouse
 - ✅(Lightspeed) G705 Mouse 
 - ✅(Lightspeed) G515 TKL
-- 🟥(Lightspeed) G522 Headset Native - not detected, cannot fix
-- 🟨(Lightspeed) G522 Headset Ghub - awaiting confirmation
+- ✅(Lightspeed) G522 Headset Native (Centurion)
+- ✅(Lightspeed) G522 Headset Ghub
 
 ## OS Compatibility
 - currently Windows 11 only

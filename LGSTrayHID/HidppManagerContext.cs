@@ -1,4 +1,5 @@
-﻿using LGSTrayHID.HidApi;
+﻿using LGSTrayHID.Centurion;
+using LGSTrayHID.HidApi;
 using LGSTrayPrimitives;
 using LGSTrayPrimitives.MessageStructs;
 using System.Collections.Concurrent;
@@ -16,6 +17,7 @@ public sealed class HidppManagerContext
 
     private readonly Dictionary<string, Guid> _containerMap = [];
     private readonly Dictionary<Guid, HidppReceiver> _deviceMap = [];
+    private readonly Dictionary<string, CenturionDevice> _centurionMap = [];
     private readonly BlockingCollection<HidDeviceInfo> _deviceQueue = [];
 
     // Mode-switch detection: Track recent USB device arrivals
@@ -81,6 +83,23 @@ public sealed class HidppManagerContext
             case HidppMessageType.VERY_LONG:
                 DiagnosticLogger.Log($"Skipping device with unsupported message type: {messageType}");
                 return 0;
+
+            case HidppMessageType.CENTURION:
+            {
+                string probePath = deviceInfo.GetPath();
+                DiagnosticLogger.Log($"[Centurion] Detected Centurion interface 0x{deviceInfo.UsagePage:X4}: {probePath}");
+                HidDevicePtr probeDev = HidOpenPath(ref deviceInfo);
+                if (probeDev == 0)
+                {
+                    DiagnosticLogger.LogError($"[Centurion] Failed to open HID device: {probePath}");
+                    return 0;
+                }
+                string? productName = deviceInfo.GetProductString();
+                var centurion = new CenturionDevice(probeDev, deviceInfo.UsagePage, deviceInfo.ProductId, productName);
+                _centurionMap[probePath] = centurion;
+                _ = Task.Run(() => centurion.InitAsync());
+                return 0;
+            }
         }
 
         string devPath = deviceInfo.GetPath();
@@ -137,8 +156,16 @@ public sealed class HidppManagerContext
 
     private unsafe int DeviceLeft(HidHotPlugCallbackHandle callbackHandle, HidDeviceInfo* deviceInfo, HidApiHotPlugEvent hidApiHotPlugEvent, nint userData)
     {
-        string devPath = (*deviceInfo).GetPath();                
+        string devPath = (*deviceInfo).GetPath();
         DiagnosticLogger.Log($"HID device removal detected: {devPath}");
+
+        if (_centurionMap.TryGetValue(devPath, out var centurionDevice))
+        {
+            DiagnosticLogger.Log($"[Centurion] Removing device: {devPath}");
+            centurionDevice.Dispose();
+            _centurionMap.Remove(devPath);
+            return 0;
+        }
 
         if (!_containerMap.TryGetValue(devPath, out var containerId)) return 0;
 
