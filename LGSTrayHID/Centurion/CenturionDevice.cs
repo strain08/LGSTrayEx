@@ -216,9 +216,9 @@ public class CenturionDevice : IDisposable
                 }
 
                 DiagnosticLogger.Verbose($"{Tag} CompleteInit getConnectionInfo params: {BitConverter.ToString(connResp.Value.Params)}");
-                if (connResp.Value.HeadsetOffline)
+                if (connResp.Value.ConnectionState != HeadsetConnectionState.Online)
                 {
-                    DiagnosticLogger.Log($"{Tag} CompleteInit: headset offline (HeadsetOffline=true), will retry on connect event");
+                    DiagnosticLogger.Log($"{Tag} CompleteInit: headset not online ({connResp.Value.ConnectionState}), will retry on connect event");
                     return;
                 }
             }
@@ -339,7 +339,9 @@ public class CenturionDevice : IDisposable
     {
         // Bridge index not yet known — infer it from spontaneous ConnectionStateChanged events.
         // The dongle emits feat=N, func=0, swid=0 frames when the headset wakes.
-        if (_mode == CenturionMode.DeferredDiscovery && frame.FuncId == 0x00 && frame.FeatIdx != 0xFF && frame.HeadsetOnline)
+        if (_mode == CenturionMode.DeferredDiscovery &&
+            frame.FeatIdx != 0xFF && frame.FuncId == 0x00 && 
+            frame.ConnectionState == HeadsetConnectionState.Online)
         {
             _bridgeIdx = frame.FeatIdx;
             _subChannel = new CenturionBridgeChannel(_transport, _bridgeIdx, _subDeviceId, _cts.Token);
@@ -376,30 +378,36 @@ public class CenturionDevice : IDisposable
     /// </summary>
     private async Task HandleBridgeConnectionEvent(CenturionResponse resp)
     {
-        if (resp.HeadsetOnline)
+        switch (resp.ConnectionState)
         {
-            DiagnosticLogger.Log($"{Tag} Bridge: headset connected");
-            _ = Task.Run(async () =>
-            {
-                try
+            case HeadsetConnectionState.Online:
+                DiagnosticLogger.Log($"{Tag} Bridge: headset connected");
+                _ = Task.Run(async () =>
                 {
-                    await Task.Delay(HEADSET_ONLINE_DELAY_MS, _cts.Token); // Wait for RF stability
-                    if (_mode == CenturionMode.DonglePending) await CompleteInitAsync(headsetOnlineConfirmed: true);
-                    else await UpdateBattery(forceUpdate: true);
+                    try
+                    {
+                        await Task.Delay(HEADSET_ONLINE_DELAY_MS, _cts.Token); // Wait for RF stability
+                        if (_mode == CenturionMode.DonglePending) await CompleteInitAsync(headsetOnlineConfirmed: true);
+                        else await UpdateBattery(forceUpdate: true);
+                    }
+                    catch (OperationCanceledException) { } // Prevent access to disposed objects when shutting down
+                });
+                break;
+
+            case HeadsetConnectionState.Offline:
+                DiagnosticLogger.Log($"{Tag} Bridge: headset disconnected");
+                if (_mode == CenturionMode.DongleReady && !string.IsNullOrEmpty(_identifier))
+                {
+                    HidppManagerContext.Instance.SignalDeviceEvent(
+                        IPCMessageType.UPDATE,
+                        new UpdateMessage(_identifier, -1, PowerSupplyStatus.UNKNOWN, 0, DateTimeOffset.Now)
+                    );
                 }
-                catch (OperationCanceledException) { } // Prevent access to disposed objects when shutting down
-            });
-        }
-        else
-        {
-            DiagnosticLogger.Log($"{Tag} Bridge: headset disconnected");
-            if (_mode == CenturionMode.DongleReady && !string.IsNullOrEmpty(_identifier))
-            {
-                HidppManagerContext.Instance.SignalDeviceEvent(
-                    IPCMessageType.UPDATE,
-                    new UpdateMessage(_identifier, -1, PowerSupplyStatus.UNKNOWN, 0, DateTimeOffset.Now)
-                );
-            }
+                break;
+
+            case HeadsetConnectionState.Unknown:
+                DiagnosticLogger.LogWarning($"{Tag} Bridge: connection event with empty params — ignoring");
+                break;
         }
     }
 
