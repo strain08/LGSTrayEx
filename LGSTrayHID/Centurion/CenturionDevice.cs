@@ -29,7 +29,7 @@ public class CenturionDevice : IDisposable
     private readonly ushort _usagePage;
     private readonly ushort _productId;
 
-    string Tag => $"[0x{_productId:X4}] Device";
+    private readonly string _tag;
 
     /// <summary>Operational mode — set once during InitAsync, then updated by bridge lifecycle events.</summary>
     private enum CenturionMode
@@ -91,6 +91,7 @@ public class CenturionDevice : IDisposable
         _usagePage = usagePage;
         _productId = productId;
         _deviceName = productName ?? "Centurion Headset";
+        _tag = $"[0x{_productId:X4}] Device";
     }
 
     public async Task InitAsync()
@@ -98,7 +99,7 @@ public class CenturionDevice : IDisposable
         try
         {
             _transport = await CenturionTransportFactory.CreateAsync(_dev, _productId, _cts.Token);
-            DiagnosticLogger.Log($"{Tag} Starting feature discovery...");
+            DiagnosticLogger.Log($"{_tag} Starting feature discovery...");
 
             // Initialize channels as Direct
             _subChannel = _parentChannel = new CenturionDirectChannel(_transport, _cts.Token);
@@ -110,7 +111,7 @@ public class CenturionDevice : IDisposable
 
             if (_transport.IsPassive)
             {
-                DiagnosticLogger.Log($"{Tag} Passive mode — logging frames only, no feature discovery");
+                DiagnosticLogger.Log($"{_tag} Passive mode — logging frames only, no feature discovery");
                 return;
             }
 
@@ -119,7 +120,7 @@ public class CenturionDevice : IDisposable
             _deviceInfoIdx = await QueryFeatureIndex(_parentChannel, FEAT_DEVICE_INFO);
             byte directBatterySocIdx = await QueryFeatureIndex(_parentChannel, FEAT_BATTERY_SOC);
             _deviceNameIdx = await QueryFeatureIndex(_parentChannel, FEAT_DEVICE_NAME);
-            DiagnosticLogger.Log($"{Tag} Feature map: Bridge=0x{_bridgeIdx:X2} DeviceInfo=0x{_deviceInfoIdx:X2} BatterySOC=0x{directBatterySocIdx:X2} DeviceName=0x{_deviceNameIdx:X2}");
+            DiagnosticLogger.Log($"{_tag} Feature map: Bridge=0x{_bridgeIdx:X2} DeviceInfo=0x{_deviceInfoIdx:X2} BatterySOC=0x{directBatterySocIdx:X2} DeviceName=0x{_deviceNameIdx:X2}");
 
             if (_bridgeIdx != 0xFF)
             {
@@ -127,7 +128,7 @@ public class CenturionDevice : IDisposable
                 // We start the background loops immediately so bridge events are not missed.
                 _subChannel = new CenturionBridgeChannel(_transport, _bridgeIdx, _subDeviceId, _cts.Token);
                 _mode = CenturionMode.DonglePending;
-                DiagnosticLogger.Log($"{Tag} Dongle mode — CentPPBridge at index {_bridgeIdx}");
+                DiagnosticLogger.Log($"{_tag} Dongle mode — CentPPBridge at index {_bridgeIdx}");
 
                 // Start polling loop
                 _pollingTask = Task.Run(() => PollBattery(_cts.Token), _cts.Token);
@@ -140,7 +141,7 @@ public class CenturionDevice : IDisposable
                 // DIRECT MODE: device is always reachable, register immediately.
                 _batteryFeature = new CenturionBatterySOC(directBatterySocIdx, FEAT_BATTERY_SOC);
                 _mode = CenturionMode.DirectUSB;
-                DiagnosticLogger.Log($"{Tag} Direct mode — BatterySOC at index {directBatterySocIdx}");
+                DiagnosticLogger.Log($"{_tag} Direct mode — BatterySOC at index {directBatterySocIdx}");
 
                 var reader = new CenturionMetadataReader(_subChannel.SendAsync, _deviceNameIdx, _deviceInfoIdx);
                 (_deviceName, _deviceIdentity) = await reader.ReadAsync(defaultDeviceName: _deviceName);
@@ -154,7 +155,7 @@ public class CenturionDevice : IDisposable
                     IPCMessageType.INIT,
                     new InitMessage(_identifier, _deviceName, hasBattery: true, DeviceType.Headset, deviceSignature)
                 );
-                DiagnosticLogger.Log($"{Tag} Device registered: {_deviceName} ({_identifier})");
+                DiagnosticLogger.Log($"{_tag} Device registered: {_deviceName} ({_identifier})");
 
                 // First battery read
                 await UpdateBattery(forceUpdate: true);
@@ -167,17 +168,17 @@ public class CenturionDevice : IDisposable
                 // Feature discovery failed — headset is likely asleep. Enter deferred-discovery mode:
                 // the polling loop will retry discovery and bridge events will infer the bridge index.
                 _mode = CenturionMode.DeferredDiscovery;
-                DiagnosticLogger.LogWarning($"{Tag} Feature discovery timed out — entering deferred-discovery mode (headset likely asleep)");
+                DiagnosticLogger.LogWarning($"{_tag} Feature discovery timed out — entering deferred-discovery mode (headset likely asleep)");
                 _pollingTask = Task.Run(() => PollBattery(_cts.Token), _cts.Token);
             }
         }
         catch (OperationCanceledException)
         {
-            DiagnosticLogger.Log($"{Tag} Init cancelled (device removed during startup)");
+            DiagnosticLogger.Log($"{_tag} Init cancelled (device removed during startup)");
         }
         catch (Exception ex)
         {
-            DiagnosticLogger.LogError($"{Tag} Init failed: {ex.Message}");
+            DiagnosticLogger.LogError($"{_tag} Init failed: {ex.Message}");
         }
     }
 
@@ -211,19 +212,19 @@ public class CenturionDevice : IDisposable
                 var connResp = await _parentChannel.SendAsync(_bridgeIdx, 0x00, []);
                 if (connResp == null)
                 {
-                    DiagnosticLogger.LogWarning($"{Tag} CompleteInit: getConnectionInfo timed out — headset likely asleep");
+                    DiagnosticLogger.LogWarning($"{_tag} CompleteInit: getConnectionInfo timed out — headset likely asleep");
                     return;
                 }
 
-                DiagnosticLogger.Verbose($"{Tag} CompleteInit getConnectionInfo params: {BitConverter.ToString(connResp.Value.Params)}");
+                DiagnosticLogger.Verbose($"{_tag} CompleteInit getConnectionInfo params: {BitConverter.ToString(connResp.Value.Params)}");
                 if (connResp.Value.ConnectionState != HeadsetConnectionState.Online)
                 {
-                    DiagnosticLogger.Log($"{Tag} CompleteInit: headset not online ({connResp.Value.ConnectionState}), will retry on connect event");
+                    DiagnosticLogger.Log($"{_tag} CompleteInit: headset not online ({connResp.Value.ConnectionState}), will retry on connect event");
                     return;
                 }
             }
 
-            DiagnosticLogger.Log($"{Tag} Headset connected via bridge" +
+            DiagnosticLogger.Log($"{_tag} Headset connected via bridge" +
                 (headsetOnlineConfirmed ? " (confirmed by event)" : ""));
 
             // Step 2: Discover sub-device features via bridge
@@ -234,7 +235,7 @@ public class CenturionDevice : IDisposable
             byte subInfoIdx = await QueryFeatureIndex(_subChannel, FEAT_DEVICE_INFO);
             if (subInfoIdx != 0xFF) _deviceInfoIdx = subInfoIdx;
 
-            DiagnosticLogger.Log($"{Tag} Bridge sub-features: BatterySOC=0x{socIdx:X2} DeviceName=0x{subNameIdx:X2} DeviceInfo=0x{subInfoIdx:X2}");
+            DiagnosticLogger.Log($"{_tag} Bridge sub-features: BatterySOC=0x{socIdx:X2} DeviceName=0x{subNameIdx:X2} DeviceInfo=0x{subInfoIdx:X2}");
 
             if (socIdx != 0xFF)
             {
@@ -247,7 +248,7 @@ public class CenturionDevice : IDisposable
             }
             else
             {
-                DiagnosticLogger.LogWarning($"{Tag} CompleteInit: BatterySOC feature not found via bridge — cannot monitor battery");
+                DiagnosticLogger.LogWarning($"{_tag} CompleteInit: BatterySOC feature not found via bridge — cannot monitor battery");
             }
         }
         finally
@@ -265,7 +266,7 @@ public class CenturionDevice : IDisposable
                     new InitMessage(_identifier, _deviceName, true, DeviceType.Headset, deviceSignature)
                 );
 
-                DiagnosticLogger.Log($"{Tag} Device registered: {_deviceName} ({_identifier})");
+                DiagnosticLogger.Log($"{_tag} Device registered: {_deviceName} ({_identifier})");
                 _mode = CenturionMode.DongleReady; // volatile write — establishes happens-before for _identifier visibility
             }
             _initLock.Release();
@@ -283,7 +284,7 @@ public class CenturionDevice : IDisposable
     /// </summary>
     private async Task ResponseDispatcherAsync(CancellationToken ct)
     {
-        DiagnosticLogger.Log($"{Tag} Dispatcher started");
+        DiagnosticLogger.Log($"{_tag} Dispatcher started");
         try
         {
             await foreach (var frame in _frameChannel.Reader.ReadAllAsync(ct))
@@ -306,7 +307,7 @@ public class CenturionDevice : IDisposable
                     // Fail the pending request immediately instead of letting it timeout.
                     if (frame.FeatIdx == 0xFF && frame.Params.Length >= 1 && frame.Params[0] == CenturionTransport.SWID)
                     {
-                        DiagnosticLogger.Verbose($"{Tag} Dispatcher: error response (feat=0xFF) — feature not found");
+                        DiagnosticLogger.Verbose($"{_tag} Dispatcher: error response (feat=0xFF) — feature not found");
                         bool handled = _subChannel.TryCompleteError(frame);
                         if (!handled && !ReferenceEquals(_subChannel, _parentChannel))
                             _parentChannel.TryCompleteError(frame);
@@ -320,15 +321,15 @@ public class CenturionDevice : IDisposable
                     continue;
                 }
 
-                DiagnosticLogger.Verbose($"{Tag} Dispatcher: ignored frame SwId=0x{frame.SwId:X2} feat=0x{frame.FeatIdx:X2}");
+                DiagnosticLogger.Verbose($"{_tag} Dispatcher: ignored frame SwId=0x{frame.SwId:X2} feat=0x{frame.FeatIdx:X2}");
             }
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            DiagnosticLogger.LogError($"{Tag} Dispatcher exception: {ex.Message}");
+            DiagnosticLogger.LogError($"{_tag} Dispatcher exception: {ex.Message}");
         }
-        DiagnosticLogger.Log($"{Tag} Dispatcher ended");
+        DiagnosticLogger.Log($"{_tag} Dispatcher ended");
     }
 
     /// <summary>
@@ -346,7 +347,7 @@ public class CenturionDevice : IDisposable
             _bridgeIdx = frame.FeatIdx;
             _subChannel = new CenturionBridgeChannel(_transport, _bridgeIdx, _subDeviceId, _cts.Token);
             _mode = CenturionMode.DonglePending;
-            DiagnosticLogger.Log($"{Tag} Bridge index inferred from ConnectionStateChanged event: feat=0x{_bridgeIdx:X2}");
+            DiagnosticLogger.Log($"{_tag} Bridge index inferred from ConnectionStateChanged event: feat=0x{_bridgeIdx:X2}");
             _ = Task.Run(async () =>
             {
                 try
@@ -381,7 +382,7 @@ public class CenturionDevice : IDisposable
         switch (resp.ConnectionState)
         {
             case HeadsetConnectionState.Online:
-                DiagnosticLogger.Log($"{Tag} Bridge: headset connected");
+                DiagnosticLogger.Log($"{_tag} Bridge: headset connected");
                 _ = Task.Run(async () =>
                 {
                     try
@@ -395,7 +396,7 @@ public class CenturionDevice : IDisposable
                 break;
 
             case HeadsetConnectionState.Offline:
-                DiagnosticLogger.Log($"{Tag} Bridge: headset disconnected");
+                DiagnosticLogger.Log($"{_tag} Bridge: headset disconnected");
                 if (_mode == CenturionMode.DongleReady && !string.IsNullOrEmpty(_identifier))
                 {
                     HidppManagerContext.Instance.SignalDeviceEvent(
@@ -406,7 +407,7 @@ public class CenturionDevice : IDisposable
                 break;
 
             case HeadsetConnectionState.Unknown:
-                DiagnosticLogger.LogWarning($"{Tag} Bridge: connection event with empty params — ignoring");
+                DiagnosticLogger.LogWarning($"{_tag} Bridge: connection event with empty params — ignoring");
                 break;
         }
     }
@@ -434,18 +435,18 @@ public class CenturionDevice : IDisposable
         if (_batteryFeature == null || string.IsNullOrEmpty(_identifier)) return false;
         try
         {
-            DiagnosticLogger.Verbose($"{Tag} Battery update: querying feat=0x{_batteryFeature.FeatureIndex:X2}");
+            DiagnosticLogger.Verbose($"{_tag} Battery update: querying feat=0x{_batteryFeature.FeatureIndex:X2}");
             var resp = await _subChannel.SendAsync(_batteryFeature.FeatureIndex, 0x00, []);
             if (resp == null)
             {
-                DiagnosticLogger.LogWarning($"{Tag} Battery update: no response (timeout or device offline)");
+                DiagnosticLogger.LogWarning($"{_tag} Battery update: no response (timeout or device offline)");
                 return false;
             }
 
             var batState = _batteryFeature.ParseBatteryParams(resp.Value.Params);
             if (batState == null)
             {
-                DiagnosticLogger.LogWarning($"{Tag} Battery update: parse failed (params={BitConverter.ToString(resp.Value.Params)})");
+                DiagnosticLogger.LogWarning($"{_tag} Battery update: parse failed (params={BitConverter.ToString(resp.Value.Params)})");
                 return false;
             }
 
@@ -454,14 +455,14 @@ public class CenturionDevice : IDisposable
         }
         catch (Exception ex)
         {
-            DiagnosticLogger.LogWarning($"{Tag} Battery update exception: {ex.Message}");
+            DiagnosticLogger.LogWarning($"{_tag} Battery update exception: {ex.Message}");
             return false;
         }
     }
 
     private async Task RetryBridgeDiscoveryAsync()
     {
-        DiagnosticLogger.Verbose($"{Tag} Retrying bridge discovery...");
+        DiagnosticLogger.Verbose($"{_tag} Retrying bridge discovery...");
 
         byte bridgeIdx = await QueryFeatureIndex(_parentChannel, FEAT_CENTPP_BRIDGE);
         if (bridgeIdx == 0xFF) return; // Still not responding
@@ -474,13 +475,13 @@ public class CenturionDevice : IDisposable
         _subChannel = new CenturionBridgeChannel(_transport, _bridgeIdx, _subDeviceId, _cts.Token);
         _mode = CenturionMode.DonglePending;
 
-        DiagnosticLogger.Log($"{Tag} Bridge discovered on retry: index 0x{_bridgeIdx:X2}");
+        DiagnosticLogger.Log($"{_tag} Bridge discovered on retry: index 0x{_bridgeIdx:X2}");
         await CompleteInitAsync();
     }
 
     private async Task PollBattery(CancellationToken ct)
     {
-        DiagnosticLogger.Log($"{Tag} Battery polling started");
+        DiagnosticLogger.Log($"{_tag} Battery polling started");
         while (!ct.IsCancellationRequested)
         {
             try
@@ -501,7 +502,7 @@ public class CenturionDevice : IDisposable
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
-                DiagnosticLogger.LogWarning($"{Tag} Poll error: {ex.Message}");
+                DiagnosticLogger.LogWarning($"{_tag} Poll error: {ex.Message}");
             }
 
             TimeSpan delay = _mode is CenturionMode.DeferredDiscovery or CenturionMode.DonglePending
@@ -509,14 +510,14 @@ public class CenturionDevice : IDisposable
                 : TimeSpan.FromSeconds(Math.Clamp(GlobalSettings.settings.PollPeriod, 20, 3600));
             await Task.Delay(delay, ct);
         }
-        DiagnosticLogger.Log($"{Tag} Battery polling stopped");
+        DiagnosticLogger.Log($"{_tag} Battery polling stopped");
     }
 
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
 
-        DiagnosticLogger.Log($"{Tag} Disposing Centurion device: {_deviceName}");
+        DiagnosticLogger.Log($"{_tag} Disposing Centurion device: {_deviceName}");
 
         _cts.Cancel();
 
