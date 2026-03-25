@@ -68,19 +68,15 @@ public abstract class CenturionChannel : IDisposable
     {
         var pending = new PendingRequest(featIdx, func,
             new TaskCompletionSource<CenturionResponse>(TaskCreationOptions.RunContinuationsAsynchronously));
+
+        // Hold IoLock for the full request lifetime — send + wait for response.
+        // This guarantees only one outstanding request per channel at a time,
+        // so _pendingRequest is never overwritten by a concurrent caller.
+        await IoLock.WaitAsync(Ct);
         try
         {
-            await IoLock.WaitAsync(Ct);
-            try
-            {
-                // Register inside the lock so concurrent callers cannot overwrite each other.
-                _pendingRequest = pending;
-                await sendAction();
-            }
-            finally
-            {
-                IoLock.Release();
-            }
+            _pendingRequest = pending;
+            await sendAction();
 
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
             timeoutCts.CancelAfter(timeoutMs);
@@ -97,7 +93,8 @@ public abstract class CenturionChannel : IDisposable
         }
         finally
         {
-            Interlocked.Exchange(ref _pendingRequest, null);
+            _pendingRequest = null;
+            IoLock.Release();
         }
     }
 
@@ -108,7 +105,7 @@ public abstract class CenturionChannel : IDisposable
     /// </summary>
     public bool TryCompleteError(CenturionResponse frame)
     {
-        var pending = Interlocked.Exchange(ref _pendingRequest, null);
+        var pending = _pendingRequest;
         if (pending == null)
             return false;
         pending.Tcs.TrySetCanceled();
@@ -116,12 +113,12 @@ public abstract class CenturionChannel : IDisposable
     }
 
     /// <summary>
-    /// Atomically exchange out _pendingRequest and complete it if it matches the frame.
+    /// Completes the pending request if it matches the frame.
     /// Returns false if there was no pending request (allows caller to try another channel).
     /// </summary>
     protected bool TrySetPending(CenturionResponse frame)
     {
-        var pending = Interlocked.Exchange(ref _pendingRequest, null);
+        var pending = _pendingRequest;
         if (pending == null)
         {
             DiagnosticLogger.Verbose($"{Transport.Tag} Late response dropped (no pending): feat=0x{frame.FeatIdx:X2} func={frame.FuncId} swid=0x{frame.SwId:X2} — device may have woken after timeout");
@@ -132,7 +129,7 @@ public abstract class CenturionChannel : IDisposable
             pending.Tcs.TrySetResult(frame);
             return true;
         }
-        DiagnosticLogger.LogWarning($"{Transport.Tag} stale/mismatched response dropped " +
+        DiagnosticLogger.LogWarning($"{Transport.Tag} Response mismatch " +
             $"(expected feat=0x{pending.FeatIdx:X2} func={pending.FuncId}, " +
             $"got feat=0x{frame.FeatIdx:X2} func={frame.FuncId})");
         return false;
