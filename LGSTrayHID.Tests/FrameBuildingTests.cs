@@ -1,13 +1,11 @@
 using LGSTrayHID.Centurion.Transport;
-using Microsoft.VisualStudio.TestPlatform.CommunicationUtilities.Interfaces;
-using Microsoft.VisualStudio.TestPlatform.ObjectModel;
 
 namespace LGSTrayHID.Tests;
 
 public class FrameBuildingTests
 {
     // SWID used in TX frames
-    private const byte SWID = CenturionTransport.SWID; // 0x0A
+    private const byte SWID = 0x0A;
     
     [Fact]
     public void BuildFrame_0x51_Layout_ReportId_0x51()
