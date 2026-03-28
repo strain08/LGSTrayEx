@@ -7,7 +7,6 @@ using LGSTrayUI.Services;
 using System;
 using System.ComponentModel;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace LGSTrayUI;
@@ -22,22 +21,16 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
     [ObservableProperty]
     private bool _isChecked = false;
 
-
-
     private LogiDeviceIcon? taskbarIcon;
     private string? _cachedDetailedTooltip;
-
-    /// <summary>
-    /// Cancellation token for pending offline state change (mode-switch detection)
-    /// </summary>
-    private CancellationTokenSource? _pendingOfflineTimer;
-    private readonly object _offlineTimerLock = new();
+    private readonly ModeSwitchDetector _modeSwitchDetector;
 
     public LogiDeviceViewModel(ILogiDeviceIconFactory logiDeviceIconFactory, AppSettings appSettings, UserSettingsWrapper userSettings)
     {
         _logiDeviceIconFactory = logiDeviceIconFactory;
         _appSettings = appSettings;
         _userSettings = userSettings;
+        _modeSwitchDetector = new ModeSwitchDetector(appSettings.Notifications);
 
         // Subscribe to property changes from base class to update computed properties
         // Store handler reference for later unsubscription (prevents memory leak)
@@ -123,18 +116,8 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
         if (updateMessage.batteryPercentage >= 0 || updateMessage.IsWiredMode)
         {
             // Device is online or in wired mode - cancel any pending offline timer
-            lock (_offlineTimerLock)
-            {
-                if (_pendingOfflineTimer != null)
-                {
-                    DiagnosticLogger.Log($"[ModeSwitchDetection] {DeviceName} came back online - cancelling pending offline state change (mode switch detected)");
-                    _pendingOfflineTimer.Cancel();
-                    _pendingOfflineTimer.Dispose();
-                    _pendingOfflineTimer = null;
-                }
-            }
+            _modeSwitchDetector.SetOnline(DeviceName);
 
-            // Update BOTH states immediately
             IsOnline = true;
             IsVisuallyOnline = true;
 
@@ -145,48 +128,12 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
         }
         else
         {
-            // Device went offline
-            var delaySeconds = _appSettings.Notifications.SuppressModeSwitchNotifications ? _appSettings.Notifications.ModeSwitchDetectionDelaySeconds : 0;            
-
             // CRITICAL: Update IsOnline IMMEDIATELY (for notifications)
             IsOnline = false;
 
-            // But delay IsVisuallyOnline (for icon rendering - prevents "?" flicker)
-            lock (_offlineTimerLock)
-            {
-                // Cancel any existing pending timer
-                if (_pendingOfflineTimer != null)
-                {
-                    _pendingOfflineTimer.Cancel();
-                    _pendingOfflineTimer.Dispose();
-                }
-
-                // Create new timer for delayed visual offline state
-                _pendingOfflineTimer = new CancellationTokenSource();
-                var cts = _pendingOfflineTimer;
-
-                DiagnosticLogger.Log($"[ModeSwitchDetection] {DeviceName} went offline - delaying ICON state change by {delaySeconds}s to detect mode switch");
-
-                // Schedule delayed visual offline state change
-                Task.Delay(TimeSpan.FromSeconds(delaySeconds), cts.Token).ContinueWith(task =>
-                {
-                    if (task.IsCanceled)
-                    {
-                        // Timer was cancelled (device came back online)
-                        return;
-                    }
-
-                    // Delay expired, device still offline - update visual icon state
-                    DiagnosticLogger.Log($"[ModeSwitchDetection] {DeviceName} still offline after {delaySeconds}s - changing icon to offline state");
-                    IsVisuallyOnline = false;
-
-                    lock (_offlineTimerLock)
-                    {
-                        _pendingOfflineTimer?.Dispose();
-                        _pendingOfflineTimer = null;
-                    }
-                }, TaskScheduler.FromCurrentSynchronizationContext()); // Run on UI thread
-            }
+            // Delay IsVisuallyOnline (for icon rendering - prevents "?" flicker during mode switch)
+            _modeSwitchDetector.SetOffline(DeviceName, () =>
+                System.Windows.Application.Current.Dispatcher.InvokeAsync(() => IsVisuallyOnline = false));
         }
 
         PowerSupplyStatus = updateMessage.powerSupplyStatus;
@@ -257,16 +204,7 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
         // Unsubscribe from PropertyChanged event to prevent memory leak
         PropertyChanged -= _propertyChangedHandler;
 
-        // Cancel and dispose any pending offline timer
-        lock (_offlineTimerLock)
-        {
-            if (_pendingOfflineTimer != null)
-            {
-                _pendingOfflineTimer.Cancel();
-                _pendingOfflineTimer.Dispose();
-                _pendingOfflineTimer = null;
-            }
-        }
+        _modeSwitchDetector.Dispose();
 
         // Dispose icon if it was created
         if (IsChecked)
