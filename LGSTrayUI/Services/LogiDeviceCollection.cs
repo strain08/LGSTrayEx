@@ -24,8 +24,6 @@ public class LogiDeviceCollection : ILogiDeviceCollection
     private readonly IDispatcher _dispatcher;
     private readonly IPublisher<DeviceBatteryUpdatedMessage> _batteryPublisher;
 
-    // Runtime mapping: signature → current deviceId (for GHUB devices with changing IDs)
-    private readonly Dictionary<string, string> _signatureToId = new();    
 
     public ObservableCollection<LogiDeviceViewModel> Devices { get; } = [];
     public IEnumerable<LogiDevice> GetDevices() => Devices;
@@ -104,34 +102,12 @@ public class LogiDeviceCollection : ILogiDeviceCollection
         // InvalidOperationException during enumeration
         _dispatcher.BeginInvoke(() =>
         {
-            // Get signature from message (should always be present now)
-            string? signature = initMessage.deviceSignature;
-
-            if (string.IsNullOrEmpty(signature))
-            {
-                DiagnosticLogger.LogWarning($"Device {initMessage.deviceId} has no signature - using deviceId as fallback");
-                signature = initMessage.deviceId;
-            }
-
-            // Check if device already exists by signature (not deviceId, as GHUB changes IDs)
-            LogiDeviceViewModel? existingDevice = null;
-
-            // First, try to find by signature in our mapping            
-            existingDevice = Devices.FirstOrDefault(x => x.DeviceId == _signatureToId.GetValueOrDefault(signature));
-
-            // Fallback: search by current deviceId
-            existingDevice ??= Devices.FirstOrDefault(x => x.DeviceId == initMessage.deviceId);
+            // Device IDs are now stable — look up directly
+            var existingDevice = Devices.FirstOrDefault(x => x.DeviceId == initMessage.deviceId);
 
             // Device already exists - update it
             if (existingDevice != null)
             {
-                // Check if deviceId changed (GHUB ID change scenario)
-                if (existingDevice.DeviceId != initMessage.deviceId)
-                {
-                    DiagnosticLogger.Log($"Device ID changed: {existingDevice.DeviceId} → {initMessage.deviceId} (Signature: {signature})");
-                    existingDevice.DeviceId = initMessage.deviceId;
-                }
-
                 DiagnosticLogger.Log($"Device already exists, updating - {initMessage.deviceId} ({initMessage.deviceName})");
 
                 // Log if device was offline and is now reconnecting
@@ -142,14 +118,11 @@ public class LogiDeviceCollection : ILogiDeviceCollection
 
                 existingDevice.UpdateState(initMessage);
 
-                // Update signature mapping
-                _signatureToId[signature] = initMessage.deviceId;
-
                 // Restore IsChecked from signature-based settings
-                if (!existingDevice.IsChecked && _userSettings.ContainsSignature(signature))
+                if (!existingDevice.IsChecked && _userSettings.ContainsSignature(existingDevice.DeviceSignature))
                 {
                     existingDevice.IsChecked = true;
-                    DiagnosticLogger.Log($"Restored selection state for existing device - {signature}");
+                    DiagnosticLogger.Log($"Restored selection state for existing device - {existingDevice.DeviceSignature}");
                 }
 
                 return;
@@ -158,18 +131,15 @@ public class LogiDeviceCollection : ILogiDeviceCollection
             // NEW DEVICE - Create and add it
             var newDevice = _logiDeviceViewModelFactory.CreateViewModel((x) => x.UpdateState(initMessage));
 
-            // Update signature → deviceId mapping
-            _signatureToId[signature] = initMessage.deviceId;
-
             // Restore selection based on signature
-            if (_userSettings.ContainsSignature(signature))
+            if (_userSettings.ContainsSignature(newDevice.DeviceSignature))
             {
                 newDevice.IsChecked = true;
-                DiagnosticLogger.Log($"Restored selection for new device - {signature}");
+                DiagnosticLogger.Log($"Restored selection for new device - {newDevice.DeviceSignature}");
             }
 
             Devices.Add(newDevice);
-            DiagnosticLogger.Log($"Device added to collection - {initMessage.deviceId} ({initMessage.deviceName}) [Signature: {signature}]");
+            DiagnosticLogger.Log($"Device added to collection - {initMessage.deviceId} ({initMessage.deviceName})");
         });
     }
 

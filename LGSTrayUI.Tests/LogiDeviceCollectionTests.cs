@@ -87,15 +87,15 @@ public class LogiDeviceCollectionTests
         var collection = CreateTestCollection(out _, out var messageHandler);
 
         // Add device
-        messageHandler(new InitMessage("dev001", "Test Device", true, DeviceType.Mouse));
+        messageHandler(new InitMessage("GHUB.TestMouse", "Test Device", true, DeviceType.Mouse));
         Assert.Single(collection.Devices);
 
         // Act
-        // Instead of calling OnRemoveMessage directly (which is public but intended for IPC), 
+        // Instead of calling OnRemoveMessage directly (which is public but intended for IPC),
         // we can use the message handler to simulate the full pipeline or call the method directly.
         // The test was calling OnRemoveMessage directly, let's stick to that or use the handler.
         // Using the handler ensures the subscription wiring is correct.
-        messageHandler(new RemoveMessage("dev001", "test"));
+        messageHandler(new RemoveMessage("GHUB.TestMouse", "test"));
 
         // Assert
         Assert.Single(collection.Devices);
@@ -111,13 +111,13 @@ public class LogiDeviceCollectionTests
         // Arrange
         var collection = CreateTestCollection(out _, out var messageHandler);
 
-        messageHandler(new InitMessage("dev001", "GHUB Device 1", true, DeviceType.Mouse));
-        messageHandler(new InitMessage("dev002", "GHUB Device 2", true, DeviceType.Keyboard));
+        messageHandler(new InitMessage("GHUB.G502Hero", "GHUB Device 1", true, DeviceType.Mouse));
+        messageHandler(new InitMessage("GHUB.GProKeyboard", "GHUB Device 2", true, DeviceType.Keyboard));
         messageHandler(new InitMessage("ABC123", "HID Device", true, DeviceType.Mouse));
 
         // Set initial battery levels
-        messageHandler(new UpdateMessage(deviceId: "dev001", batteryPercentage: 100, powerSupplyStatus: PowerSupplyStatus.DISCHARGING, batteryMVolt: 4000, updateTime: System.DateTimeOffset.Now));
-        messageHandler(new UpdateMessage(deviceId: "dev002", batteryPercentage: 100, powerSupplyStatus: PowerSupplyStatus.DISCHARGING, batteryMVolt: 4000, updateTime: System.DateTimeOffset.Now));
+        messageHandler(new UpdateMessage(deviceId: "GHUB.G502Hero", batteryPercentage: 100, powerSupplyStatus: PowerSupplyStatus.DISCHARGING, batteryMVolt: 4000, updateTime: System.DateTimeOffset.Now));
+        messageHandler(new UpdateMessage(deviceId: "GHUB.GProKeyboard", batteryPercentage: 100, powerSupplyStatus: PowerSupplyStatus.DISCHARGING, batteryMVolt: 4000, updateTime: System.DateTimeOffset.Now));
         messageHandler(new UpdateMessage(deviceId: "ABC123", batteryPercentage: 100, powerSupplyStatus: PowerSupplyStatus.DISCHARGING, batteryMVolt: 4000, updateTime: System.DateTimeOffset.Now));
 
         Assert.Equal(3, collection.Devices.Count);
@@ -127,9 +127,9 @@ public class LogiDeviceCollectionTests
 
         // Assert
         Assert.Equal(3, collection.Devices.Count); // All kept
-        
-        var dev1 = collection.Devices.FirstOrDefault(d => d.DeviceId == "dev001");
-        var dev2 = collection.Devices.FirstOrDefault(d => d.DeviceId == "dev002");
+
+        var dev1 = collection.Devices.FirstOrDefault(d => d.DeviceId == "GHUB.G502Hero");
+        var dev2 = collection.Devices.FirstOrDefault(d => d.DeviceId == "GHUB.GProKeyboard");
         var dev3 = collection.Devices.FirstOrDefault(d => d.DeviceId == "ABC123");
 
         Assert.False(dev1?.IsOnline);

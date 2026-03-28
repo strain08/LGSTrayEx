@@ -111,16 +111,11 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
         DeviceType = initMessage.deviceType;
         DataSource = DataSourceHelper.GetDataSource(initMessage.deviceId);
 
-        // Store signature for persistent settings
-        if (!string.IsNullOrEmpty(initMessage.deviceSignature))
-        {
-            DeviceSignature = initMessage.deviceSignature;
-        }
-        else
-        {
-            // Fallback: use deviceId as signature if none provided
-            DeviceSignature = initMessage.deviceId;
-        }
+        // Derive stable signature: GHub devices already carry "GHUB." prefix as their ID;
+        // Native devices get the "NATIVE.{type}.{id}" format for backward compat with saved settings.
+        DeviceSignature = DataSource == DataSource.GHub
+            ? initMessage.deviceId
+            : $"NATIVE.{initMessage.deviceType}.{initMessage.deviceId}";
     }
 
     public void UpdateState(UpdateMessage updateMessage)

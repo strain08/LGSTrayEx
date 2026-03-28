@@ -109,6 +109,9 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
     private const int PROTOCOL_ERROR_THRESHOLD = 3;
     private DateTime _lastProtocolErrorNotification = DateTime.MinValue;
 
+    // Maps raw GHub device IDs (unstable) to stable model-based IDs
+    private readonly Dictionary<string, string> _rawIdToStableId = new();
+
     public GHubManager(IPublisher<IPCMessage> deviceEventBus, IWebSocketClientFactory wsFactory)
     {
         _deviceEventBus = deviceEventBus;
@@ -316,19 +319,19 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
                     deviceType = DeviceType.Mouse;
                 }
 
-                // Extract deviceSignature (stable identifier from GHUB)
-                string deviceSignature = GetDeviceSignature(deviceObj);
+                // Build stable ID and map raw GHub ID for battery/removal routing
+                string stableId = GetStableId(deviceObj);
+                _rawIdToStableId[deviceId] = stableId;
 
-                // Publish device with validated data
+                // Publish device with stable ID
                 _deviceEventBus.Publish(new InitMessage(
-                    deviceId,
+                    stableId,
                     deviceName,
                     hasBattery,
-                    deviceType,
-                    deviceSignature
+                    deviceType
                 ));
 
-                DiagnosticLogger.Log($"GHub device registered - {deviceId} ({deviceName})");
+                DiagnosticLogger.Log($"GHub device registered - {stableId} ({deviceName})");
 
                 // Request initial battery state
                 _ws?.Send(JsonConvert.SerializeObject(new
@@ -359,23 +362,17 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Retrieves a device signature used to uniquely identify GHUB device for state persistence.
+    /// Builds a stable device ID from GHub device data, prefixed with "GHUB.".
+    /// Uses deviceModel if available, falls back to extendedDisplayName.
     /// </summary>
-    /// <param name="deviceObj">A JSON object containing device information.</param>
-    /// <returns>deviceModel or extendedDisplayName</returns>
-    private static string GetDeviceSignature(JObject deviceObj)
+    private static string GetStableId(JObject deviceObj)
     {
-        string deviceSignature;
+        string model = GHubJsonHelpers.GetStringOrDefault(deviceObj, "deviceModel", "");
+        if (!string.IsNullOrEmpty(model))
+            return $"GHUB.{model}";
 
-        deviceSignature = GHubJsonHelpers.GetStringOrDefault(deviceObj, "deviceModel", "");
-        if (!string.IsNullOrEmpty(deviceSignature))
-        {
-            return deviceSignature;
-        }
-
-        // extendedDisplayName is already verified to exist
-        deviceSignature = GHubJsonHelpers.GetStringOrDefault(deviceObj, "extendedDisplayName", "");
-        return deviceSignature;
+        string name = GHubJsonHelpers.GetStringOrDefault(deviceObj, "extendedDisplayName", "");
+        return $"GHUB.{name}";
     }
 
     /// <summary>
@@ -419,19 +416,19 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
                 deviceType = DeviceType.Mouse;
             }
 
-            // Extract deviceSignature (stable identifier from GHUB)
-            string deviceSignature = GetDeviceSignature(payload);
+            // Build stable ID and map raw GHub ID for battery/removal routing
+            string stableId = GetStableId(payload);
+            _rawIdToStableId[deviceId] = stableId;
 
-            // Publish device with validated data
+            // Publish device with stable ID
             _deviceEventBus.Publish(new InitMessage(
-                deviceId,
+                stableId,
                 deviceName,
                 hasBattery,
-                deviceType,
-                deviceSignature
+                deviceType
             ));
 
-            DiagnosticLogger.Log($"GHub device re-registered - {deviceId} ({deviceName})");
+            DiagnosticLogger.Log($"GHub device re-registered - {stableId} ({deviceName})");
 
             // Request initial battery state
             _ws?.Send(JsonConvert.SerializeObject(new
@@ -504,8 +501,9 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
                 percentage = Math.Clamp(percentage.Value, 0, 100);
             }
 
+            string stableId = _rawIdToStableId.GetValueOrDefault(deviceId, deviceId);
             _deviceEventBus.Publish(new UpdateMessage(
-                deviceId,
+                stableId,
                 percentage.Value,
                 charging.Value
                     ? PowerSupplyStatus.CHARGING
@@ -530,17 +528,18 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
         try
         {
             string deviceId = payload["id"]?.ToString() ?? "unknown";
+            string stableId = _rawIdToStableId.GetValueOrDefault(deviceId, deviceId);
             string state = payload["state"]?.ToString()?.ToLower() ?? "";
 
-            DiagnosticLogger.Log($"GHUB device state change - {deviceId}: {state}");
+            DiagnosticLogger.Log($"GHUB device state change - {stableId}: {state}");
             DiagnosticLogger.Log($"Full state change payload: {payload.ToString(Formatting.None)}");
 
             switch (state)
             {
                 case "not_connected":
-                    // Device disconnected - publish removal
-                    _deviceEventBus.Publish(new RemoveMessage(deviceId, "ghub_disconnect"));
-                    DiagnosticLogger.Log($"Device removed via GHUB disconnect - {deviceId}");
+                    // Device disconnected - publish removal using stable ID
+                    _deviceEventBus.Publish(new RemoveMessage(stableId, "ghub_disconnect"));
+                    DiagnosticLogger.Log($"Device removed via GHUB disconnect - {stableId}");
                     break;
 
                 case "active":
@@ -548,7 +547,7 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
                     if (payload["deviceType"] != null && payload["extendedDisplayName"] != null)
                     {
                         // Payload contains full device info, use it directly
-                        DiagnosticLogger.Log($"Device reconnected with full info in payload - re-registering: {deviceId}");
+                        DiagnosticLogger.Log($"Device reconnected with full info in payload - re-registering: {stableId}");
                         LoadDevice(payload);
                     }
                     else
@@ -589,7 +588,7 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
                 DiagnosticLogger.LogError($"Multiple protocol errors in: {context}");
                 DiagnosticLogger.LogError("Logitech may have changed their GHUB WebSocket API");
                 DiagnosticLogger.LogError("Please check for LGSTrayBattery updates at:");
-                DiagnosticLogger.LogError("https://github.com/your-repo/LGSTrayBattery/releases");
+                DiagnosticLogger.LogError("https://github.com/strain08/LGSTrayEx/releases");
                 DiagnosticLogger.LogError("============================================================");
 
                 _lastProtocolErrorNotification = DateTime.Now;

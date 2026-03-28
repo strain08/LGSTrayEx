@@ -148,12 +148,11 @@ public class CenturionDevice : IDisposable
 
                 // Generate identifier from real device name and metadata
                 _identifier = DeviceIdentifierGenerator.GenerateIdentifier(_deviceIdentity, _deviceName);
-                string deviceSignature = $"NATIVE.{DeviceType.Headset}.{_identifier}";
 
                 // Signal INIT to UI
                 HidppManagerContext.Instance.SignalDeviceEvent(
                     IPCMessageType.INIT,
-                    new InitMessage(_identifier, _deviceName, hasBattery: true, DeviceType.Headset, deviceSignature)
+                    new InitMessage(_identifier, _deviceName, hasBattery: true, DeviceType.Headset)
                 );
                 DiagnosticLogger.Log($"{_tag} Device registered: {_deviceName} ({_identifier})");
 
@@ -259,11 +258,10 @@ public class CenturionDevice : IDisposable
                 // _mode is set to DongleReady here, inside the lock, so a concurrent CompleteInitAsync
                 // caller cannot slip through and emit a duplicate InitMessage.
                 _identifier = DeviceIdentifierGenerator.GenerateIdentifier(_deviceIdentity, _deviceName);
-                string deviceSignature = $"NATIVE.{DeviceType.Headset}.{_identifier}";
 
                 HidppManagerContext.Instance.SignalDeviceEvent(
                     IPCMessageType.INIT,
-                    new InitMessage(_identifier, _deviceName, true, DeviceType.Headset, deviceSignature)
+                    new InitMessage(_identifier, _deviceName, true, DeviceType.Headset)
                 );
 
                 DiagnosticLogger.Log($"{_tag} Device registered: {_deviceName} ({_identifier})");

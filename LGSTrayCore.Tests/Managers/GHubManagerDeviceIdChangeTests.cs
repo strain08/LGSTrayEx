@@ -34,11 +34,11 @@ public class GHubManagerDeviceIdChangeTests
     [Fact]
     public async Task SleepWakeCycle_DeviceIdChanges_PublishesRemoveAndInit()
     {
-        // This test simulates the exact problem:
-        // 1. Device initially discovered as dev00000001
-        // 2. System sleeps (device disconnects)
-        // 3. Device wakes with new ID dev00000002
-        // Expected: RemoveMessage for old ID, InitMessage for new ID
+        // This test simulates a sleep/wake cycle:
+        // 1. Device initially discovered as dev00000001 → stable ID "GHUB.G Pro Wireless"
+        // 2. System sleeps (device disconnects) → RemoveMessage with stable ID
+        // 3. Device wakes (GHUB may assign new raw ID) → InitMessage with same stable ID
+        // GHubManager translates raw IDs to stable model-based IDs, so both messages use the same stable ID.
 
         // Arrange
         var (manager, _, mockWs, publishedMessages) = CreateTestContext();
@@ -60,15 +60,17 @@ public class GHubManagerDeviceIdChangeTests
         mockWs.SimulateDeviceStateChange("dev00000001", "not_connected");
         await Task.Delay(50);
 
-        // Step 2: Device reconnects with new ID (wake) - GHUB sends full device info in state change
+        // Step 2: Device reconnects (wake) - GHUB sends full device info in state change
         mockWs.SimulateDeviceStateChange("dev00000002", "active", includeDeviceInfo: true);
         await Task.Delay(100); // Wait for processing
 
-        // Assert
+        // Assert: both messages use the stable model-based ID, not the raw GHub IDs
+        const string stableId = "GHUB.G Pro Wireless";
+
         var removeMsg = publishedMessages.OfType<RemoveMessage>()
-            .FirstOrDefault(m => m.deviceId == "dev00000001");
+            .FirstOrDefault(m => m.deviceId == stableId);
         var initMsg = publishedMessages.OfType<InitMessage>()
-            .FirstOrDefault(m => m.deviceId == "dev00000002");
+            .FirstOrDefault(m => m.deviceId == stableId);
 
         Assert.NotNull(removeMsg);
         Assert.Equal("ghub_disconnect", removeMsg.reason);
@@ -121,9 +123,9 @@ public class GHubManagerDeviceIdChangeTests
         mockWs.SimulateDeviceStateChange("dev00000002", "active", includeDeviceInfo: true);
         await Task.Delay(50);
 
-        // Assert - device should be re-registered
+        // Assert - device should be re-registered with stable model-based ID
         var initMsg = publishedMessages.OfType<InitMessage>()
-            .FirstOrDefault(m => m.deviceId == "dev00000002");
+            .FirstOrDefault(m => m.deviceId == "GHUB.Test Device");
 
         Assert.NotNull(initMsg);
         Assert.Equal("Test Device", initMsg.deviceName);
