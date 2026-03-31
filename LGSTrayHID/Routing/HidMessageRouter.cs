@@ -55,29 +55,12 @@ public class HidMessageRouter
 
     /// <summary>
     /// Attempts to route message as a device-specific event.
-    /// Tries wireless status event (0x1D4B) first, then battery event.
     /// </summary>
     /// <returns>True if message was handled by device, false otherwise</returns>
     private async Task<bool> TryRouteAsDeviceEventAsync(Hidpp20 message)
     {
-        byte deviceIdx = message.GetDeviceIdx();
-
-        if (!_lifecycleManager.TryGetDevice(deviceIdx, out HidppDevice? device))
-        {
-            return false; // Device not found
-        }
-
-        if (device is null)
-        {
-            return false; // Device not found
-        }
-
-        // Try battery event (features 0x1000, 0x1001, 0x1004)
-        if (await device.TryHandleBatteryEventAsync(message))
-        {
-            return true;
-        }
-
-        return false; // Not a device event
+        _lifecycleManager.TryGetDevice(message.GetDeviceIdx(), out HidppDevice? device);
+        if (device is null) return false;        
+        return await device.TryHandleBatteryEventAsync(message);      
     }
 }
