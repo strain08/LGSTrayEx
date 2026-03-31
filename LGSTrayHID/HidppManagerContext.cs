@@ -74,72 +74,69 @@ public sealed class HidppManagerContext
     }
 
 
-    private async Task<int> InitDevice(HidDeviceInfo deviceInfo)
+    private async Task InitDevice(HidDeviceInfo deviceInfo)
     {
         var messageType = deviceInfo.GetHidppMessageType();
+        string devPath = deviceInfo.GetPath();
         switch (messageType)
         {
-            case HidppMessageType.NONE:
-            case HidppMessageType.VERY_LONG:
-                DiagnosticLogger.Log($"Skipping device with unsupported message type: {messageType}");
-                return 0;
+            case HidppMessageType.LONG:
+            case HidppMessageType.SHORT:
+                DiagnosticLogger.Log($"Initializing HID++ device...");
+
+                HidDevicePtr hidppDev = HidOpenPath(ref deviceInfo);
+                _ = HidWinApiGetContainerId(hidppDev, out Guid containerId);
+
+                DiagnosticLogger.Log(devPath);
+                DiagnosticLogger.Log(containerId.ToString());
+                DiagnosticLogger.Log($"Usage: {deviceInfo.Usage:X04}");
+                DiagnosticLogger.Log($"Page : {deviceInfo.UsagePage:X04}");
+                DiagnosticLogger.Log("");
+
+                // Track USB arrival for mode-switch detection
+                TrackUsbArrival(deviceInfo.ProductId, containerId, devPath);
+
+                // Check if this is likely a wired mode device (recent mode switch detected)
+                bool isWiredModeDevice = CheckForRecentUsbArrival(out ushort wiredPid);
+                if (isWiredModeDevice)
+                {
+                    DiagnosticLogger.Log($"[Mode-Switch] Wired device detected - PID: 0x{wiredPid:X04}, " +
+                                        $"will use fast-track initialization");
+                }
+
+                if (!_deviceMap.TryGetValue(containerId, out HidppReceiver? hidppReceiver))
+                {
+                    hidppReceiver = new(GlobalSettings.settings.KeepPollingWithEvents, GlobalSettings.settings.BatteryEventDelayAfterOn);
+                    _deviceMap[containerId] = hidppReceiver;
+                    _containerMap[devPath] = containerId;
+                    DiagnosticLogger.Log($"New container created - Path: {devPath}, Container: {containerId}");
+                }
+                else
+                {
+                    DiagnosticLogger.Log($"Existing container found - Path: {devPath}, Container: {containerId}");
+                }
+
+                await hidppReceiver.SetUp(messageType, hidppDev, isWiredModeDevice);
+                return;
 
             case HidppMessageType.CENTURION:
-            {
-                string probePath = deviceInfo.GetPath();
-                DiagnosticLogger.Log($"[Centurion] Detected Centurion interface 0x{deviceInfo.UsagePage:X4}: {probePath}");
-                HidDevicePtr probeDev = HidOpenPath(ref deviceInfo);
-                if (probeDev == 0)
+                DiagnosticLogger.Log($"[Centurion] Detected Centurion interface 0x{deviceInfo.UsagePage:X4}: {devPath}");
+                HidDevicePtr centDev = HidOpenPath(ref deviceInfo);
+                if (centDev == 0)
                 {
-                    DiagnosticLogger.LogError($"[Centurion] Failed to open HID device: {probePath}");
-                    return 0;
+                    DiagnosticLogger.LogError($"[Centurion] Failed to open HID device: {devPath}");
+                    return;
                 }
                 string? productName = deviceInfo.GetProductString();
-                var centurion = new CenturionDevice(probeDev, deviceInfo.UsagePage, deviceInfo.ProductId, productName);
-                _centurionMap[probePath] = centurion;
+                var centurion = new CenturionDevice(centDev, deviceInfo.UsagePage, deviceInfo.ProductId, productName);
+                _centurionMap[devPath] = centurion;
                 _ = Task.Run(() => centurion.InitAsync());
-                return 0;
-            }
-        }
+                return;
 
-        string devPath = deviceInfo.GetPath();
-        DiagnosticLogger.Log($"Initializing HID device: {devPath}");
-
-        HidDevicePtr dev = HidOpenPath(ref deviceInfo);
-        _ = HidWinApiGetContainerId(dev, out Guid containerId);
-
-        DiagnosticLogger.Log(devPath);
-        DiagnosticLogger.Log(containerId.ToString());
-        DiagnosticLogger.Log($"Usage: {deviceInfo.Usage:X04}");
-        DiagnosticLogger.Log($"Page : {deviceInfo.UsagePage:X04}");
-        DiagnosticLogger.Log("");
-
-        // Track USB arrival for mode-switch detection
-        TrackUsbArrival(deviceInfo.ProductId, containerId, devPath);
-
-        // Check if this is likely a wired mode device (recent mode switch detected)
-        bool isWiredModeDevice = CheckForRecentUsbArrival(out ushort wiredPid);
-        if (isWiredModeDevice)
-        {
-            DiagnosticLogger.Log($"[Mode-Switch] Wired device detected - PID: 0x{wiredPid:X04}, " +
-                                $"will use fast-track initialization");
-        }
-
-        if (!_deviceMap.TryGetValue(containerId, out HidppReceiver? hidppReceiver))
-        {
-            hidppReceiver = new(GlobalSettings.settings.KeepPollingWithEvents, GlobalSettings.settings.BatteryEventDelayAfterOn);
-            _deviceMap[containerId] = hidppReceiver;
-            _containerMap[devPath] = containerId;
-            DiagnosticLogger.Log($"New container created - Path: {devPath}, Container: {containerId}");
-        }
-        else
-        {
-            DiagnosticLogger.Log($"Existing container found - Path: {devPath}, Container: {containerId}");
-        }
-
-        await hidppReceiver.SetUp(messageType, dev, isWiredModeDevice);
-
-        return 0;
+            default:
+                DiagnosticLogger.Log($"Skipping device with unsupported message type: {messageType}");
+                return;
+        }       
     }
 
     private unsafe int DeviceArrived(HidHotPlugCallbackHandle _, HidDeviceInfo* device, HidApiHotPlugEvent hidApiHotPlugEvent, nint __)
