@@ -37,9 +37,9 @@ public class HidppReceiver : IDisposable
     private int _disposeCount = 0;
     public bool Disposed => _disposeCount > 0;
 
-    public HidppReceiver(bool keepPollingWithEvents, int batteryEventDelaySeconds)
+    public HidppReceiver()
     {
-        _lifecycleManager = new DeviceLifecycleManager(this, keepPollingWithEvents, batteryEventDelaySeconds);
+        _lifecycleManager = new DeviceLifecycleManager(this);
         _correlator = new CommandResponseCorrelator(_correlationSemaphore, _channel.Reader);
         _announcementHandler = new DeviceAnnouncementHandler(_lifecycleManager, _initSemaphore);
         _messageRouter = new HidMessageRouter(_announcementHandler, _lifecycleManager, _channel.Writer);

@@ -30,9 +30,10 @@ public class HidppDevice : IDisposable
     private bool _forceNextUpdate = false; // Force next battery update to bypass deduplication
 
     // Configuration settings
-    private readonly bool _keepPollingWithEvents;
-    private readonly int _batteryEventDelaySeconds;
+    
     private readonly bool _isWiredModeDevice; // Fast-track init for wired mode devices
+    private readonly bool _keepPoolingWithEvents;
+    private readonly int _batteryEventDelayAfterOn;
     private DateTimeOffset _deviceOnTime = DateTimeOffset.MinValue;
 
     // Semaphore to prevent concurrent InitAsync calls
@@ -45,21 +46,20 @@ public class HidppDevice : IDisposable
     private readonly CancellationTokenSource _poolingCts = new();
     public void CancelPooling() => _poolingCts.Cancel();
 
-    // Track device online/offline state (independent of polling state)
-    private bool _isOnline = false;
-    public bool IsOnline => _isOnline;
-    public void SetOffline() => _isOnline = false;
+    // Track device online/offline state (independent of polling state)    
+    public bool IsOnline { get; set; } = false;
 
     private int _disposeCount = 0;
     public bool Disposed => _disposeCount > 0;
 
-    public HidppDevice(HidppReceiver parent, byte deviceIdx, bool keepPollingWithEvents = false, int batteryEventDelaySeconds = 0, bool isWiredModeDevice = false)
+    public HidppDevice(HidppReceiver parent, byte deviceIdx, bool isWiredModeDevice = false)
     {
         Parent = parent;
-        DeviceIdx = deviceIdx;
-        _keepPollingWithEvents = keepPollingWithEvents;
-        _batteryEventDelaySeconds = batteryEventDelaySeconds;
+        DeviceIdx = deviceIdx;       
         _isWiredModeDevice = isWiredModeDevice;
+        _keepPoolingWithEvents = GlobalSettings.settings.KeepPollingWithEvents;
+        _batteryEventDelayAfterOn = GlobalSettings.settings.BatteryEventDelayAfterOn;
+
     }
 
     public async Task InitAsync()
@@ -250,7 +250,7 @@ public class HidppDevice : IDisposable
         DiagnosticLogger.Log($"HID device registered - {Identifier} ({DeviceName})");
 
         // Mark device as online after successful initialization
-        _isOnline = true;
+        IsOnline = true;
 
         // Force next battery update to bypass deduplication
         // This ensures fresh timestamp even if battery % unchanged after reconnect
@@ -278,9 +278,9 @@ public class HidppDevice : IDisposable
     public void NotifyDeviceOn()
     {
         _deviceOnTime = DateTimeOffset.Now;
-        if (_batteryEventDelaySeconds > 0)
+        if (GlobalSettings.settings.BatteryEventDelayAfterOn > 0)
         {
-            DiagnosticLogger.Log($"[{DeviceName}] Device ON - battery events will be ignored for {_batteryEventDelaySeconds} seconds");
+            DiagnosticLogger.Log($"[{DeviceName}] Device ON - battery events will be ignored for {GlobalSettings.settings.BatteryEventDelayAfterOn} seconds");
         }
     }
 
@@ -442,13 +442,13 @@ public class HidppDevice : IDisposable
         var batStatus = batteryUpdate.Value;
 
         // Check if we're in the delay window after device ON (ignore EVENT data during this period)
-        if (_batteryEventDelaySeconds > 0 && _deviceOnTime != DateTimeOffset.MinValue)
+        if (_batteryEventDelayAfterOn > 0 && _deviceOnTime != DateTimeOffset.MinValue)
         {
             var timeSinceDeviceOn = (now - _deviceOnTime).TotalSeconds;
-            if (timeSinceDeviceOn < _batteryEventDelaySeconds)
+            if (timeSinceDeviceOn < GlobalSettings.settings.BatteryEventDelayAfterOn)
             {
                 DiagnosticLogger.Log($"[{DeviceName}] Battery event ignored (device ON +{timeSinceDeviceOn:F1}s, " +
-                                   $"delay window {_batteryEventDelaySeconds}s): {batStatus.batteryPercentage}%");
+                                   $"delay window {_batteryEventDelayAfterOn}s): {batStatus.batteryPercentage}%");
 
                 // Event data suppressed - don't update lastUpdate or cancel polling
                 // Let polling continue during delay window for device stability
@@ -460,14 +460,14 @@ public class HidppDevice : IDisposable
         lastUpdate = now;
 
         DiagnosticLogger.Log($"[{DeviceName}] Battery event received: MVolt: {batStatus.batteryMVolt}, Percent: {batStatus.batteryPercentage}");
-
+        
         // Check if we should stop polling when events arrive
-        if (!_keepPollingWithEvents && !_poolingCts.IsCancellationRequested)
+        if (!_keepPoolingWithEvents && !_poolingCts.IsCancellationRequested)
         {            
             DiagnosticLogger.Log($"[{DeviceName}] Battery event received, stopping polling (keepPollingWithEvents=false)");            
             _poolingCts.Cancel();
         }
-        else if (_keepPollingWithEvents)
+        else if (_keepPoolingWithEvents)
         {
             DiagnosticLogger.Log($"[{DeviceName}] Battery event received, polling continues (keepPollingWithEvents=true)");
         }

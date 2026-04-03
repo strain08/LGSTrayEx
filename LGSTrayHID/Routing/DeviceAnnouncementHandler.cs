@@ -179,7 +179,7 @@ public class DeviceAnnouncementHandler
             deviceName = device?.DeviceName ?? "";
             deviceIdentifier = device?.Identifier ?? "";
             // Mark device as offline and cancel any ongoing polling tasks
-            device?.SetOffline();
+            if (device != null) device.IsOnline = false;
             device?.CancelPooling();
         }
 

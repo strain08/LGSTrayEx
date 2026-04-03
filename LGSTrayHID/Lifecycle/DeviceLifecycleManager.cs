@@ -16,19 +16,14 @@ public class DeviceLifecycleManager
     private readonly Dictionary<byte, DateTimeOffset> _lastInitTime = new();
     private static readonly TimeSpan InitCooldown = TimeSpan.FromSeconds(3);
 
-    // Configuration settings
-    private readonly bool _keepPollingWithEvents;
-    private readonly int _batteryEventDelaySeconds;
-
-    // Enumeration completion tracking
+   // Enumeration completion tracking
     private TaskCompletionSource<int>? _enumerationCompletion;
     private int _expectedDeviceCount;
 
-    public DeviceLifecycleManager(HidppReceiver parent, bool keepPollingWithEvents, int batteryEventDelaySeconds)
+    public DeviceLifecycleManager(HidppReceiver parent)
     {
         _parent = parent;
-        _keepPollingWithEvents = keepPollingWithEvents;
-        _batteryEventDelaySeconds = batteryEventDelaySeconds;
+       
     }
 
     /// <summary>
@@ -45,7 +40,7 @@ public class DeviceLifecycleManager
     /// <returns>The newly created HidppDevice instance</returns>
     public HidppDevice CreateDevice(byte deviceIdx, bool isWiredModeDevice = false)
     {
-        var device = new HidppDevice(_parent, deviceIdx, _keepPollingWithEvents, _batteryEventDelaySeconds, isWiredModeDevice);
+        var device = new HidppDevice(_parent, deviceIdx, isWiredModeDevice);
 
         lock (_devices)
         {
