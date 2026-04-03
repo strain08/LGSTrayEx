@@ -76,10 +76,12 @@ public class ConfigurationValidationService : IConfigurationValidationService, I
             // Handle file not found, parsing errors, or invalid data
             if (ex is FileNotFoundException || ex is InvalidDataException || ex is FormatException)
             {
-                return await PromptForConfigurationReset(config, settingsPath);
+                WriteEarlyError($"Settings load failed ({ex.GetType().Name}): {ex.Message}");
+                return await PromptForConfigurationReset(config, settingsPath, ex);
             }
 
             // Rethrow unexpected exceptions
+            WriteEarlyError($"Unexpected settings load error ({ex.GetType().Name}): {ex.Message}");
             throw;
         }
     }
@@ -93,10 +95,28 @@ public class ConfigurationValidationService : IConfigurationValidationService, I
         await Task.CompletedTask; // Keep async signature for consistency
     }
 
-    private async Task<bool> PromptForConfigurationReset(ConfigurationManager config, string settingsPath)
+    /// <summary>
+    /// Writes an error to diagnostic.log unconditionally (before DiagnosticLogger is initialized).
+    /// </summary>
+    private static void WriteEarlyError(string message)
     {
+        try
+        {
+            string logPath = Path.Combine(AppContext.BaseDirectory, "diagnostic.log");
+            string line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [SettingsLoad]: {message}{Environment.NewLine}";
+            File.AppendAllText(logPath, line);
+        }
+        catch
+        {
+            // Ignore write failures — we're already in an error path
+        }
+    }
+
+    private async Task<bool> PromptForConfigurationReset(ConfigurationManager config, string settingsPath, Exception? cause = null)
+    {
+        string detail = cause is not null ? $"\n\nError: {cause.Message}" : string.Empty;
         var result = MessageBox.Show(
-            "Failed to read settings, do you want reset to default?",
+            $"Failed to read settings, do you want reset to default?{detail}",
             "LGSTray - Settings Load Error",
             MessageBoxButton.YesNo,
             MessageBoxImage.Error,
