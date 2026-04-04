@@ -80,17 +80,34 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
         _daemonCts = new();
 
         using Process proc = new();
+        string daemonPath = Path.Combine(AppContext.BaseDirectory, "LGSTrayHID.exe");
         proc.StartInfo = new()
         {
             RedirectStandardError = false,
             RedirectStandardInput = false,
             RedirectStandardOutput = false,
-            FileName = Path.Combine(AppContext.BaseDirectory, "LGSTrayHID.exe"),
+            FileName = daemonPath,
             Arguments = BuildHidDaemonArguments(),
             UseShellExecute = true,
             CreateNoWindow = true
         };
-        proc.Start();
+
+        DiagnosticLogger.Log($"[LGSTrayHIDManager]: Starting HID daemon: {daemonPath}");
+
+        try
+        {
+            proc.Start();
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.Log($"[LGSTrayHIDManager]: Failed to start HID daemon: {ex.Message}");
+            _daemonCts.Dispose();
+            _daemonCts = null;
+            await Task.Delay(1000);
+            return int.MinValue;
+        }
+
+        DiagnosticLogger.Log($"[LGSTrayHIDManager]: HID daemon started (PID {proc.Id})");
 
         try
         {
@@ -109,6 +126,8 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
             _daemonCts.Dispose();
             _daemonCts = null;
         }
+
+        DiagnosticLogger.Log($"[LGSTrayHIDManager]: HID daemon exited (exit code {proc.ExitCode})");
 
         await Task.Delay(1000);
         return proc.ExitCode;
@@ -153,10 +172,18 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
                 DateTime then = DateTime.Now;
                 int ret = await DaemonLoop();
 
-                // Daemon returns -1 on .Kill(), assume its user
-                if ((ret != -1) || (DateTime.Now - then).TotalSeconds < 20)
+                if (_cts.Token.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                double uptimeSeconds = (DateTime.Now - then).TotalSeconds;
+
+                // Daemon returns -1 on .Kill(), assume its intentional
+                if (ret != -1 || uptimeSeconds < 20)
                 {
                     fastFailCount++;
+                    DiagnosticLogger.Log($"[LGSTrayHIDManager]: HID daemon fast-failed (uptime {uptimeSeconds:F1}s, exit code {ret}, count {fastFailCount}/3)");
                 }
                 else
                 {
@@ -165,9 +192,11 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
 
                 if (fastFailCount > 3)
                 {
-                    // Notify user?
+                    DiagnosticLogger.Log("[LGSTrayHIDManager]: HID daemon exceeded fast-fail limit — giving up.");
                     break;
                 }
+
+                DiagnosticLogger.Log("[LGSTrayHIDManager]: Restarting HID daemon...");
             }
         }, CancellationToken.None);
 
