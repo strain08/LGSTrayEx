@@ -19,27 +19,26 @@ $PublishRoot = Join-Path (Join-Path (Join-Path (Join-Path $PSScriptRoot 'bin') '
 $PublishRoot = [System.IO.Path]::GetFullPath($PublishRoot)
 $TargetProj = 'LGSTrayUI'
 $ProjFile = Join-Path (Join-Path $PSScriptRoot $TargetProj) "$TargetProj.csproj"
+$BuildPropsFile = Join-Path $PSScriptRoot 'Directory.Build.props'
 
-# Function to read version from .csproj
+# Function to read VersionPrefix from an XML project/props file
+function Get-VersionPrefixFromFile([string]$FilePath) {
+    if (-not (Test-Path $FilePath)) { return $null }
+    [xml]$xml = Get-Content $FilePath
+    return $xml.Project.PropertyGroup.VersionPrefix | Where-Object { $_ } | Select-Object -First 1
+}
+
+# Function to read version - checks Directory.Build.props first, falls back to csproj
 function Get-ProjectVersion {
     try {
-        if (-not (Test-Path $ProjFile)) {
-            throw "Project file not found: $ProjFile"
+        $versionNode = Get-VersionPrefixFromFile $BuildPropsFile
+        if (-not $versionNode) {
+            $versionNode = Get-VersionPrefixFromFile $ProjFile
         }
-
-        [xml]$projXml = Get-Content $ProjFile
-        $versionNode = $projXml.Project.PropertyGroup.VersionPrefix | Where-Object { $_ } | Select-Object -First 1
-		if (-not $VersionSuffix){
-
-			$VersionSuffix = $projXml.Project.PropertyGroup.VersionSuffix | Where-Object { $_ } | Select-Object -First 1
-			Write-Host "$VersionSuffix"
-
-		}
 
         if (-not $versionNode) {
-            throw "VersionPrefix not found in $ProjFile"
+            throw "VersionPrefix not found in $BuildPropsFile or $ProjFile"
         }
-
 
         return $versionNode.Trim()
     }
@@ -51,30 +50,33 @@ function Get-ProjectVersion {
 
 function Get-VersionSuffix {
     try {
-        if (-not (Test-Path $ProjFile)) {
-            throw "Project file not found: $ProjFile"
+        # If passed as a parameter, use it as-is
+        if ($VersionSuffix) {
+            $s = $VersionSuffix.Trim()
+            if ($s -and $s[0] -notin '-', '+') { $s = "-$s" }
+            return $s
         }
 
-		if ($VersionSuffix){
-			return $VersionSuffix
-		}
-		else {
-			[xml]$projXml = Get-Content $ProjFile
-			$versionSuffixNode = $projXml.Project.PropertyGroup.VersionSuffix | Where-Object { $_ } | Select-Object -First 1
-		}
-
-        if ($versionSuffixNode){
-            $suffixTrim = $versionSuffixNode.Trim()
-            return "-$suffixTrim"
-        }
-        else {
-            Write-Host "VersionSuffix not found in $ProjFile"
-            return ""
+        # Check Directory.Build.props first, then csproj
+        $raw = $null
+        foreach ($file in @($BuildPropsFile, $ProjFile)) {
+            if (Test-Path $file) {
+                [xml]$xml = Get-Content $file
+                $raw = $xml.Project.PropertyGroup.VersionSuffix | Where-Object { $_ } | Select-Object -First 1
+                if ($raw) { break }
+            }
         }
 
+        if ($raw) {
+            $s = $raw.Trim()
+            if ($s -and $s[0] -notin '-', '+') { $s = "-$s" }
+            return $s
+        }
+
+        return ""
     }
     catch {
-        Write-Error "Failed to read version from project file: $_"
+        Write-Error "Failed to read version suffix: $_"
         throw
     }
 }
