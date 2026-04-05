@@ -4,11 +4,15 @@ using LGSTrayPrimitives.MessageStructs;
 using MessagePipe;
 using Microsoft.Extensions.Hosting;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace LGSTrayCore.Managers;
 
 public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
 {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int MessageBox(nint hWnd, string text, string caption, uint type);
+
     #region IDisposable
     private Func<Task>? _disposeSubs;
     private bool disposedValue;
@@ -51,14 +55,42 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
 
     public LGSTrayHIDManager(
         IDistributedSubscriber<IPCMessageType, IPCMessage> subscriber,
-        IPublisher<IPCMessage> deviceEventBus
-    )
+        IPublisher<IPCMessage> deviceEventBus)
     {
         _subscriber = subscriber;
         _deviceEventBus = deviceEventBus;
     }
 
-    private string BuildHidDaemonArguments()
+    private enum DaemonExitReason
+    {
+        Normal,       // Process exited on its own
+        Killed,       // We killed the process (intentional, e.g. rediscover or stop)
+        LaunchFailed, // Failed to start — retriable
+        BlockedByOS,  // OS blocked launch (SmartScreen/MOTW) — permanent, give up
+    }
+
+    private readonly struct DaemonResult
+    {
+        public int ExitCode { get; init; }        
+        public DaemonExitReason Reason { get; init; }
+        
+        public static DaemonResult Exited(int exitCode) => new() { 
+            ExitCode = exitCode, 
+            Reason = DaemonExitReason.Normal 
+        };
+        public static DaemonResult WasKilled() => new() { 
+            ExitCode = -1, 
+            Reason = DaemonExitReason.Killed 
+        };
+        public static DaemonResult Failed() => new() { 
+            Reason = DaemonExitReason.LaunchFailed 
+        };
+        public static DaemonResult Blocked() => new() {
+            Reason = DaemonExitReason.BlockedByOS 
+        };
+    }
+
+    private static string BuildHidDaemonArguments()
     {
         var args = new List<string> { Environment.ProcessId.ToString() };
 
@@ -75,7 +107,7 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
         return string.Join(" ", args);
     }
 
-    private async Task<int> DaemonLoop()
+    private async Task<DaemonResult> DaemonLoop()
     {
         _daemonCts = new();
 
@@ -95,20 +127,38 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
         DiagnosticLogger.Log($"[LGSTrayHIDManager]: Starting HID daemon: {daemonPath}");
 
         try
-        {
+        {            
             proc.Start();
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            // ERROR_CANCELLED (1223): OS blocked the process (SmartScreen, MOTW, antivirus).
+            // Retrying will not help — show a message box and give up.           
+            DiagnosticLogger.LogError($"[LGSTrayHIDManager]: HID daemon blocked by OS (ERROR_CANCELLED).");
+            _ = MessageBox(
+                nint.Zero,
+                $"Windows blocked LGSTrayHID.exe from starting (ERROR_CANCELLED).\n\n" +
+                $"You probably need to unblock the app files in Powershell:\n" +
+                $"Get-ChildItem \"{AppContext.BaseDirectory}\" | Unblock-File\n",
+                "LGSTray — HID daemon unable to start",
+                0x10 /* MB_ICONERROR */
+            );
+            _daemonCts.Dispose();
+            _daemonCts = null;
+            return DaemonResult.Blocked();
         }
         catch (Exception ex)
         {
-            DiagnosticLogger.Log($"[LGSTrayHIDManager]: Failed to start HID daemon: {ex.Message}");
+            DiagnosticLogger.LogError($"[LGSTrayHIDManager]: Failed to start HID daemon: {ex.Message}");
             _daemonCts.Dispose();
             _daemonCts = null;
             await Task.Delay(1000);
-            return int.MinValue;
+            return DaemonResult.Failed();
         }
 
         DiagnosticLogger.Log($"[LGSTrayHIDManager]: HID daemon started (PID {proc.Id})");
 
+        bool wasKilled = false;
         try
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, _daemonCts.Token);
@@ -119,6 +169,7 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
             if (!proc.HasExited)
             {
                 proc.Kill();
+                wasKilled = true;
             }
         }
         finally
@@ -130,7 +181,7 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
         DiagnosticLogger.Log($"[LGSTrayHIDManager]: HID daemon exited (exit code {proc.ExitCode})");
 
         await Task.Delay(1000);
-        return proc.ExitCode;
+        return wasKilled ? DaemonResult.WasKilled() : DaemonResult.Exited(proc.ExitCode);
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -140,7 +191,6 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
             x =>
             {
                 var initMessage = (InitMessage)x;
-                //_logiDeviceCollection.OnInitMessage(initMessage);
                 _deviceEventBus.Publish(initMessage);
             },
             cancellationToken
@@ -151,7 +201,6 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
             x =>
             {
                 var updateMessage = (UpdateMessage)x;
-                //_logiDeviceCollection.OnUpdateMessage(updateMessage);
                 _deviceEventBus.Publish(updateMessage);
             },
             cancellationToken
@@ -170,29 +219,36 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
             while (!_cts.Token.IsCancellationRequested)
             {
                 DateTime then = DateTime.Now;
-                int ret = await DaemonLoop();
+                DaemonResult result = await DaemonLoop();
 
                 if (_cts.Token.IsCancellationRequested)
                 {
                     break;
                 }
 
+                // OS blocked launch (SmartScreen/MOTW) — no point retrying
+                if (result.Reason == DaemonExitReason.BlockedByOS)
+                {
+                    break;
+                }
+
                 double uptimeSeconds = (DateTime.Now - then).TotalSeconds;
 
-                // Daemon returns -1 on .Kill(), assume its intentional
-                if (ret != -1 || uptimeSeconds < 20)
+                // Intentional kill with sufficient uptime — treat as normal, reset fast-fail counter
+                if (result.Reason == DaemonExitReason.Killed && uptimeSeconds >= 20)
                 {
-                    fastFailCount++;
-                    DiagnosticLogger.Log($"[LGSTrayHIDManager]: HID daemon fast-failed (uptime {uptimeSeconds:F1}s, exit code {ret}, count {fastFailCount}/3)");
+                    fastFailCount = 0;
                 }
                 else
                 {
-                    fastFailCount = 0;
+                    fastFailCount++;
+                    DiagnosticLogger.LogError($"[LGSTrayHIDManager]: HID daemon fast-failed (uptime {uptimeSeconds:F1}s, " +
+                                         $"reason {result.Reason}, exit code {result.ExitCode}, count {fastFailCount}/3)");
                 }
 
                 if (fastFailCount > 3)
                 {
-                    DiagnosticLogger.Log("[LGSTrayHIDManager]: HID daemon exceeded fast-fail limit — giving up.");
+                    DiagnosticLogger.LogError("[LGSTrayHIDManager]: HID daemon exceeded fast-fail limit — giving up.");
                     break;
                 }
 
