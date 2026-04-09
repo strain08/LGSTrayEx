@@ -50,7 +50,7 @@ jobs:
 
     # Build and publish packages
     - name: Build dev packages
-      run: python publish.py --version-suffix="-${{ steps.version.outputs.suffix }}"
+      run: python publish.py --msi --version-suffix="-${{ steps.version.outputs.suffix }}"
 
     # Create draft release with build artifacts
     - name: Create draft release
@@ -80,6 +80,7 @@ jobs:
           **Share link:** `https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.tag }}`
         files: |
           ./bin/Release/publish/Release_v*.zip
+          ./LGSTraySetup/bin/x64/Release/LGSTrayBattery-*.msi
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
