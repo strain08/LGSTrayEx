@@ -1,0 +1,138 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package Name="LGSTrayBattery"
+           Manufacturer="strain08"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="{BD063AC9-4576-4829-9E81-C6F765E99FCC}"
+           Scope="perMachine">
+
+    <!--
+      Remove any older version before installing the new one.
+      Allows clean upgrades without manual uninstall.
+    -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of LGSTrayBattery is already installed." />
+
+    <!-- Single embedded CAB file -->
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- ═══════════════════════════════════════════
+         UI — welcome, install dir, progress, finish
+         ═══════════════════════════════════════════ -->
+
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <ui:WixUI Id="WixUI_InstallDir" />
+
+    <!-- Skip the license dialog: Welcome → InstallDir directly -->
+    <UI>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="2" Condition="1" />
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2" Condition="1" />
+    </UI>
+
+    <!-- ═══════════════════════════════════════════
+         Directory structure
+         ═══════════════════════════════════════════ -->
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="LGSTrayBattery" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppMenuFolder" Name="LGSTrayBattery" />
+    </StandardDirectory>
+
+    <!-- ═══════════════════════════════════════════
+         Application files (Standalone publish output)
+         PDB files and diagnostic.log are excluded.
+         ═══════════════════════════════════════════ -->
+
+    <ComponentGroup Id="ApplicationFiles" Directory="INSTALLFOLDER">
+      <Component Id="LGSTrayExe">
+        <File Source="$(var.StandalonePublishDir)LGSTray.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="LGSTrayHIDExe">
+        <File Source="$(var.StandalonePublishDir)LGSTrayHID.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="LGSTrayDllConfig">
+        <File Source="$(var.StandalonePublishDir)LGSTray.dll.config" KeyPath="yes" />
+      </Component>
+      <Component Id="HidapiDll">
+        <File Source="$(var.StandalonePublishDir)hidapi.dll" KeyPath="yes" />
+      </Component>
+      <!-- WPF native runtime DLLs (bundled with Standalone publish) -->
+      <Component Id="WpfGfxDll">
+        <File Source="$(var.StandalonePublishDir)wpfgfx_cor3.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="D3DCompilerDll">
+        <File Source="$(var.StandalonePublishDir)D3DCompiler_47_cor3.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="PenImcDll">
+        <File Source="$(var.StandalonePublishDir)PenImc_cor3.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="PresentationNativeDll">
+        <File Source="$(var.StandalonePublishDir)PresentationNative_cor3.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="VcRuntimeDll">
+        <File Source="$(var.StandalonePublishDir)vcruntime140_cor3.dll" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- ═══════════════════════════════════════════
+         appsettings.toml — NeverOverwrite so user
+         configuration survives upgrades/repairs.
+         ═══════════════════════════════════════════ -->
+
+    <ComponentGroup Id="AppSettings" Directory="INSTALLFOLDER">
+      <Component Id="AppSettingsToml" NeverOverwrite="yes">
+        <File Source="$(var.StandalonePublishDir)appsettings.toml" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- ═══════════════════════════════════════════
+         Start Menu shortcut
+         ═══════════════════════════════════════════ -->
+
+    <ComponentGroup Id="Shortcuts" Directory="AppMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <!--
+          Shortcuts are not key-path eligible by themselves; use a
+          registry value under HKCU as the key path instead.
+        -->
+        <RegistryValue Root="HKCU"
+                       Key="Software\LGSTrayBattery"
+                       Name="installed"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+        <Shortcut Id="AppShortcut"
+                  Name="LGSTray Battery"
+                  Target="[INSTALLFOLDER]LGSTray.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AppIcon.exe"
+                  IconIndex="0" />
+        <!-- Clean up the Start Menu folder on uninstall -->
+        <RemoveFolder Id="RemoveAppMenuFolder"
+                      Directory="AppMenuFolder"
+                      On="uninstall" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- ═══════════════════════════════════════════
+         Icon (taken from LGSTray.exe embedded icon)
+         ═══════════════════════════════════════════ -->
+
+    <Icon Id="AppIcon.exe" SourceFile="$(var.StandalonePublishDir)LGSTray.exe" />
+
+    <!-- ═══════════════════════════════════════════
+         Feature tree
+         ═══════════════════════════════════════════ -->
+
+    <Feature Id="ProductFeature" Title="LGSTrayBattery" Level="1">
+      <ComponentGroupRef Id="ApplicationFiles" />
+      <ComponentGroupRef Id="AppSettings" />
+      <ComponentGroupRef Id="Shortcuts" />
+    </Feature>
+
+  </Package>
+
+</Wix>

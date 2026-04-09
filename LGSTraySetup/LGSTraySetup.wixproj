@@ -1,0 +1,22 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+
+  <PropertyGroup>
+    <OutputName>LGSTrayBattery-$(VersionPrefix)$(VersionSuffix)</OutputName>
+    <Platform>x64</Platform>
+    <Configurations>Release</Configurations>
+    <SuppressPdbOutput>true</SuppressPdbOutput>
+    <!-- Standalone publish output produced by publish.py / dotnet publish -->
+    <StandalonePublishDir>$(MSBuildThisFileDirectory)..\bin\Release\Publish\win-x64\Standalone\</StandalonePublishDir>
+    <!--
+      Pass VersionPrefix (X.Y.Z) as a WiX preprocessor variable.
+      MSI version strings must be numeric X.Y.Z — suffixes like "dev" are not allowed.
+    -->
+    <DefineConstants>ProductVersion=$(VersionPrefix);StandalonePublishDir=$(StandalonePublishDir)</DefineConstants>
+  </PropertyGroup>
+
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
+  </ItemGroup>
+
+</Project>

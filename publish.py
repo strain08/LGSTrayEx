@@ -3,6 +3,7 @@ import argparse
 import glob
 import os
 import os.path
+import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 import zipfile
@@ -42,6 +43,9 @@ def file_list(zipFolder):
         # Fix: Add ** for proper recursive search
         pattern = os.path.join(zipFolder, '**', fileType)
         yield from glob.glob(pattern, recursive=True)
+    license_file = os.path.join(zipFolder, 'LICENSE')
+    if os.path.exists(license_file):
+        yield license_file
 
 def create_zip(zipPath, zipFolder):
     with zipfile.ZipFile(zipPath, 'w', zipfile.ZIP_DEFLATED) as zip:
@@ -69,6 +73,8 @@ class PublishHelper:
                 check=True  # Raise exception on failure
             )
 
+        shutil.copy('./LICENSE', os.path.join(self.publish_root, profile, 'LICENSE'))
+
         if self.no_zip:
             return
 
@@ -84,7 +90,20 @@ class PublishHelper:
         self.zip_threads.append(p)
         print("---")
 
-def main(no_zip, version_suffix):
+def build_msi(publish_root, version):
+    """Build MSI from the Standalone publish output using WiX v5."""
+    setup_proj = './LGSTraySetup/LGSTraySetup.wixproj'
+
+    print("\n---")
+    print("Building MSI ...")
+    subprocess.run(
+        ["dotnet", "build", setup_proj, "-c", "Release"],
+        shell=False,
+        check=True
+    )
+    print("---")
+
+def main(no_zip, version_suffix, msi):
     global TARGET_VER
     TARGET_VER += version_suffix
 
@@ -96,6 +115,9 @@ def main(no_zip, version_suffix):
 
     helper.join()
 
+    if msi:
+        build_msi(publish_root, TARGET_VER)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog='publish.py',
@@ -103,6 +125,7 @@ if __name__ == "__main__":
     )
     parser.add_argument('--no-zip', action='store_true')
     parser.add_argument('--version-suffix', default='')
+    parser.add_argument('--msi', action='store_true', help='Build MSI installer (requires WiX v5: dotnet tool install -g wix)')
 
     args = parser.parse_args()
 

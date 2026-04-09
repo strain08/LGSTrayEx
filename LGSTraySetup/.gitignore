@@ -1,0 +1,10 @@
+# WiX build output
+bin/
+obj/
+
+# Old VS installer artifacts (replaced by WiX project)
+Debug/
+Release/
+
+# Generated from LICENSE by gen_license_rtf.py — do not commit
+LICENSE.rtf

@@ -48,9 +48,9 @@ jobs:
         echo "version=$version" >> $env:GITHUB_OUTPUT
       shell: pwsh
 
-    # Run the publish script to create release packages
+    # Run the publish script to create release packages and MSI installer
     - name: Build and publish
-      run: python publish.py
+      run: python publish.py --msi
 
     # Create GitHub Release and upload artifacts
     - name: Create GitHub Release
@@ -62,6 +62,7 @@ jobs:
         generate_release_notes: true  # Auto-generates changelog from commits
         files: |
           ./bin/Release/publish/Release_v*.zip
+          ./LGSTraySetup/bin/x64/Release/LGSTrayBattery-*.msi
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -70,5 +71,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: release-packages
-        path: ./bin/Release/publish/Release_v*.zip
+        path: |
+          ./bin/Release/publish/Release_v*.zip
+          ./LGSTraySetup/bin/x64/Release/LGSTrayBattery-*.msi
         retention-days: 30
