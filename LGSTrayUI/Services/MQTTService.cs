@@ -6,6 +6,7 @@ using LGSTrayPrimitives.Interfaces;
 using LGSTrayPrimitives.Retry;
 using LGSTrayUI.Messages;
 using MessagePipe;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using MQTTnet;
@@ -70,7 +71,7 @@ internal class MQTTService : IHostedService, IDisposable
     }
 
     public MQTTService(IOptions<AppSettings> appSettings,
-                       INotificationManager? notificationManager,
+                       IServiceProvider serviceProvider,
                        ISubscriber<DeviceBatteryUpdatedMessage> batterySubscriber,
                        ISubscriber<SystemSuspendingMessage> suspendSubscriber,
                        ISubscriber<ForceRepublishMessage> republishSubscriber,
@@ -78,7 +79,7 @@ internal class MQTTService : IHostedService, IDisposable
     {
         _mqttSettings = appSettings.Value.MQTT;
         _notificationSettings = appSettings.Value.Notifications;
-        _notificationManager = notificationManager;
+        _notificationManager = serviceProvider.GetService<INotificationManager>();
         _batterySubscriber = batterySubscriber;
         _suspendSubscriber = suspendSubscriber;
         _republishSubscriber = republishSubscriber;
