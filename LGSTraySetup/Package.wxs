@@ -13,8 +13,8 @@
     -->
     <MajorUpgrade DowngradeErrorMessage="A newer version of LGSTrayBattery is already installed." />
 
-    <!-- Single embedded CAB file -->
-    <MediaTemplate EmbedCab="yes" />
+    <!-- Single embedded CAB file, LZX high compression -->
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
     <!-- ═══════════════════════════════════════════
          UI — welcome, install dir, progress, finish
@@ -108,8 +108,7 @@
                   Name="LGSTray Battery"
                   Target="[INSTALLFOLDER]LGSTray.exe"
                   WorkingDirectory="INSTALLFOLDER"
-                  Icon="AppIcon.exe"
-                  IconIndex="0" />
+                  Icon="AppIcon.ico" />
         <!-- Clean up the Start Menu folder on uninstall -->
         <RemoveFolder Id="RemoveAppMenuFolder"
                       Directory="AppMenuFolder"
@@ -118,10 +117,10 @@
     </ComponentGroup>
 
     <!-- ═══════════════════════════════════════════
-         Icon (taken from LGSTray.exe embedded icon)
+         Icon
          ═══════════════════════════════════════════ -->
 
-    <Icon Id="AppIcon.exe" SourceFile="$(var.StandalonePublishDir)LGSTray.exe" />
+    <Icon Id="AppIcon.ico" SourceFile="$(sys.SOURCEFILEDIR)..\LGSTrayUI\Resources\logo_black.ico" />
 
     <!-- ═══════════════════════════════════════════
          Feature tree
