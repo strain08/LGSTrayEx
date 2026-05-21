@@ -35,11 +35,19 @@ public static class CenturionTransportFactory
 
     private static byte? ProbeReportId(HidDevicePtr dev)
     {
-        byte[] probe = new byte[FrameLayout.FRAME_SIZE];
+        // hid_write returns -1 immediately when the report ID is not declared as an
+        // output report in the device's HID descriptor — that's how we detect which
+        // variant the device speaks. The frame is well-formed (ROOT.GetProtocolVersion
+        // with three zero ping params) so that if it does reach the firmware the
+        // payload is a legitimate request rather than malformed garbage. The dongle
+        // silently drops it on 0x50 (we don't know the device address yet, so byte[1]
+        // is zero) and the 0x51 variant replies are ignored here — we just want to
+        // know which write the OS accepted.
+        byte[] pingParams = [0x00, 0x00, 0x00];
         foreach (byte reportId in ReportIdCandidates)
         {
-            probe[0] = reportId;
-            // hid_write returns -1 immediately on incompatible report ID
+            FrameLayout layout = reportId == 0x50 ? FrameLayout.Layout_0x50 : FrameLayout.Layout_0x51;
+            byte[] probe = CenturionTransport.BuildFrame(layout, reportId, featIdx: 0x00, func: 0x01, pingParams);
             if (HidWrite(dev, probe, FrameLayout.FRAME_SIZE) > 0)
                 return reportId;
         }
