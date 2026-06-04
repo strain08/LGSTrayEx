@@ -32,22 +32,19 @@ public static class CenturionTransportFactory
             _ => throw new UnreachableException($"ProbeReportId returned 0x{reportId:X2}: defined transport not assigned")
         };
     }
-
+    /// <summary>
+    /// Obtains the reportId by trying to send well-formed ROOT.GetProtocolVersion
+    /// </summary>
+    /// <param name="dev"></param>
+    /// <returns>reportId</returns>
     private static byte? ProbeReportId(HidDevicePtr dev)
-    {
-        // hid_write returns -1 immediately when the report ID is not declared as an
-        // output report in the device's HID descriptor — that's how we detect which
-        // variant the device speaks. The frame is well-formed (ROOT.GetProtocolVersion
-        // with three zero ping params) so that if it does reach the firmware the
-        // payload is a legitimate request rather than malformed garbage. The dongle
-        // silently drops it on 0x50 (we don't know the device address yet, so byte[1]
-        // is zero) and the 0x51 variant replies are ignored here — we just want to
-        // know which write the OS accepted.
+    {        
         byte[] pingParams = [0x00, 0x00, 0x00];
         foreach (byte reportId in ReportIdCandidates)
         {
-            FrameLayout layout = reportId == 0x50 ? FrameLayout.Layout_0x50 : FrameLayout.Layout_0x51;
+            FrameLayout layout = reportId == 0x50 ? FrameLayout.Layout_0x50 : FrameLayout.Layout_0x51;            
             byte[] probe = CenturionTransport.BuildFrame(layout, reportId, featIdx: 0x00, func: 0x01, pingParams);
+            
             if (HidWrite(dev, probe, FrameLayout.FRAME_SIZE) > 0)
                 return reportId;
         }
@@ -56,20 +53,19 @@ public static class CenturionTransportFactory
 
     /// <summary>
     /// Probe the device address for 0x50-variant devices.
-    /// First attempts an active scan: sends a well-formed ROOT.GetProtocolVersion request
-    /// to every candidate address 0x00–0xFF and reads briefly after each write. The dongle
-    /// silently ignores wrong addresses and replies only to the correct one. Falls back to
-    /// passive wait if the active scan returns nothing (e.g. headset asleep behind the dongle).
-    ///
     /// Modeled on Solaar's probe_centurion_device_addr (lib/logitech_receiver/base.py).
     /// Typical G522 (addr=0x23): ~180ms. Worst case scan: ~1.3s.
     /// </summary>
+    /// <param name="dev"></param>
+    /// <param name="productId">only for display purposes</param>
+    /// <param name="reportId"></param>
+    /// <param name="ct"></param>
     private static async Task<byte> ProbeDeviceAddressAsync(HidDevicePtr dev, byte reportId, CancellationToken ct, ushort productId = 0)
     {
         string tag = $"[0x{productId:X4}] Cent";
         byte[] buffer = new byte[FrameLayout.FRAME_SIZE];
 
-        byte? scanned = await ProbeAddressActivelyAsync(dev, reportId, buffer, ct, tag);
+        byte? scanned = await ProbeAddressActivelyAsync(dev, reportId, buffer, tag, ct);
         if (scanned.HasValue)
             return scanned.Value;
 
@@ -99,13 +95,15 @@ public static class CenturionTransportFactory
     }
 
     /// <summary>
-    /// Active scan: send ROOT.GetProtocolVersion (feat=0x00, func=0x01) to every candidate
-    /// device address 0x00–0xFF, reading briefly after each write. Returns the address from
-    /// the first reply, or null if no candidate responded.
+    /// Active scan: 
+    /// Send ROOT.GetProtocolVersion (feat=0x00, func=0x01) to every candidate device address 0x00–0xFF
+    /// Modeled on Solaar's probe_centurion_device_addr (lib/logitech_receiver/base.py)
+    /// ROOT.GetProtocolVersion: feat_idx=0x00, func=0x10, 3 zero ping params
     /// </summary>
-    private static async Task<byte?> ProbeAddressActivelyAsync(HidDevicePtr dev, byte reportId, byte[] readBuffer, CancellationToken ct, string tag)
+    /// <returns>The address from the first reply, or null if no candidate responded</returns>
+    private static async Task<byte?> ProbeAddressActivelyAsync(HidDevicePtr dev, byte reportId, byte[] readBuffer, string tag, CancellationToken ct)
     {
-        // Well-formed ROOT.GetProtocolVersion frame for Layout_0x50:
+        // ROOT.GetProtocolVersion frame for Layout_0x50:
         //   [0]    reportId       (0x50)
         //   [1]    device addr    (varied 0x00..0xFF)
         //   [2]    cpl_length     (= 6: flags + featIdx + func|swid + 3 ping params)
