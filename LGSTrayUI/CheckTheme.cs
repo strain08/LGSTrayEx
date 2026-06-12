@@ -45,7 +45,7 @@ public static class CheckTheme
         }
         catch (Exception ex)
         {
-            // WMI watcher may fail on Windows 10 due to permissions or WMI issues
+            // WMI watcher may fail due to permissions or WMI issues
             // Default to light theme (more common)
             _lightTheme = true;
             LGSTrayPrimitives.DiagnosticLogger.LogWarning($"Failed to initialize theme watcher, defaulting to light theme: {ex.Message}");

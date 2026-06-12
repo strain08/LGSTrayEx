@@ -347,29 +347,18 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Loads the appropriate WPF theme based on Windows version.
-    /// Windows 11: Fluent theme for modern UI
-    /// Windows 10: Classic WPF theme (no additional theme loaded)
+    /// Loads the Fluent WPF theme for the modern Windows 11 UI.
     /// </summary>
     private void LoadWindowsTheme()
     {
         try
         {
-            if (WindowsVersionHelper.IsWindows11OrGreater)
+            var fluentTheme = new ResourceDictionary
             {
-                // Windows 11: Load Fluent theme
-                var fluentTheme = new ResourceDictionary
-                {
-                    Source = new Uri("pack://application:,,,/PresentationFramework.Fluent;component/Themes/Fluent.xaml")
-                };
-                Application.Current.Resources.MergedDictionaries.Add(fluentTheme);
-                DiagnosticLogger.Log("Loaded Fluent theme for Windows 11");
-            }
-            else
-            {
-                // Windows 10: Use classic WPF theme (no action needed)
-                DiagnosticLogger.Log("Using classic WPF theme for Windows 10 compatibility");
-            }
+                Source = new Uri("pack://application:,,,/PresentationFramework.Fluent;component/Themes/Fluent.xaml")
+            };
+            Application.Current.Resources.MergedDictionaries.Add(fluentTheme);
+            DiagnosticLogger.Log("Loaded Fluent theme");
         }
         catch (Exception ex)
         {
