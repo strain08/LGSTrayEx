@@ -6,6 +6,7 @@ using LGSTrayUI.Services;
 using MessagePipe;
 using Microsoft.Extensions.Options;
 using Moq;
+using Notification.Core;
 using Notification.Wpf;
 
 namespace LGSTrayUI.Tests;

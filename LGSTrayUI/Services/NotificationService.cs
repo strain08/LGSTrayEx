@@ -4,6 +4,7 @@ using LGSTrayUI.Messages;
 using MessagePipe;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Notification.Core;
 using Notification.Wpf;
 using Notification.Wpf.Constants;
 using System;

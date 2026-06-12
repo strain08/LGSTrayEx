@@ -38,8 +38,8 @@ jobs:
       run: |
         $branch = "${{ github.ref_name }}" -replace '/', '-'
         $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-        $suffix = "dev-$branch-$timestamp"
-        $tag = "dev-$branch-$timestamp"
+        $suffix = "$branch-$timestamp"
+        $tag = "$branch-$timestamp"
         echo "suffix=$suffix" >> $env:GITHUB_OUTPUT
         echo "tag=$tag" >> $env:GITHUB_OUTPUT
         echo "branch_name=$branch" >> $env:GITHUB_OUTPUT
@@ -68,16 +68,9 @@ jobs:
           **Commit:** ${{ github.sha }}
           **Build Time:** ${{ steps.version.outputs.timestamp }}
 
-          ### Downloads
-          - **Standalone**: Includes .NET 9 runtime (larger, no dependencies)
-          - **Framedep**: Requires .NET 9 runtime pre-installed (smaller)
-
           ### Notes
           - This release will be deleted after testing is complete
 
-          ---
-
-          **Share link:** `https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.tag }}`
         files: |
           ./bin/Release/publish/Release_v*.zip
           ./LGSTraySetup/bin/x64/Release/LGSTrayBattery-*.msi
