@@ -48,6 +48,9 @@ public static class HidppFeature
     /// <summary>Unified Battery (0x1004) - Extended battery information</summary>
     public const ushort BATTERY_UNIFIED = 0x1004;
 
+    /// <summary>ADC Measurement (0x1F20) - Battery voltage for direct-connect headsets (G733/G535/G935/PRO X)</summary>
+    public const ushort ADC_MEASUREMENT = 0x1F20;
+
     /// <summary>Wireless Device Status (0x1D4B) - Connection status events for BOLT receivers</summary>
     public const ushort WIRELESS_DEVICE_STATUS = 0x1D4B;
 }

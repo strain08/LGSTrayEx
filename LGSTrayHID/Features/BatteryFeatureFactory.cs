@@ -14,6 +14,7 @@ public static class BatteryFeatureFactory
         [HidppFeature.BATTERY_UNIFIED_LEVEL] = new BatteryUnifiedLevel(),
         [HidppFeature.BATTERY_VOLTAGE] = new BatteryVoltage(),
         [HidppFeature.BATTERY_UNIFIED] = new BatteryUnified(),
+        [HidppFeature.ADC_MEASUREMENT] = new BatteryAdcMeasurement(),
     };
 
     /// <summary>
@@ -28,6 +29,7 @@ public static class BatteryFeatureFactory
     /// 1. Battery Unified Level (0x1000) - Most common, direct percentage
     /// 2. Battery Voltage (0x1001) - Requires voltage lookup table for estimation
     /// 3. Unified Battery (0x1004) - Extended feature with capability info
+    /// 4. ADC Measurement (0x1F20) - Direct-connect headsets (G733/G535/G935/PRO X)
     /// </remarks>
     public static IBatteryFeature? GetBatteryFeature(Dictionary<ushort, byte> featureMap)
     {
@@ -36,7 +38,8 @@ public static class BatteryFeatureFactory
         {
             HidppFeature.BATTERY_UNIFIED_LEVEL,  // 0x1000 - preferred
             HidppFeature.BATTERY_VOLTAGE,        // 0x1001 - fallback
-            HidppFeature.BATTERY_UNIFIED         // 0x1004 - alternative
+            HidppFeature.BATTERY_UNIFIED,        // 0x1004 - alternative
+            HidppFeature.ADC_MEASUREMENT         // 0x1F20 - headset fallback
         })
         {
             if (featureMap.ContainsKey(featureId))
