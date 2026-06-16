@@ -34,17 +34,15 @@ public class LogiDeviceCollectionTests
             .Callback<IMessageHandler<IPCMessage>, MessageHandlerFilter<IPCMessage>[]>((handler, _) => capturedHandler = handler)
             .Returns(new MockDisposable());
 
-        // Use real UserSettingsWrapper - simplified for testing
-        var settings = new UserSettingsWrapper();
+        // Use an isolated UserSettingsWrapper (temp-backed, starts empty)
+        var settings = UserSettingsWrapper.CreateEphemeral();
 
         // Initialize with test device signatures if provided
-        settings.SelectedSignatures.Clear();
-        settings.SelectedDevices.Clear(); // Ensure old system is cleared
         foreach (var signature in initialDeviceSignatures)
         {
             if (!string.IsNullOrEmpty(signature))
             {
-                settings.SelectedSignatures.Add(signature);
+                settings.AddSignature(signature);
             }
         }
 
@@ -149,17 +147,15 @@ public class LogiDeviceCollectionTests
         // removed from SelectedSignatures during load (signature-based system)
 
         // Arrange
-        var settings = new UserSettingsWrapper();
-        settings.SelectedSignatures.Clear();
-        settings.SelectedDevices.Clear();
+        var settings = UserSettingsWrapper.CreateEphemeral();
 
-        // Add duplicate signatures and empty strings
-        settings.SelectedSignatures.Add("GHUB.dev001");
-        settings.SelectedSignatures.Add("GHUB.dev001"); // duplicate
-        settings.SelectedSignatures.Add("  "); // empty
-        settings.SelectedSignatures.Add("  "); // empty
-        settings.SelectedSignatures.Add("NATIVE.ABC123");
-        settings.SelectedSignatures.Add(null!); // null
+        // Add duplicate signatures and empty strings; the store rejects dupes/blank/null on insert
+        settings.AddSignature("GHUB.dev001");
+        settings.AddSignature("GHUB.dev001"); // duplicate
+        settings.AddSignature("  "); // empty
+        settings.AddSignature("  "); // empty
+        settings.AddSignature("NATIVE.ABC123");
+        settings.AddSignature(null!); // null
 
         var dispatcher = new SynchronousDispatcher();
         var subscriberMock = new Mock<ISubscriber<IPCMessage>>();
@@ -184,12 +180,12 @@ public class LogiDeviceCollectionTests
 
         var republishSubscriberMock = new Mock<ISubscriber<ForceRepublishMessage>>();
 
-        // Act - creating collection triggers deduplication
+        // Act
         var collection = new LogiDeviceCollection(settings, viewModelFactory, subscriberMock.Object, republishSubscriberMock.Object, dispatcher, publisherMock.Object);
 
         // Assert - Verify signatures deduplicated (unique signatures only)
         Assert.Equal(2, settings.SelectedSignatures.Count);
-        Assert.Contains("GHUB.dev001", settings.SelectedSignatures.Cast<string>());
-        Assert.Contains("NATIVE.ABC123", settings.SelectedSignatures.Cast<string>());
+        Assert.Contains("GHUB.dev001", settings.SelectedSignatures);
+        Assert.Contains("NATIVE.ABC123", settings.SelectedSignatures);
     }
 }

@@ -16,7 +16,7 @@ public class MockLogiDeviceViewModelFactory
     public MockLogiDeviceViewModelFactory(LogiDeviceIconFactory iconFactory)
     {
         _iconFactory = iconFactory;
-        _userSettings = new UserSettingsWrapper();
+        _userSettings = UserSettingsWrapper.CreateEphemeral();
         _appSettings = new AppSettings
         {
             UI = new UISettings(),

@@ -65,7 +65,7 @@ public class NotificationServiceTests {
             Notifications = new NotificationSettings()
         };
         settings.Setup(s => s.Value).Returns(settingsValue);
-        var userSettings = new UserSettingsWrapper();
+        var userSettings = UserSettingsWrapper.CreateEphemeral();
 
         // Fix: Use settings.Object.Value
         var device = new LogiDeviceViewModel(iconFactory.Object, settings.Object.Value, userSettings);

@@ -28,7 +28,7 @@ public class MQTTServiceBatteryTests
             Notifications = new NotificationSettings()
         };
 
-        var userSettings = new UserSettingsWrapper();
+        var userSettings = UserSettingsWrapper.CreateEphemeral();
         var iconFactory = new MockLogiDeviceIconFactory();
         var device = new LogiDeviceViewModel(iconFactory, appSettings, userSettings);
 

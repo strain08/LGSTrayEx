@@ -32,11 +32,8 @@ public class LogiDeviceCollectionModeSwitchTests
             .Callback<IMessageHandler<IPCMessage>, MessageHandlerFilter<IPCMessage>[]>((handler, _) => capturedHandler = handler)
             .Returns(new MockDisposable());
 
-        var settings = new UserSettingsWrapper();
-        
-        // Ensure clean state
-        settings.SelectedSignatures.Clear();
-        settings.SelectedDevices.Clear();
+        // Isolated, temp-backed wrapper that starts with a clean state
+        var settings = UserSettingsWrapper.CreateEphemeral();
 
         var appSettings = new AppSettings
         {

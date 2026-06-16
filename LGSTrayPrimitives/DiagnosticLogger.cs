@@ -4,13 +4,12 @@ namespace LGSTrayPrimitives;
 
 /// <summary>
 /// Diagnostic logger for tracing device discovery and UI updates.
-/// Writes to <c>%LOCALAPPDATA%\LGSTray\diagnostic.log</c> (falls back to the application
-/// directory if that location is unavailable). Enable via the [Logging] config section or
-/// the --log command-line flag. Works in both Debug and Release builds.
+/// Writes to <c>%LOCALAPPDATA%\LGSTray\diagnostic.log</c> 
+/// Enable via the [Logging] config section or the --log command-line flag.
 /// </summary>
 public static class DiagnosticLogger
 {
-    private static readonly string _logFilePath = ResolveLogFilePath();
+    private static readonly string _logFilePath = Path.Combine(AppDataPaths.LocalAppDataDir, "diagnostic.log");
 
     private static bool _isEnabled = false;
     private static bool _isVerboseEnabled = false;
@@ -27,10 +26,9 @@ public static class DiagnosticLogger
     private const int TrimCheckInterval = 100;
 
     /// <summary>
-    /// Full path of the diagnostic log file. Defaults to
-    /// <c>%LOCALAPPDATA%\LGSTray\diagnostic.log</c> (user-writable, survives installs to
-    /// UAC-protected folders such as Program Files), falling back to the application
-    /// directory if the per-user location cannot be resolved/created.
+    /// Full path of the diagnostic log file. Lives in <see cref="AppDataPaths.LocalAppDataDir"/>
+    /// (<c>%LOCALAPPDATA%\LGSTray\diagnostic.log</c>), which is user-writable and survives
+    /// installs to UAC-protected folders such as Program Files.
     /// </summary>
     public static string LogFilePath => _logFilePath;
 
@@ -46,30 +44,6 @@ public static class DiagnosticLogger
     /// including the offending path.
     /// </summary>
     public static event Action<string>? WriteFailed;
-
-    /// <summary>
-    /// Resolves the diagnostic log path, preferring a per-user writable location.
-    /// </summary>
-    private static string ResolveLogFilePath()
-    {
-        try
-        {
-            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (!string.IsNullOrEmpty(localAppData))
-            {
-                string logDir = Path.Combine(localAppData, "LGSTray");
-                Directory.CreateDirectory(logDir);
-                return Path.Combine(logDir, "diagnostic.log");
-            }
-        }
-        catch (Exception)
-        {
-            // Fall back to the application directory below if %LOCALAPPDATA% is unavailable
-            // or cannot be created (rare; e.g. heavily locked-down environments).
-        }
-
-        return Path.Combine(AppContext.BaseDirectory, "diagnostic.log");
-    }
 
     /// <summary>
     /// Gets whether logging is enabled (--log flag).

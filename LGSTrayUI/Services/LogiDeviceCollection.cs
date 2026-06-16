@@ -70,22 +70,9 @@ public class LogiDeviceCollection : ILogiDeviceCollection
 
     private void LoadPreviouslySelectedDevices()
     {
-        // MIGRATION: Clear old deviceId-based settings (manual re-selection approach)
-        if (_userSettings.SelectedDevices.Count > 0)
-        {
-            DiagnosticLogger.Log($"MIGRATION: Clearing {_userSettings.SelectedDevices.Count} old device ID settings");
-            DiagnosticLogger.Log("Users will need to re-select their devices (signature-based matching)");
-            _userSettings.SelectedDevices.Clear();
-            Properties.Settings.Default.Save();
-        }
-
-        // Deduplicate settings first
-        DeduplicateSettings();
-
-        // Note: We no longer load stubs for previously selected devices.
-        // Signature-based matching will restore selection when devices reconnect.
-        // This eliminates the need for stub cleanup logic.
-
+        // Signature-based matching restores selection when devices reconnect, so we no longer
+        // load stubs for previously selected devices. Deduplication is handled by
+        // UserSettingsWrapper when it loads the store.
         DiagnosticLogger.Log($"Loaded {_userSettings.SelectedSignatures.Count} device signature(s) from settings");
     }
 
@@ -261,26 +248,4 @@ public class LogiDeviceCollection : ILogiDeviceCollection
         _batteryPublisher.Publish(new DeviceBatteryUpdatedMessage(device));
     }
 
-    /// <summary>
-    /// Remove duplicate and empty device signatures from settings
-    /// </summary>
-    private void DeduplicateSettings()
-    {
-        var signatures = _userSettings.SelectedSignatures.Cast<string>()
-            .Where(sig => !string.IsNullOrWhiteSpace(sig))
-            .Distinct()
-            .ToList();
-
-        if (signatures.Count != _userSettings.SelectedSignatures.Count)
-        {
-            DiagnosticLogger.Log($"Deduplicating signature settings: {_userSettings.SelectedSignatures.Count} → {signatures.Count}");
-
-            _userSettings.SelectedSignatures.Clear();
-            foreach (var sig in signatures)
-            {
-                _userSettings.SelectedSignatures.Add(sig);
-            }
-            Properties.Settings.Default.Save();
-        }
-    }
 }
