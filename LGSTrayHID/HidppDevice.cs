@@ -141,8 +141,8 @@ public class HidppDevice : IDisposable
 
                 FeatureMap[featureId] = i;
 
-                // Log feature mapping for debugging connection events
-            //    DiagnosticLogger.Log($"[Device {DeviceIdx}] Feature 0x{featureId:X04} mapped to index {i}");
+                // Log feature mapping
+                DiagnosticLogger.Verbose($"[Device {DeviceIdx}] Feature 0x{featureId:X04} mapped to index {i}");
             }
 
             await InitPopulateAsync();
