@@ -214,7 +214,7 @@ public partial class GHubManager : IDeviceManager, IHostedService, IDisposable
         GHUBMsg ghubmsg = ghubmsgNullable.Value;
 
         DiagnosticLogger.Log($"GHUB message received - Path: {ghubmsg.Path}");
-        //DiagnosticLogger.Log($"Full message: {msg.Text}");
+        DiagnosticLogger.Verbose($"GHUB full message: {msg.Text}");
 
         switch (ghubmsg.Path)
         {
