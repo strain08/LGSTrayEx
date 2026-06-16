@@ -11,11 +11,6 @@ namespace LGSTrayUI.Services;
 /// <summary>
 /// Persists per-user UI settings (selected device signatures, numeric display, keep-offline)
 /// to a single JSON file in <see cref="AppDataPaths.LocalAppDataDir"/>.
-///
-/// Replaces the legacy .NET <c>Properties.Settings</c> (<c>user.config</c>) store, which spawned
-/// a new per-version / per-install-path folder under <c>%LOCALAPPDATA%\LGSTray\</c> that was
-/// never cleaned up. On first run this class imports any existing legacy values and then deletes
-/// the orphaned <c>LGSTray_*</c> folders.
 /// </summary>
 public partial class UserSettingsWrapper : ObservableObject
 {

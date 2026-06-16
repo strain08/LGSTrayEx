@@ -9,7 +9,7 @@
     <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
     <converters:DataSourceBadgeConverter x:Key="DataSourceBadgeConverter"/>
     <converters:ThemeBrushConverter x:Key="ThemeBrushConverter" />
-    
+
     <!-- Badge Styles -->
     <Style x:Key="DataSourceBadge" TargetType="Border">
         <Setter Property="Width" Value="18"/>
@@ -27,52 +27,55 @@
         <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
 
-	    <ContextMenu x:Key="SysTrayMenu"
+    <ContextMenu x:Key="SysTrayMenu"
 	                 Opened="SysTrayMenu_Opened"
 	                 Closed="SysTrayMenu_Closed">
-	        <!-- Devices Menu -->
-	        <MenuItem Header="Devices" ItemsSource="{Binding FilteredDevices}">
-	            <MenuItem.ItemContainerStyle>
-	                <Style TargetType="MenuItem">
-	                    <Setter Property="IsCheckable" Value="True"/>
-	                    <Setter Property="IsChecked" Value="{Binding IsChecked}"/>
-	                    <Setter Property="StaysOpenOnClick" Value="True"/>
-	                    <Setter Property="Command">
-	                        <Setter.Value>
-	                            <Binding Path="DataContext.DeviceClickedCommand" RelativeSource="{RelativeSource AncestorType=ContextMenu}"/>
-	                        </Setter.Value>
-	                    </Setter>
-	                    <Setter Property="CommandParameter" Value="{Binding RelativeSource={RelativeSource Self}}" />
-	                </Style>
-	            </MenuItem.ItemContainerStyle>
-	            <MenuItem.ItemTemplate>
-	                <DataTemplate>
-	                    <StackPanel Orientation="Horizontal">
-	                        <!-- Badge Circle -->
-	                        <Border Style="{StaticResource DataSourceBadge}"
+        <!-- Devices Menu -->
+        <MenuItem Header="Devices" ItemsSource="{Binding FilteredDevices}">
+            <MenuItem.ItemContainerStyle>
+                <Style TargetType="MenuItem">
+                    <Setter Property="IsCheckable" Value="True"/>
+                    <Setter Property="IsChecked" Value="{Binding IsChecked}"/>
+                    <Setter Property="StaysOpenOnClick" Value="True"/>
+                    <Setter Property="Command">
+                        <Setter.Value>
+                            <Binding Path="DataContext.DeviceClickedCommand" RelativeSource="{RelativeSource AncestorType=ContextMenu}"/>
+                        </Setter.Value>
+                    </Setter>
+                    <Setter Property="CommandParameter" Value="{Binding RelativeSource={RelativeSource Self}}" />
+                </Style>
+            </MenuItem.ItemContainerStyle>
+            <MenuItem.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Orientation="Horizontal">
+                        <!-- Badge Circle -->
+                        <Border Style="{StaticResource DataSourceBadge}"
 	                                Background="{Binding DataSource, Converter={StaticResource DataSourceBadgeConverter}}">
-	                            <TextBlock Style="{StaticResource BadgeText}"
+                            <TextBlock Style="{StaticResource BadgeText}"
 	                                      Text="{Binding BadgeLetter}"/>
-	                        </Border>
-	
-	                        <!-- Device Name with Tooltip -->
-	                        <TextBlock Text="{Binding DeviceName}"
+                        </Border>
+
+                        <!-- Device Name with Tooltip -->
+                        <TextBlock Text="{Binding DeviceName}"
 	                                  VerticalAlignment="Center"
 	                                  ToolTip="{Binding DetailedMenuTooltip}"/>
-	                    </StackPanel>
-	                </DataTemplate>
-	            </MenuItem.ItemTemplate>
-	        </MenuItem>
-	
-	        <MenuItem Header="Rediscover Devices" Command="{Binding RediscoverDevicesCommand}" IsEnabled="{Binding RediscoverDevicesEnabled}"/>
-	        <MenuItem Header="Keep Offline Devices" IsCheckable="True" IsChecked="{Binding KeepOfflineDevices}" StaysOpenOnClick="True" />
-	        <MenuItem Header="Display Numeric Icon" IsCheckable="True" IsChecked="{Binding NumericDisplay}" StaysOpenOnClick="True" />        <MenuItem Header="Autostart with Windows" IsCheckable="True" IsChecked="{Binding AutoStart}" StaysOpenOnClick="True" />
+                    </StackPanel>
+                </DataTemplate>
+            </MenuItem.ItemTemplate>
+        </MenuItem>
+
+        <MenuItem Header="Rediscover Devices" Command="{Binding RediscoverDevicesCommand}" IsEnabled="{Binding RediscoverDevicesEnabled}"/>
+        <MenuItem Header="Keep Offline Devices" IsCheckable="True" IsChecked="{Binding KeepOfflineDevices}" StaysOpenOnClick="True" />
+        <MenuItem Header="Display Numeric Icon" IsCheckable="True" IsChecked="{Binding NumericDisplay}" StaysOpenOnClick="True" />
+        <MenuItem Header="Autostart with Windows" IsCheckable="True" IsChecked="{Binding AutoStart}" StaysOpenOnClick="True" />
         <Separator />
+        <MenuItem Header="Log File" Command="{Binding OpenLogFolderCommand}"
+	              Visibility="{Binding LoggingEnabled, Converter={StaticResource BooleanToVisibilityConverter}}"/>
         <MenuItem Header="{Binding AssemblyVersion}" IsEnabled="False" />
         <Separator />
         <MenuItem Header="Exit" Command="{Binding ExitApplicationCommand}" />
     </ContextMenu>
-	<!-- Systray Icon -->
+    <!-- Systray Icon -->
     <tb:TaskbarIcon x:Key="NotifyIcon" ContextMenu="{StaticResource SysTrayMenu}"/>
 
 </ResourceDictionary>

@@ -13,6 +13,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Threading;
@@ -66,7 +67,12 @@ public partial class NotifyIconViewModel : ObservableObject, IHostedService
                                                           .Split('+')[0] + "-strain08" ?? "Missing";
 
     public static string AssemblyBuildInfo => BuildInfo.FromAssembly(Assembly.GetEntryAssembly()!);
-        
+
+    /// <summary>
+    /// Whether diagnostic logging is enabled. Controls visibility of the "Open Log Folder" menu item.
+    /// </summary>
+    public static bool LoggingEnabled => App.LoggingEnabled;
+
 
     private const string AutoStartRegKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
     private const string AutoStartRegKeyValue = "LGSTrayGUI";
@@ -179,6 +185,27 @@ public partial class NotifyIconViewModel : ObservableObject, IHostedService
         else
         {
             _userSettings.RemoveSignature(logiDevice.DeviceSignature);
+        }
+    }
+
+    [RelayCommand]
+    private static void OpenLogFolder()
+    {
+        var logPath = DiagnosticLogger.LogFilePath;
+        try
+        {
+            if (File.Exists(logPath))
+            {                
+                Process.Start("explorer.exe", $"/select,\"{logPath}\"");
+            }
+            else
+            {             
+                Process.Start("explorer.exe", $"\"{AppDataPaths.LocalAppDataDir}\"");
+            }
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.LogWarning($"Failed to open log folder: {ex.Message}");
         }
     }
 
