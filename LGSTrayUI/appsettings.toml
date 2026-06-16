@@ -112,7 +112,7 @@ modeSwitchDetectionDelaySeconds = 3
 devicesForModeSwitchSuppression = []
 
 [Logging]
-# Enable diagnostic logging to diagnostic.log
+# Enable diagnostic logging to %LOCALAPPDATA%\LGSTray\diagnostic.log
 # Can be overridden by --log command-line flag
 enabled = false
 

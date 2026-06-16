@@ -102,9 +102,8 @@ public class ConfigurationValidationService : IConfigurationValidationService, I
     {
         try
         {
-            string logPath = Path.Combine(AppContext.BaseDirectory, "diagnostic.log");
             string line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [SettingsLoad]: {message}{Environment.NewLine}";
-            File.AppendAllText(logPath, line);
+            File.AppendAllText(DiagnosticLogger.LogFilePath, line);
         }
         catch
         {

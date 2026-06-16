@@ -4,22 +4,72 @@ namespace LGSTrayPrimitives;
 
 /// <summary>
 /// Diagnostic logger for tracing device discovery and UI updates.
-/// Writes to diagnostic.log file in the application directory.
-/// Enable with --log command-line flag. Works in both Debug and Release builds.
+/// Writes to <c>%LOCALAPPDATA%\LGSTray\diagnostic.log</c> (falls back to the application
+/// directory if that location is unavailable). Enable via the [Logging] config section or
+/// the --log command-line flag. Works in both Debug and Release builds.
 /// </summary>
 public static class DiagnosticLogger
 {
-    private static readonly string _logFilePath = Path.Combine(AppContext.BaseDirectory, "diagnostic.log");
+    private static readonly string _logFilePath = ResolveLogFilePath();
 
     private static bool _isEnabled = false;
     private static bool _isVerboseEnabled = false;
     private static int _maxLines = 1000;
     private static int _writesSinceTrim = 0;
 
+    // Set once when a write fails so we surface the problem to the user a single time,
+    // rather than silently swallowing every failed append.
+    private static int _writeFailureReported = 0;
+
     /// <summary>
     /// Number of writes between trim checks. Avoids checking file size on every write.
     /// </summary>
     private const int TrimCheckInterval = 100;
+
+    /// <summary>
+    /// Full path of the diagnostic log file. Defaults to
+    /// <c>%LOCALAPPDATA%\LGSTray\diagnostic.log</c> (user-writable, survives installs to
+    /// UAC-protected folders such as Program Files), falling back to the application
+    /// directory if the per-user location cannot be resolved/created.
+    /// </summary>
+    public static string LogFilePath => _logFilePath;
+
+    /// <summary>
+    /// The error message from the most recent failed log write, or null if none.
+    /// </summary>
+    public static string? LastWriteError { get; private set; }
+
+    /// <summary>
+    /// Raised the first time a diagnostic log write fails (e.g. the target folder is
+    /// read-only). Fired at most once per process so subscribers (UI) can surface a single
+    /// notification instead of spamming. The argument is a human-readable description
+    /// including the offending path.
+    /// </summary>
+    public static event Action<string>? WriteFailed;
+
+    /// <summary>
+    /// Resolves the diagnostic log path, preferring a per-user writable location.
+    /// </summary>
+    private static string ResolveLogFilePath()
+    {
+        try
+        {
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (!string.IsNullOrEmpty(localAppData))
+            {
+                string logDir = Path.Combine(localAppData, "LGSTray");
+                Directory.CreateDirectory(logDir);
+                return Path.Combine(logDir, "diagnostic.log");
+            }
+        }
+        catch (Exception)
+        {
+            // Fall back to the application directory below if %LOCALAPPDATA% is unavailable
+            // or cannot be created (rare; e.g. heavily locked-down environments).
+        }
+
+        return Path.Combine(AppContext.BaseDirectory, "diagnostic.log");
+    }
 
     /// <summary>
     /// Gets whether logging is enabled (--log flag).
@@ -140,10 +190,28 @@ public static class DiagnosticLogger
                 _writesSinceTrim = 0;
                 TrimLogFile();
             }
+
+            // Recovered: allow a future failure to be reported again.
+            Interlocked.Exchange(ref _writeFailureReported, 0);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            Console.WriteLine("Failed to write to diagnostic log file.");
+            LastWriteError = ex.Message;
+            Console.WriteLine($"Failed to write to diagnostic log file '{_logFilePath}': {ex.Message}");
+
+            // Surface to subscribers only on the first failure of a streak to avoid flooding.
+            if (Interlocked.Exchange(ref _writeFailureReported, 1) == 0)
+            {
+                try
+                {
+                    WriteFailed?.Invoke(
+                        $"Diagnostic logging is enabled but writing to '{_logFilePath}' failed: {ex.Message}");
+                }
+                catch (Exception)
+                {
+                    // Never let a faulty subscriber break logging.
+                }
+            }
         }
         finally
         {

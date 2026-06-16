@@ -114,6 +114,7 @@ public partial class App : Application
 
         // Initialize logging
         int maxLogLines = appSettings.Logging?.MaxLines ?? 1000;
+        DiagnosticLogger.WriteFailed += OnDiagnosticLogWriteFailed;
         DiagnosticLogger.Initialize(enableLogging, enableVerbose, maxLogLines);
         var buildInfo = NotifyIconViewModel.AssemblyBuildInfo;
         var buildSuffix = buildInfo.Length > 0 ? $" [{buildInfo}]" : "";
@@ -289,6 +290,25 @@ public partial class App : Application
     static async Task<bool> LoadAppSettings(ConfigurationManager config, IConfigurationValidationService validationService)
     {
         return await validationService.LoadAndValidateConfiguration(config);
+    }
+
+    /// <summary>
+    /// Surfaces a diagnostic-log write failure to the user. Logging is opt-in, so a silent
+    /// failure (e.g. a read-only install folder) would otherwise leave the user staring at a
+    /// missing log file. Fired at most once per failure streak by <see cref="DiagnosticLogger"/>.
+    /// </summary>
+    private void OnDiagnosticLogWriteFailed(string message)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            MessageBox.Show(
+                $"{message}\n\nCheck that the folder is writable, or move the installation to a " +
+                "user-writable location.",
+                "LGSTray - Diagnostic Logging",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning
+            );
+        });
     }
 
     private void CrashHandler(object sender, UnhandledExceptionEventArgs args)
