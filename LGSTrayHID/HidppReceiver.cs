@@ -188,26 +188,47 @@ public class HidppReceiver : IDisposable
         {
             DiagnosticLogger.Log("Detecting device type (receiver vs direct device)...");
 
-            // Query receiver for device count with short timeout
-            // Direct devices won't respond to this HID++ 1.0 receiver command
+            // Strategy 1: HID++ 1.0 receiver query. Bolt/Unifying/Nano receivers answer this;
+            // direct devices and HID++ 2.0-only dongles do not.
             byte[] response = await WriteRead10(
                 DevShort,
                 Hidpp10Commands.QueryDeviceCount(),
                 timeout: 500  // Short timeout for fast detection
             );
 
-            // Check if we got a valid response
             if (response.Length >= 6 &&
                 response[2] == ReceiverCommand.QUERY_DEVICE_COUNT &&
                 response[3] == ReceiverCommand.SUB_COMMAND)
             {
                 byte deviceCount = response[5];
-                DiagnosticLogger.Log($"Receiver detected - reports {deviceCount} connected devices");
+                DiagnosticLogger.Log($"Receiver detected (HID++ 1.0) - reports {deviceCount} connected devices");
                 return true; // RECEIVER MODE
             }
 
-            // Empty response or invalid format - likely direct device
-            DiagnosticLogger.Log("No valid receiver response - treating as direct device");
+            // No HID++ 1.0 receiver reply. This is either a genuine direct device or a HID++ 2.0-only
+            // Lightspeed dongle/bridge (e.g. G733) that fronts the real device at a non-0xFF index.
+            // Disambiguate with HID++ 2.0 pings (ignoreHIDPP10:false => fail fast on an error reply).
+
+            // Strategy 2: a direct device echoes a 2.0 ping at 0xFF; a bridge errors/stays silent.
+            if (await Ping20(0xFF, timeout: 500, ignoreHIDPP10: false))
+            {
+                DiagnosticLogger.Log("Direct device detected (HID++ 2.0 ping at 0xFF)");
+                return false; // DIRECT DEVICE MODE
+            }
+
+            // Strategy 3: 0xFF silent/errored - sweep slots 1-6. Any 2.0 ping reply means the device
+            // is a receiver/bridge (the G733 headset answers at index 2). Stop at the first hit; the
+            // receiver path's enumeration does the full 1-6 walk afterwards.
+            for (byte i = 1; i <= 6; i++)
+            {
+                if (await Ping20(i, timeout: 500, ignoreHIDPP10: false))
+                {
+                    DiagnosticLogger.Log($"Receiver/bridge detected (HID++ 2.0 ping at index {i})");
+                    return true; // RECEIVER MODE
+                }
+            }
+
+            DiagnosticLogger.Log("No HID++ 1.0 receiver reply and no HID++ 2.0 ping response - treating as direct device");
             return false; // DIRECT DEVICE MODE
         }
         catch (Exception ex)
