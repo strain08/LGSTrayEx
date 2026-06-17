@@ -106,17 +106,19 @@ internal struct HIDP_BUTTON_CAPS
     public byte IsStringRange;
     public byte IsDesignatorRange;
     public byte IsAbsolute;
-    public byte Reserved0;
-    public ushort Reserved1_0;
-    public ushort Reserved1_1;
-    public ushort Reserved1_2;
-    public ushort Reserved1_3;
-    public ushort Reserved1_4;
-    public ushort Reserved1_5;
-    public ushort Reserved1_6;
-    public ushort Reserved1_7;
-    public ushort Reserved1_8;
-    public ushort Reserved1_9;
+    // native: ULONG Reserved[10] = 40 bytes. Undersizing this lets HidP_GetButtonCaps
+    // write past the managed buffer and corrupt the heap (surfaces as "Index was outside
+    // the bounds of the array" on button-cap-heavy collections - keyboard/consumer/telephony).
+    public uint Reserved0;
+    public uint Reserved1;
+    public uint Reserved2;
+    public uint Reserved3;
+    public uint Reserved4;
+    public uint Reserved5;
+    public uint Reserved6;
+    public uint Reserved7;
+    public uint Reserved8;
+    public uint Reserved9;
     // Union - 16 bytes
     public ushort UsageMin;
     public ushort UsageMax;
