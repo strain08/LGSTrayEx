@@ -74,10 +74,27 @@ public sealed class HidppManagerContext
     }
 
 
+    // Logitech webcams (PID range from docs/usb.ids.txt) can lock up during HID++ probing,
+    // so skip the descriptor probe for them. Matches Solaar's webcam exclusion. VID is already
+    // guaranteed 0x046D by the hotplug filter.
+    private static bool IsExcludedFromProbe(ushort productId) => productId is >= 0x0800 and <= 0x09FF;
+
     private async Task InitDevice(HidDeviceInfo deviceInfo)
     {
         var messageType = deviceInfo.GetHidppMessageType();
         string devPath = deviceInfo.GetPath();
+
+        // Fallback for devices whose usage page we don't recognise (e.g. G733-class headsets that
+        // expose their HID++ channel on a non-FF00/FF43 page). Read the Windows HID descriptor
+        // (no device I/O) and classify by declared input report ID + size. The probe is internally
+        // guarded, so any failure returns NONE and we fall through to the skip path below.
+        if (messageType == HidppMessageType.NONE && !IsExcludedFromProbe(deviceInfo.ProductId))
+        {
+            // ProbeFromDescriptor logs the full declared report-ID/size picture for the collection,
+            // match or not, so we don't add a second line here.
+            messageType = HidppReportProbe.ProbeFromDescriptor(devPath);
+        }
+
         switch (messageType)
         {
             case HidppMessageType.LONG:
