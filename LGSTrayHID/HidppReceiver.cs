@@ -15,6 +15,19 @@ public class HidppReceiver : IDisposable
     public HidDevicePtr DevLong { get; private set; } = IntPtr.Zero;
     public IReadOnlyDictionary<ushort, HidppDevice> DeviceCollection => _lifecycleManager.Devices;
 
+    // Transport precedence: prefer the modern HID++ 2.0 vendor page (0xFF43, e.g. G733)
+    // over the legacy 0xFF00 channel. When a device exposes the same report size on both
+    // pages we keep the FF43 handle and close the FF00 one, so we communicate over a single
+    // consistent transport instead of silently overwriting an already-assigned handle.
+    private const int TransportPriorityLegacy = 1;   // 0xFF00
+    private const int TransportPriorityVendor = 2;   // 0xFF43
+    private int _shortPriority;
+    private int _longPriority;
+    private bool _readingStarted;
+
+    private static int GetTransportPriority(ushort usagePage) =>
+        usagePage == 0xFF43 ? TransportPriorityVendor : TransportPriorityLegacy;
+
     private int _pingPayloadCounter = 0x55;
 
     private readonly DeviceLifecycleManager _lifecycleManager;
@@ -48,21 +61,52 @@ public class HidppReceiver : IDisposable
     }
 
 
-    public async Task SetUp(HidppMessageType messageType, nint dev, bool isWiredModeDevice = false)
+    /// <summary>
+    /// Assigns a HID++ channel handle for this device and, once both the short and long channels
+    /// are present, starts reading and initializes the device. When the same report size is exposed
+    /// on multiple pages, the FF43 vendor handle takes precedence over the legacy FF00 one (the
+    /// loser is closed); the resulting transport is otherwise the single handle per report size.
+    /// </summary>
+    public async Task SetUp(HidppMessageType messageType, nint dev, ushort usagePage, bool isWiredModeDevice = false)
     {
+        // Read threads already running on the chosen transport: ignore any late/duplicate collection
+        // and close the redundant handle so it is not leaked.
+        if (_readingStarted)
+        {
+            DiagnosticLogger.Log($"[SetUp] Ignoring {messageType} collection (page 0x{usagePage:X04}) - transport already initialized");
+            HidApi.HidApi.HidClose(dev);
+            return;
+        }
+
+        int priority = GetTransportPriority(usagePage);
+
         switch (messageType)
         {
             case HidppMessageType.SHORT:
-                DevShort = dev;
+                if (TryAdoptHandle(DevShort, _shortPriority, dev, priority, messageType, usagePage,
+                                   out HidDevicePtr chosenShort, out int shortPriority))
+                {
+                    DevShort = chosenShort;
+                    _shortPriority = shortPriority;
+                }
                 break;
             case HidppMessageType.LONG:
-                DevLong = dev;
+                if (TryAdoptHandle(DevLong, _longPriority, dev, priority, messageType, usagePage,
+                                   out HidDevicePtr chosenLong, out int longPriority))
+                {
+                    DevLong = chosenLong;
+                    _longPriority = longPriority;
+                }
                 break;
+            default:
+                HidApi.HidApi.HidClose(dev);
+                return;
         }
 
         if ((DevShort == IntPtr.Zero) || (DevLong == IntPtr.Zero)) return;
 
         // Start reading threads
+        _readingStarted = true;
         _messageChannel.StartReading(DevShort, DevLong);
 
         // Wait for read threads to be ready before sending commands
@@ -93,6 +137,44 @@ public class HidppReceiver : IDisposable
             // Initialize single device at index 0xFF
             await InitializeDirectDeviceAsync(isWiredModeDevice);
         }
+    }
+
+    /// <summary>
+    /// Decides whether an incoming HID++ channel handle should replace the currently assigned
+    /// one, based on transport priority (FF43 vendor page beats the legacy FF00 page). Closes
+    /// whichever handle is discarded so it is never leaked.
+    /// </summary>
+    /// <returns>True if <paramref name="incoming"/> should be adopted; false to keep the current handle.</returns>
+    private static bool TryAdoptHandle(
+        HidDevicePtr current, int currentPriority,
+        HidDevicePtr incoming, int incomingPriority,
+        HidppMessageType messageType, ushort usagePage,
+        out HidDevicePtr chosen, out int chosenPriority)
+    {
+        // Empty slot - take the incoming handle.
+        if (current == IntPtr.Zero)
+        {
+            chosen = incoming;
+            chosenPriority = incomingPriority;
+            return true;
+        }
+
+        // Higher-priority transport (FF43 over FF00) - replace and close the old handle.
+        if (incomingPriority > currentPriority)
+        {
+            DiagnosticLogger.Log($"[SetUp] Replacing {messageType} handle with higher-priority transport (page 0x{usagePage:X04})");
+            HidApi.HidApi.HidClose(current);
+            chosen = incoming;
+            chosenPriority = incomingPriority;
+            return true;
+        }
+
+        // Same or lower priority - keep what we have and drop the duplicate.
+        DiagnosticLogger.Log($"[SetUp] Keeping existing {messageType} handle; dropping duplicate collection (page 0x{usagePage:X04})");
+        HidApi.HidApi.HidClose(incoming);
+        chosen = current;
+        chosenPriority = currentPriority;
+        return false;
     }
 
     /// <summary>

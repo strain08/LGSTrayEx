@@ -116,7 +116,7 @@ public sealed class HidppManagerContext
                     DiagnosticLogger.Log($"Existing container found - Path: {devPath}, Container: {containerId}");
                 }
 
-                await hidppReceiver.SetUp(messageType, hidppDev, isWiredModeDevice);
+                await hidppReceiver.SetUp(messageType, hidppDev, deviceInfo.UsagePage, isWiredModeDevice);
                 return;
 
             case HidppMessageType.CENTURION:
@@ -134,9 +134,10 @@ public sealed class HidppManagerContext
                 return;
 
             default:
-                DiagnosticLogger.Log($"Skipping device with unsupported message type: {messageType}");
+                DiagnosticLogger.Log($"Skipping device with unsupported message type: {messageType} " +
+                    $"(UsagePage: 0x{deviceInfo.UsagePage:X04}, Usage: 0x{deviceInfo.Usage:X04}, Path: {devPath})");
                 return;
-        }       
+        }
     }
 
     private unsafe int DeviceArrived(HidHotPlugCallbackHandle _, HidDeviceInfo* device, HidApiHotPlugEvent hidApiHotPlugEvent, nint __)
