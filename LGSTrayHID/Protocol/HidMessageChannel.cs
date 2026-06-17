@@ -138,17 +138,28 @@ public class HidMessageChannel : IDisposable
 
 
     /// <summary>
-    /// Logs raw HID messages for debugging
-    /// Skips common ping responses (0x10 0x?? 0x00) to reduce noise.
+    /// Logs raw inbound (device-&gt;host) HID messages for debugging filtered by swid.
+    /// Skips common ping responses (0x10 0x?? 0x00) to reduce noise.    
     /// </summary>
     private static void LogRawMessage(byte[] buffer, int bytesRead, int bufferSize)
     {
         // Skip common ping responses AND check if verbose enabled before allocating
         if ((buffer[0] != 0x10 || buffer[2] != 0x00) && DiagnosticLogger.IsVerboseEnabled)
         {
-            // Only allocate string if we're actually going to log it
-            string hex = string.Join(" ", buffer.Take(Math.Min(7, bytesRead)).Select(b => $"{b:X02}"));
-            DiagnosticLogger.Verbose($"DEBUG RAW [{bufferSize}b]: {hex}");
+            // Log the full frame.
+            string hex = string.Join(" ", buffer.Take(bytesRead).Select(b => $"{b:X02}"));
+
+            // HID++ 1.0/2.0 frames carry the software ID in the low nibble of byte 3
+            // (byte 3 = funcId << 4 | swId). swId 0 = device-initiated event.
+            string swIdTag = "";
+            if (bytesRead > 3)
+            {
+                int swId = buffer[3] & 0x0F;
+                string owner = swId == 0 ? "evt" : swId == GlobalSettings.SoftwareId ? "ours" : "ext";
+                swIdTag = $" swId={swId}({owner})";
+            }
+
+            DiagnosticLogger.Verbose($"DEBUG RAW RX [{bufferSize}b]:{swIdTag} {hex}");
         }
     }
 
