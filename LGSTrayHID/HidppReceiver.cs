@@ -9,6 +9,14 @@ using System.Threading.Channels;
 
 namespace LGSTrayHID;
 
+/// <summary>Transport topology behind a HID++ channel.</summary>
+public enum DeviceTopology
+{
+    Receiver, // HID++ 1.0 receiver (Bolt/Unifying/Nano)
+    Direct,   // device addressable directly at 0xFF
+    Bridge,   // HID++ 2.0-only dongle; device sits at a paired index (e.g. G733)
+}
+
 public class HidppReceiver : IDisposable
 {
     public HidDevicePtr DevShort { get; private set; } = IntPtr.Zero;
@@ -113,29 +121,27 @@ public class HidppReceiver : IDisposable
         await _messageChannel.WaitUntilReadyAsync();
         DiagnosticLogger.Log("HID read threads ready");
 
-        // Detect device type (receiver vs direct device)
-        bool isReceiver = await TryDetectReceiverAsync();
-
-        if (isReceiver)
+        switch (await DetectTopologyAsync())
         {
-            DiagnosticLogger.Log("Initializing as RECEIVER device");
+            case DeviceTopology.Receiver:
+                DiagnosticLogger.Log("Initializing as RECEIVER device");
+                // DJ protocol (0x20/0x21) does not work with BOLT; BOLT uses feature 0x1D4B for
+                // connection events, auto-enabled by the battery enable command (1.0 register 0x00).
+                await EnableReceiverNotificationsAsync();
+                await _enumerator.EnumerateDevicesAsync();
+                break;
 
-            // Note: DJ protocol (0x20/0x21) does not work with BOLT receivers.
-            // BOLT uses HID++ 2.0 Feature 0x1D4B (Wireless Device Status) for connection events.
-            // Events are automatically enabled by the battery enable command (HID++ 1.0 register 0x00).
+            case DeviceTopology.Bridge:
+                // 2.0-only dongle (G733): sweep 1-6 for an awake device; standby wakes are picked up
+                // event-driven by the router. No doomed direct@0xFF init.
+                DiagnosticLogger.Log("Initializing as BRIDGE (HID++ 2.0 dongle) - sweep now, then listen");
+                await _enumerator.SweepDevicesAsync();
+                break;
 
-            // Enable receiver notifications for device on/off events
-            await EnableReceiverNotificationsAsync();
-
-            // Enumerate devices (query + announce, fallback ping)
-            await _enumerator.EnumerateDevicesAsync();
-        }
-        else
-        {
-            DiagnosticLogger.Log($"Initializing as DIRECT device{(isWiredModeDevice ? " (WIRED MODE - fast-track)" : "")}");
-
-            // Initialize single device at index 0xFF
-            await InitializeDirectDeviceAsync(isWiredModeDevice);
+            default: // Direct
+                DiagnosticLogger.Log($"Initializing as DIRECT device{(isWiredModeDevice ? " (WIRED MODE - fast-track)" : "")}");
+                await InitializeDirectDeviceAsync(isWiredModeDevice);
+                break;
         }
     }
 
@@ -182,18 +188,18 @@ public class HidppReceiver : IDisposable
     /// Sends QueryDeviceCount command - receivers respond, direct devices timeout.
     /// </summary>
     /// <returns>True if receiver detected, false if direct device</returns>
-    private async Task<bool> TryDetectReceiverAsync()
+    private async Task<DeviceTopology> DetectTopologyAsync()
     {
         try
         {
-            DiagnosticLogger.Log("Detecting device type (receiver vs direct device)...");
+            DiagnosticLogger.Log("Detecting device topology (receiver / direct / bridge)...");
 
-            // Strategy 1: HID++ 1.0 receiver query. Bolt/Unifying/Nano receivers answer this;
-            // direct devices and HID++ 2.0-only dongles do not.
+            // Strategy 1: HID++ 1.0 receiver query. Bolt/Unifying/Nano answer; direct devices and
+            // 2.0-only dongles do not.
             byte[] response = await WriteRead10(
                 DevShort,
                 Hidpp10Commands.QueryDeviceCount(),
-                timeout: 500  // Short timeout for fast detection
+                timeout: 500
             );
 
             if (response.Length >= 6 &&
@@ -202,39 +208,25 @@ public class HidppReceiver : IDisposable
             {
                 byte deviceCount = response[5];
                 DiagnosticLogger.Log($"Receiver detected (HID++ 1.0) - reports {deviceCount} connected devices");
-                return true; // RECEIVER MODE
+                return DeviceTopology.Receiver;
             }
 
-            // No HID++ 1.0 receiver reply. This is either a genuine direct device or a HID++ 2.0-only
-            // Lightspeed dongle/bridge (e.g. G733) that fronts the real device at a non-0xFF index.
-            // Disambiguate with HID++ 2.0 pings (ignoreHIDPP10:false => fail fast on an error reply).
-
-            // Strategy 2: a direct device echoes a 2.0 ping at 0xFF; a bridge errors/stays silent.
+            // Strategy 2: a direct device echoes a 2.0 ping at 0xFF (ignoreHIDPP10:false => fail fast
+            // on an error reply). A 2.0-only bridge does not answer at 0xFF.
             if (await Ping20(0xFF, timeout: 500, ignoreHIDPP10: false))
             {
                 DiagnosticLogger.Log("Direct device detected (HID++ 2.0 ping at 0xFF)");
-                return false; // DIRECT DEVICE MODE
+                return DeviceTopology.Direct;
             }
 
-            // Strategy 3: 0xFF silent/errored - sweep slots 1-6. Any 2.0 ping reply means the device
-            // is a receiver/bridge (the G733 headset answers at index 2). Stop at the first hit; the
-            // receiver path's enumeration does the full 1-6 walk afterwards.
-            for (byte i = 1; i <= 6; i++)
-            {
-                if (await Ping20(i, timeout: 500, ignoreHIDPP10: false))
-                {
-                    DiagnosticLogger.Log($"Receiver/bridge detected (HID++ 2.0 ping at index {i})");
-                    return true; // RECEIVER MODE
-                }
-            }
-
-            DiagnosticLogger.Log("No HID++ 1.0 receiver reply and no HID++ 2.0 ping response - treating as direct device");
-            return false; // DIRECT DEVICE MODE
+            // Neither: 2.0-only bridge (G733). Real device sits at a paired index, possibly in standby.
+            DiagnosticLogger.Log("No HID++ 1.0 receiver and no 0xFF direct reply - treating as HID++ 2.0 bridge");
+            return DeviceTopology.Bridge;
         }
         catch (Exception ex)
         {
-            DiagnosticLogger.Log($"Receiver detection failed: {ex.Message} - treating as direct device");
-            return false; // DIRECT DEVICE MODE (safe default)
+            DiagnosticLogger.Log($"Topology detection failed: {ex.Message} - treating as direct device");
+            return DeviceTopology.Direct; // safe default
         }
     }
 

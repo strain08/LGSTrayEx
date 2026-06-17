@@ -53,6 +53,16 @@ public class DeviceAnnouncementHandler
     }
 
     /// <summary>
+    /// Bridge pickup: a 2.0-only dongle device (G733) announced itself with unsolicited index traffic.
+    /// Reuses the Device-ON init path; its cooldown guard stops the recurring event stream re-triggering.
+    /// </summary>
+    public Task HandleUnsolicitedTrafficAsync(byte deviceIdx, byte[] buffer)
+    {
+        DiagnosticLogger.Log($"[Bridge] Unsolicited traffic from index {deviceIdx}, no device yet - initializing");
+        return HandleDeviceOnAsync(deviceIdx, buffer);
+    }
+
+    /// <summary>
     /// Handles device ON announcement.
     /// Creates device instance and spawns initialization thread with sequential enforcement.
     /// </summary>

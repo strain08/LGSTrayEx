@@ -120,6 +120,12 @@ public class DeviceEnumerator
     }
 
     /// <summary>
+    /// Bridge path: ping slots 1-6 once to catch an awake device (G733-class 2.0 dongles).
+    /// Skips the HID++ 1.0 query; standby wakes are handled event-driven by the router.
+    /// </summary>
+    public Task SweepDevicesAsync() => FallbackPingEnumerationAsync();
+
+    /// <summary>
     /// Strategy 2: Fallback ping-based enumeration.
     /// Pings device indices 1-6 with extended timeout (20 seconds) to wake sleeping devices.
     /// Only initializes devices that were discovered by fallback (not Device ON events).

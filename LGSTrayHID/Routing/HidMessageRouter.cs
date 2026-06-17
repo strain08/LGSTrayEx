@@ -49,8 +49,30 @@ public class HidMessageRouter
             return; // Event handled
         }
 
+        // Route 2b: unknown paired-slot device announcing itself (2.0-only bridge, e.g. G733 waking)
+        if (await TryPickupBridgeDeviceAsync(message, buffer))
+        {
+            return;
+        }
+
         // Route 3: Query responses (send to correlation channel)
         await _responseChannelWriter.WriteAsync(buffer);
+    }
+
+    /// <summary>
+    /// Enumerates a device behind a 2.0-only bridge that announces itself via unsolicited traffic.
+    /// Scoped to events (software id 0) from slots 1-6 with no device yet, so it never fires on
+    /// command responses (our software id) or direct devices (index 0xFF).
+    /// </summary>
+    private async Task<bool> TryPickupBridgeDeviceAsync(Hidpp20 message, byte[] buffer)
+    {
+        if (message.GetSoftwareId() != 0) return false;
+        byte idx = message.GetDeviceIdx();
+        if (idx is < 1 or > 6) return false;
+        if (_lifecycleManager.TryGetDevice(idx, out _)) return false;
+
+        await _announcementHandler.HandleUnsolicitedTrafficAsync(idx, buffer);
+        return true;
     }
 
     /// <summary>
