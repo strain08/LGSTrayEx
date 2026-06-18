@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using LGSTrayCore;
 using LGSTrayCore.Interfaces;
 using LGSTrayPrimitives;
 using LGSTrayPrimitives.Messages;
@@ -7,6 +8,7 @@ using LGSTrayUI.IconDrawing;
 using LGSTrayUI.Interfaces;
 using LGSTrayUI.Messages;
 using LGSTrayUI.Services;
+using MessagePipe;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Win32;
 using System;
@@ -115,14 +117,18 @@ public partial class NotifyIconViewModel : ObservableObject, IHostedService
     private bool _rediscoverDevicesEnabled = true;
 
     private readonly IEnumerable<IDeviceManager> _deviceManagers;
+    private readonly ISubscriber<DeviceBatteryUpdatedMessage> _batterySubscriber;
+    private IDisposable? _subscriptions;
 
     public NotifyIconViewModel(MainTaskbarIconWrapper mainTaskbarIconWrapper,
                                ILogiDeviceCollection logiDeviceCollection,
                                UserSettingsWrapper userSettings,
                                IEnumerable<IDeviceManager> deviceManagers,
-                               ILogiDeviceIconFactory logiDeviceIconFactory)
+                               ILogiDeviceIconFactory logiDeviceIconFactory,
+                               ISubscriber<DeviceBatteryUpdatedMessage> batterySubscriber)
     {
         _mainTaskbarIconWrapper = mainTaskbarIconWrapper;
+        _batterySubscriber = batterySubscriber;
 
         // Set this ViewModel as the DataContext for all ContextMenus
         // Each icon now gets its own ContextMenu instance to prevent stuck menu states
@@ -227,12 +233,38 @@ public partial class NotifyIconViewModel : ObservableObject, IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
+        // Show a device that registers while the context menu is already open
+        _subscriptions = _batterySubscriber.Subscribe(OnDeviceBatteryUpdated);
         return Task.CompletedTask;
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
+        _subscriptions?.Dispose();
         _mainTaskbarIconWrapper.Dispose();
         return Task.CompletedTask;
+    }
+
+    private void OnDeviceBatteryUpdated(DeviceBatteryUpdatedMessage message)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(() => RefreshIfNewlyVisible(message.Device));
+        }
+        else
+        {
+            RefreshIfNewlyVisible(message.Device);
+        }
+    }
+
+    private void RefreshIfNewlyVisible(LogiDevice device)
+    {
+        // Refresh only on the hidden->visible transition; skip steady-state updates to avoid
+        // Reset churn that would flicker an open menu.
+        if (FilterDevice(device) && !FilteredDevices.Contains(device))
+        {
+            FilteredDevices.Refresh();
+        }
     }
 }
