@@ -76,6 +76,23 @@ public class BatteryAdcMeasurement : IBatteryFeature
         return ParseAdcMeasurement(eventMessage.GetParam16(0), eventMessage.GetParam(2));
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// 0x1F20 is also used to announce the headset becoming inactive: when the valid bit (bit0)
+    /// is cleared, Solaar marks the device offline (notifications.py: present = False / active = False).
+    /// Only events for our feature qualify.
+    /// </remarks>
+    public bool IsOfflineEvent(Hidpp20 eventMessage)
+    {
+        if (eventMessage.GetFunctionId() != BatteryEventFunction.BATTERY_STATUS_BROADCAST)
+        {
+            return false;
+        }
+
+        byte flags = eventMessage.GetParam(2);
+        return (flags & FLAG_MEASUREMENT_VALID) == 0;
+    }
+
     /// <summary>
     /// Parse a 0x1F20 measurement into a battery update, applying the deep-sleep guards.
     /// Returns null when the measurement is invalid (asleep headset / buffered-zeros frame).

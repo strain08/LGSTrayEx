@@ -40,4 +40,20 @@ public interface IBatteryFeature
     /// Event payload format is feature-specific but typically matches query response format.
     /// </remarks>
     BatteryUpdateReturn? ParseBatteryEvent(Hidpp20 eventMessage);
+
+    /// <summary>
+    /// Determine whether a battery event broadcast signals that the device has gone
+    /// offline / inactive (e.g. a headset powering off or entering deep sleep) rather
+    /// than simply carrying an unparseable/garbage measurement.
+    /// </summary>
+    /// <param name="eventMessage">The HID++ 2.0 event message that failed to parse into a battery update.</param>
+    /// <returns>True if the event indicates the device became inactive and should be marked offline.</returns>
+    /// <remarks>
+    /// Defaults to false: most receiver-attached features (0x1000/0x1001/0x1004) signal
+    /// disconnection through the receiver's device OFF announcement (0x41), not the battery
+    /// feature itself. Direct-connect features such as 0x1F20 (ADC measurement) override this
+    /// because the same feature both reports voltage and, with the valid bit cleared, announces
+    /// the device went inactive (matching Solaar's notifications.py ADC_MEASUREMENT handling).
+    /// </remarks>
+    bool IsOfflineEvent(Hidpp20 eventMessage) => false;
 }

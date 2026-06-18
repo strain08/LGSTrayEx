@@ -35,10 +35,11 @@ public static class LiPoVoltageCurve
     /// <returns>Estimated percentage (0-100)</returns>
     public static double EstimatePercentageFromVoltage(int millivolts)
     {
-        // Find the first voltage in the table that is lower than the measured voltage
+        // Find the first table threshold the measured voltage reaches (>=), so a voltage sitting
+        // exactly on a threshold maps to that threshold's percentage. 
         for (int i = 0; i < VoltageLookupTable.Length; i++)
         {
-            if (millivolts > VoltageLookupTable[i])
+            if (millivolts >= VoltageLookupTable[i])
             {
                 // Return remaining percentage based on position in table
                 return VoltageLookupTable.Length - i;

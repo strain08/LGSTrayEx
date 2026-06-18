@@ -435,6 +435,15 @@ public class HidppDevice : IDisposable
         var batteryUpdate = _batteryFeature.ParseBatteryEvent(message);
         if (batteryUpdate == null)
         {
+            // Some features (e.g. 0x1F20 ADC) reuse the battery broadcast to announce the device
+            // became inactive (headset powered off / deep sleep). Solaar marks such devices offline;
+            // mirror that here instead of leaving the tray icon stuck on the last known level.
+            if (_batteryFeature.IsOfflineEvent(message))
+            {
+                HandleOfflineEvent();
+                return true; // Offline event handled
+            }
+
             DiagnosticLogger.LogWarning($"[{DeviceName}] Failed to parse battery event");
             return false;
         }
@@ -477,6 +486,32 @@ public class HidppDevice : IDisposable
         _batteryPublisher.PublishUpdate(Identifier, DeviceName, batStatus, now, "event");
 
         return true; // Event handled successfully
+    }
+
+    /// <summary>
+    /// Mark this device offline in response to a battery feature event that signals inactivity
+    /// (e.g. 0x1F20 with the valid bit cleared). Mirrors the receiver OFF (0x41) path: flip
+    /// IsOnline, stop polling, and notify the UI via an offline UpdateMessage (battery = -1).
+    /// </summary>
+    private void HandleOfflineEvent()
+    {
+        DiagnosticLogger.Log($"[{DeviceName}] Battery feature reported device inactive - marking offline");
+
+        IsOnline = false;
+        CancelPooling();
+
+        HidppManagerContext.Instance.SignalDeviceEvent(
+            IPCMessageType.UPDATE,
+            new UpdateMessage(
+                deviceId: Identifier,
+                batteryPercentage: -1,            // Convention: -1 = offline/unknown
+                powerSupplyStatus: PowerSupplyStatus.UNKNOWN,
+                batteryMVolt: 0,
+                updateTime: DateTimeOffset.Now,
+                mileage: -1,
+                isWiredMode: false
+            )
+        );
     }
 
     #region DISPOSE
