@@ -94,13 +94,13 @@ public class HidppDevice : IDisposable
             DiagnosticLogger.Log($"HID device index {DeviceIdx} passed ping test");
 
             // Find IFeatureSet (0x0001) - get its feature index
-            ret = await Parent.WriteRead20(Parent.DevShort,
-                                           Hidpp20Commands.GetFeatureIndex(DeviceIdx, HidppFeature.FEATURE_SET),                                           
+            ret = await Parent.WriteRead20(Parent.RequestChannel,
+                                           Hidpp20Commands.GetFeatureIndex(DeviceIdx, HidppFeature.FEATURE_SET),
                                            backoffStrategy: GlobalSettings.FeatureEnumBackoff);
             FeatureMap[HidppFeature.FEATURE_SET] = ret.GetParam(0);
 
             // Get Feature Count
-            ret = await Parent.WriteRead20(Parent.DevShort,
+            ret = await Parent.WriteRead20(Parent.RequestChannel,
                                            Hidpp20Commands.GetFeatureCount(DeviceIdx, FeatureMap[HidppFeature.FEATURE_SET]),
                                            backoffStrategy: GlobalSettings.FeatureEnumBackoff,
                                            cancellationToken: _cancellationSource.Token);
@@ -122,7 +122,7 @@ public class HidppDevice : IDisposable
             for (byte i = 0; i <= featureCount; i++)
             {
                 // Query feature with retry (backoff strategy handles retries)
-                ret = await Parent.WriteRead20(Parent.DevShort,
+                ret = await Parent.WriteRead20(Parent.RequestChannel,
                                                Hidpp20Commands.EnumerateFeature(DeviceIdx, FeatureMap[HidppFeature.FEATURE_SET], i),
                                                backoffStrategy: enumBackoff,
                                                cancellationToken: _cancellationSource.Token);

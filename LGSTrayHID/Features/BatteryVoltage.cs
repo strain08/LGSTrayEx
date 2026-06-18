@@ -31,7 +31,7 @@ public class BatteryVoltage : IBatteryFeature
 
         // Send command with retry logic (backoff strategy handles retries)
         Hidpp20 response = await device.Parent.WriteRead20(
-            device.Parent.DevShort,
+            device.Parent.RequestChannel,
             command,
             backoffStrategy: GlobalSettings.BatteryBackoff);
 

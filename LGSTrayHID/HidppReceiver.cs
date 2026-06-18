@@ -23,6 +23,16 @@ public class HidppReceiver : IDisposable
     public HidDevicePtr DevLong { get; private set; } = IntPtr.Zero;
     public IReadOnlyDictionary<ushort, HidppDevice> DeviceCollection => _lifecycleManager.Devices;
 
+    // HID++ 2.0 request channel: DevShort by default, DevLong for long-only direct headsets
+    // (e.g. G733 wired) detected in DetectTopologyAsync. HID++ 1.0 receiver traffic uses DevShort.
+    private bool _useLongRequestChannel;
+    public HidDevicePtr RequestChannel =>
+        (_useLongRequestChannel || DevShort == IntPtr.Zero) && DevLong != IntPtr.Zero ? DevLong : DevShort;
+
+    // DevLong only accepts report 0x11 / 20-byte frames; 7-byte 0x10 commands must be re-framed.
+    private const byte LongReportId = 0x11;
+    private const int LongFrameLength = 20;
+
     // Transport precedence: prefer the modern HID++ 2.0 vendor page (0xFF43, e.g. G733)
     // over the legacy 0xFF00 channel. When a device exposes the same report size on both
     // pages we keep the FF43 handle and close the FF00 one, so we communicate over a single
@@ -213,13 +223,23 @@ public class HidppReceiver : IDisposable
 
             // Strategy 2: a direct device echoes a 2.0 ping at 0xFF (ignoreHIDPP10:false => fail fast
             // on an error reply). A 2.0-only bridge does not answer at 0xFF.
-            if (await Ping20(0xFF, timeout: 500, ignoreHIDPP10: false))
+            if (await Ping20(0xFF, timeout: 500, ignoreHIDPP10: false, channel: DevShort))
             {
-                DiagnosticLogger.Log("Direct device detected (HID++ 2.0 ping at 0xFF)");
+                DiagnosticLogger.Log("Direct device detected (HID++ 2.0 ping at 0xFF, short channel)");
                 return DeviceTopology.Direct;
             }
 
-            // Neither: 2.0-only bridge (G733). Real device sits at a paired index, possibly in standby.
+            // Strategy 2b: direct headsets (G733 wired) answer HID++ only on the long channel
+            // (report 0x11 / page 0xFF43). Retry the 0xFF ping there before assuming a bridge.
+            if (DevLong != IntPtr.Zero && DevLong != DevShort &&
+                await Ping20(0xFF, timeout: 500, ignoreHIDPP10: false, channel: DevLong))
+            {
+                _useLongRequestChannel = true;
+                DiagnosticLogger.Log("Direct device detected (HID++ 2.0 ping at 0xFF, long channel) - routing requests via DevLong");
+                return DeviceTopology.Direct;
+            }
+
+            // Neither: 2.0-only bridge (G733 dongle). Real device sits at a paired index, possibly in standby.
             DiagnosticLogger.Log("No HID++ 1.0 receiver and no 0xFF direct reply - treating as HID++ 2.0 bridge");
             return DeviceTopology.Bridge;
         }
@@ -245,6 +265,23 @@ public class HidppReceiver : IDisposable
     /// <param name="cancellationToken">Cancellation token for retry operations.</param>
     /// <returns>A task that represents the asynchronous operation. The task result contains the response bytes received from the
     /// device. The returned array may be empty if no response is received within the specified timeout.</returns>
+    /// <summary>Re-frames a 7-byte report-0x10 command into a 20-byte report-0x11 frame when the
+    /// target is the long channel; returns it unchanged otherwise. Field offsets are preserved.</summary>
+    private Hidpp20 FrameForChannel(Hidpp20 command, HidDevicePtr target)
+    {
+        if (target != DevLong || DevLong == IntPtr.Zero)
+            return command;
+
+        byte[] src = (byte[])command;
+        if (src.Length >= LongFrameLength && src[0] == LongReportId)
+            return command;
+
+        byte[] longFrame = new byte[LongFrameLength];
+        Array.Copy(src, longFrame, Math.Min(src.Length, LongFrameLength));
+        longFrame[0] = LongReportId;
+        return new Hidpp20(longFrame);
+    }
+
     public async Task<byte[]> WriteRead10(
         HidDevicePtr hidDevicePtr,
         byte[] buffer,
@@ -324,6 +361,9 @@ public class HidppReceiver : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposeCount > 0, this);
 
+        // Re-frame for the long channel if needed (no-op for short/receiver writes).
+        buffer = FrameForChannel(buffer, hidDevicePtr);
+
         // If no backoff strategy provided, execute single attempt with specified timeout
         if (backoffStrategy == null)
         {
@@ -370,16 +410,18 @@ public class HidppReceiver : IDisposable
         return result ?? new Hidpp20();
     }
 
-    public async Task<bool> Ping20(byte deviceId, int timeout = 100, bool ignoreHIDPP10 = true)
+    public async Task<bool> Ping20(byte deviceId, int timeout = 100, bool ignoreHIDPP10 = true, HidDevicePtr? channel = null)
     {
         ObjectDisposedException.ThrowIf(_disposeCount > 0, this);
 
+        HidDevicePtr target = channel ?? RequestChannel;
+
         // Thread-safe increment with wrap-around to byte range
         byte pingPayload = (byte)Interlocked.Increment(ref _pingPayloadCounter);
-        Hidpp20 command = Hidpp20Commands.Ping(deviceId, pingPayload);
+        Hidpp20 command = FrameForChannel(Hidpp20Commands.Ping(deviceId, pingPayload), target);
 
         Hidpp20 ret = await _correlator.SendHidpp20AndWaitAsync(
-            DevShort,
+            target,
             command,
             matcher: response => (response.GetFeatureIndex() == 0x00) &&
                                  (response.GetDeviceIdx() == deviceId) &&
