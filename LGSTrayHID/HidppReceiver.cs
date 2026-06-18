@@ -33,18 +33,11 @@ public class HidppReceiver : IDisposable
     private const byte LongReportId = 0x11;
     private const int LongFrameLength = 20;
 
-    // Transport precedence: prefer the modern HID++ 2.0 vendor page (0xFF43, e.g. G733)
-    // over the legacy 0xFF00 channel. When a device exposes the same report size on both
-    // pages we keep the FF43 handle and close the FF00 one, so we communicate over a single
-    // consistent transport instead of silently overwriting an already-assigned handle.
-    private const int TransportPriorityLegacy = 1;   // 0xFF00
-    private const int TransportPriorityVendor = 2;   // 0xFF43
-    private int _shortPriority;
-    private int _longPriority;
+    // A device may expose its short and long HID++ channels on different vendor pages
+    // (e.g. G733: LONG on 0xFF43/0x0202, SHORT on 0xFF00/0x0001). Each report size fills its
+    // own slot exactly once; if the same report size arrives twice we keep the first handle and
+    // close the duplicate so it is not leaked or silently overwritten.
     private bool _readingStarted;
-
-    private static int GetTransportPriority(ushort usagePage) =>
-        usagePage == 0xFF43 ? TransportPriorityVendor : TransportPriorityLegacy;
 
     private int _pingPayloadCounter = 0x55;
 
@@ -81,9 +74,8 @@ public class HidppReceiver : IDisposable
 
     /// <summary>
     /// Assigns a HID++ channel handle for this device and, once both the short and long channels
-    /// are present, starts reading and initializes the device. When the same report size is exposed
-    /// on multiple pages, the FF43 vendor handle takes precedence over the legacy FF00 one (the
-    /// loser is closed); the resulting transport is otherwise the single handle per report size.
+    /// are present, starts reading and initializes the device. Each report size fills its slot once;
+    /// a duplicate collection for an already-filled slot is dropped and its handle closed.
     /// </summary>
     public async Task SetUp(HidppMessageType messageType, nint dev, ushort usagePage, bool isWiredModeDevice = false)
     {
@@ -96,25 +88,13 @@ public class HidppReceiver : IDisposable
             return;
         }
 
-        int priority = GetTransportPriority(usagePage);
-
         switch (messageType)
         {
             case HidppMessageType.SHORT:
-                if (TryAdoptHandle(DevShort, _shortPriority, dev, priority, messageType, usagePage,
-                                   out HidDevicePtr chosenShort, out int shortPriority))
-                {
-                    DevShort = chosenShort;
-                    _shortPriority = shortPriority;
-                }
+                DevShort = AdoptHandle(DevShort, dev, messageType, usagePage);
                 break;
             case HidppMessageType.LONG:
-                if (TryAdoptHandle(DevLong, _longPriority, dev, priority, messageType, usagePage,
-                                   out HidDevicePtr chosenLong, out int longPriority))
-                {
-                    DevLong = chosenLong;
-                    _longPriority = longPriority;
-                }
+                DevLong = AdoptHandle(DevLong, dev, messageType, usagePage);
                 break;
             default:
                 HidApi.HidApi.HidClose(dev);
@@ -156,41 +136,21 @@ public class HidppReceiver : IDisposable
     }
 
     /// <summary>
-    /// Decides whether an incoming HID++ channel handle should replace the currently assigned
-    /// one, based on transport priority (FF43 vendor page beats the legacy FF00 page). Closes
-    /// whichever handle is discarded so it is never leaked.
+    /// Returns the handle to keep for a report-size slot. The first handle for a slot wins;
+    /// a later duplicate is closed and discarded so it is never leaked.
     /// </summary>
-    /// <returns>True if <paramref name="incoming"/> should be adopted; false to keep the current handle.</returns>
-    private static bool TryAdoptHandle(
-        HidDevicePtr current, int currentPriority,
-        HidDevicePtr incoming, int incomingPriority,
-        HidppMessageType messageType, ushort usagePage,
-        out HidDevicePtr chosen, out int chosenPriority)
+    private static HidDevicePtr AdoptHandle(HidDevicePtr current,
+                                            HidDevicePtr incoming,
+                                            HidppMessageType messageType,
+                                            ushort usagePage)
     {
         // Empty slot - take the incoming handle.
-        if (current == IntPtr.Zero)
-        {
-            chosen = incoming;
-            chosenPriority = incomingPriority;
-            return true;
-        }
+        if (current == IntPtr.Zero) return incoming;
 
-        // Higher-priority transport (FF43 over FF00) - replace and close the old handle.
-        if (incomingPriority > currentPriority)
-        {
-            DiagnosticLogger.Log($"[SetUp] Replacing {messageType} handle with higher-priority transport (page 0x{usagePage:X04})");
-            HidApi.HidApi.HidClose(current);
-            chosen = incoming;
-            chosenPriority = incomingPriority;
-            return true;
-        }
-
-        // Same or lower priority - keep what we have and drop the duplicate.
+        // Slot already filled - keep what we have and drop the duplicate.
         DiagnosticLogger.Log($"[SetUp] Keeping existing {messageType} handle; dropping duplicate collection (page 0x{usagePage:X04})");
         HidApi.HidApi.HidClose(incoming);
-        chosen = current;
-        chosenPriority = currentPriority;
-        return false;
+        return current;
     }
 
     /// <summary>
