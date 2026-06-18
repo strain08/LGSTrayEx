@@ -77,7 +77,9 @@ public sealed class HidppManagerContext
     // Logitech webcams (PID range from docs/usb.ids.txt) can lock up during HID++ probing,
     // so skip the descriptor probe for them. Matches Solaar's webcam exclusion. VID is already
     // guaranteed 0x046D by the hotplug filter.
-    private static bool IsExcludedFromProbe(ushort productId) => productId is >= 0x0800 and <= 0x09FF;
+    private static bool IsExcludedFromProbe(ushort productId) => 
+        (productId is >= 0x0800 and <= 0x09FF) || // Webcams
+        (productId is 0x0A5B or 0x0A51);          // G933/G633 which can be finicky
 
     private async Task InitDevice(HidDeviceInfo deviceInfo)
     {
@@ -281,15 +283,34 @@ public sealed class HidppManagerContext
         DiagnosticLogger.Log($"[{deviceName}] Triggered battery update on alternative source after mode-switch");
     }
 
+    private static bool IsReceiverPid(ushort productId)
+    {
+        ushort[] receiverPids =
+        [
+            0x0A66 , // G533
+            0x0A87 , // G935
+            0x0ABA , // PRO X Wireless
+            0x0AB5 , // G733
+            0x0AFE , // G733 New
+            0x0AC4 , // G535
+            0x0B18   // G522 Centurion dongle                            
+        ];
+
+        // Standard receivers (Unifying, Bolt, Nano)
+        if (productId is >= 0xC500 and <= 0xC5FF) return true;
+        // Gaming headset dongles (2.0-only bridges)
+        return receiverPids.Contains(productId);        
+    }
+
     /// <summary>
     /// Track USB device arrival for mode-switch detection.
     /// Called when a new USB device is detected.
     /// </summary>
     private void TrackUsbArrival(ushort productId, Guid containerId, string devicePath)
     {
-        // Only track direct wired device arrivals. Wireless receivers have PIDs
-        // in the 0xC500–0xC5FF range and are not mode-switch candidates.
-        if (productId is >= 0xC500 and <= 0xC5FF) return;
+        // Only track direct wired device arrivals. Wireless receivers (including 
+        // 2.0-only bridges like G733 dongles) are not mode-switch candidates.
+        if (IsReceiverPid(productId)) return;
 
         lock (_arrivalLock)
         {
