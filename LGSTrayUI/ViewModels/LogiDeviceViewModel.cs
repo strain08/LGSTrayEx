@@ -48,7 +48,17 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
                 OnPropertyChanged(nameof(BadgeLetter));
                 OnPropertyChanged(nameof(DetailedMenuTooltip));
                 break;
+            case nameof(HasBattery):
+                _cachedDetailedTooltip = null;
+                OnPropertyChanged(nameof(MenuDisplayName));
+                OnPropertyChanged(nameof(DetailedMenuTooltip));
+                UpdateIconVisibility();
+                break;
             case nameof(DeviceName):
+                _cachedDetailedTooltip = null;
+                OnPropertyChanged(nameof(MenuDisplayName));
+                OnPropertyChanged(nameof(DetailedMenuTooltip));
+                break;
             case nameof(DeviceId):
             case nameof(DeviceSignature):
             case nameof(BatteryVoltage):
@@ -78,6 +88,13 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
 
     public void UpdateIconVisibility()
     {
+        if (!HasBattery)
+        {
+            taskbarIcon?.Dispose();
+            taskbarIcon = null;
+            return;
+        }
+
         bool isOffline = !IsVisuallyOnline;  // Use visual state (with grace period)
         bool shouldShow = IsChecked && (!isOffline || _userSettings.KeepOfflineDevices);
 
@@ -144,6 +161,11 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
     }
 
     /// <summary>
+    /// Display name shown in the Devices menu — appends "(no battery)" when the device has no battery sensor
+    /// </summary>
+    public string MenuDisplayName => HasBattery ? DeviceName : $"{DeviceName} (batt unavail)";
+
+    /// <summary>
     /// Human-readable data source name for display
     /// </summary>
     public string DataSourceDisplayName => DataSource switch
@@ -191,6 +213,9 @@ public partial class LogiDeviceViewModel : LogiDevice, IDisposable
 
                 if (DataSource == DataSource.GHub && BatteryMileage > 0)
                     sb.AppendLine($"Mileage: {BatteryMileage:F1}h");
+
+                if (!HasBattery)
+                    sb.AppendLine("Battery: Not reported by this device");
 
                 _cachedDetailedTooltip = sb.ToString().TrimEnd();
             }

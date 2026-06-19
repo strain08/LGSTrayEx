@@ -37,6 +37,9 @@
                     <Setter Property="IsCheckable" Value="True"/>
                     <Setter Property="IsChecked" Value="{Binding IsChecked}"/>
                     <Setter Property="StaysOpenOnClick" Value="True"/>
+                    <Setter Property="IsEnabled" Value="{Binding HasBattery}"/>
+                    <Setter Property="ToolTip" Value="{Binding DetailedMenuTooltip}"/>
+                    <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
                     <Setter Property="Command">
                         <Setter.Value>
                             <Binding Path="DataContext.DeviceClickedCommand" RelativeSource="{RelativeSource AncestorType=ContextMenu}"/>
@@ -56,7 +59,7 @@
                         </Border>
 
                         <!-- Device Name with Tooltip -->
-                        <TextBlock Text="{Binding DeviceName}"
+                        <TextBlock Text="{Binding MenuDisplayName}"
 	                                  VerticalAlignment="Center"
 	                                  ToolTip="{Binding DetailedMenuTooltip}"/>
                     </StackPanel>

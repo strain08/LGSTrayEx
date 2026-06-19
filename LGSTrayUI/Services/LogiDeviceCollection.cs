@@ -105,11 +105,17 @@ public class LogiDeviceCollection : ILogiDeviceCollection
 
                 existingDevice.UpdateState(initMessage);
 
-                // Restore IsChecked from signature-based settings
-                if (!existingDevice.IsChecked && _userSettings.ContainsSignature(existingDevice.DeviceSignature))
+                // Restore IsChecked from signature-based settings (skip no-battery devices)
+                if (!existingDevice.IsChecked && existingDevice.HasBattery && _userSettings.ContainsSignature(existingDevice.DeviceSignature))
                 {
                     existingDevice.IsChecked = true;
                     DiagnosticLogger.Log($"Restored selection state for existing device - {existingDevice.DeviceSignature}");
+                }
+                else if (!existingDevice.HasBattery && _userSettings.ContainsSignature(existingDevice.DeviceSignature))
+                {
+                    // Stale selection from before this device was known to have no battery - purge it
+                    _userSettings.RemoveSignature(existingDevice.DeviceSignature);
+                    DiagnosticLogger.Log($"Purged stale selection for no-battery device - {existingDevice.DeviceSignature}");
                 }
 
                 return;
@@ -118,11 +124,17 @@ public class LogiDeviceCollection : ILogiDeviceCollection
             // NEW DEVICE - Create and add it
             var newDevice = _logiDeviceViewModelFactory.CreateViewModel((x) => x.UpdateState(initMessage));
 
-            // Restore selection based on signature
-            if (_userSettings.ContainsSignature(newDevice.DeviceSignature))
+            // Restore selection based on signature (skip no-battery devices)
+            if (newDevice.HasBattery && _userSettings.ContainsSignature(newDevice.DeviceSignature))
             {
                 newDevice.IsChecked = true;
                 DiagnosticLogger.Log($"Restored selection for new device - {newDevice.DeviceSignature}");
+            }
+            else if (!newDevice.HasBattery && _userSettings.ContainsSignature(newDevice.DeviceSignature))
+            {
+                // Stale selection from before this device was known to have no battery - purge it
+                _userSettings.RemoveSignature(newDevice.DeviceSignature);
+                DiagnosticLogger.Log($"Purged stale selection for no-battery device - {newDevice.DeviceSignature}");
             }
 
             Devices.Add(newDevice);
