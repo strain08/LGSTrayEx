@@ -42,8 +42,8 @@ Currently tested with:
 - ✅(Lightspeed) G305 Mouse
 - ✅(Lightspeed) G705 Mouse 
 - ✅(Lightspeed) G515 TKL
-- ✅(Lightspeed) G522 Headset Native (Centurion)
-- ✅(Lightspeed) G522 Headset Ghub
+- ✅(Lightspeed) G522 Headset Native (Centurion) / Ghub
+- ✅(Lightspeed) G733 Headset Native / Ghub
 
 ## OS Compatibility
 - currently Windows 11 only
