@@ -77,9 +77,7 @@ public sealed class HidppManagerContext
     // Logitech webcams (PID range from docs/usb.ids.txt) can lock up during HID++ probing,
     // so skip the descriptor probe for them. Matches Solaar's webcam exclusion. VID is already
     // guaranteed 0x046D by the hotplug filter.
-    private static bool IsExcludedFromProbe(ushort productId) => 
-        (productId is >= 0x0800 and <= 0x09FF) || // Webcams
-        (productId is 0x0A5B or 0x0A51);          // G933/G633 which can be finicky
+    private static bool IsExcludedFromProbe(ushort productId) => (productId is >= 0x0800 and <= 0x09FF); // Webcams       
 
     private async Task InitDevice(HidDeviceInfo deviceInfo)
     {
