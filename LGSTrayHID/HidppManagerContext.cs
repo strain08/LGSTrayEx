@@ -73,35 +73,15 @@ public sealed class HidppManagerContext
         }
     }
 
-
-    // Logitech webcams (PID range from docs/usb.ids.txt) can lock up during HID++ probing,
-    // so skip the descriptor probe for them. Matches Solaar's webcam exclusion. VID is already
-    // guaranteed 0x046D by the hotplug filter.
-    private static bool IsExcludedFromProbe(ushort productId) => (productId is >= 0x0800 and <= 0x09FF); // Webcams       
-
     private async Task InitDevice(HidDeviceInfo deviceInfo)
     {
-        var messageType = deviceInfo.GetHidppMessageType();
+        // All discrimination is handled by HidppCollection
+        HidppCollection collection = HidppCollection.Classify(deviceInfo);
         string devPath = deviceInfo.GetPath();
-        HidppReportId reportId = HidppReportId.None;
 
-        // Resolve devices the usage page doesn't classify by reading the Windows HID descriptor
-        // (no device I/O): G733-class headsets on a non-FF00/FF43 page, and Centurion collections
-        // (usage page 0xFFA0) whose specific report ID (0x50/0x51) is needed up front. The probe is
-        // internally guarded, so any failure returns NONE and we fall through to the skip path below.
-        if (messageType == HidppMessageType.NONE && !IsExcludedFromProbe(deviceInfo.ProductId))
+        switch (collection)
         {
-            // ProbeFromDescriptor logs the full declared report-ID/size picture for the collection,
-            // match or not, so we don't add a second line here.
-            var probe = HidppReportProbe.ProbeFromDescriptor(devPath);
-            messageType = probe.MessageType;
-            reportId = probe.ReportId;
-        }
-
-        switch (messageType)
-        {
-            case HidppMessageType.LONG:
-            case HidppMessageType.SHORT:
+            case HidppCollection.Short or HidppCollection.Long:
                 DiagnosticLogger.Log($"Initializing HID++ device...");
 
                 HidDevicePtr hidppDev = HidOpenPath(ref deviceInfo);
@@ -136,11 +116,11 @@ public sealed class HidppManagerContext
                     DiagnosticLogger.Log($"Existing container found - Path: {devPath}, Container: {containerId}");
                 }
 
-                await hidppReceiver.SetUp(messageType, hidppDev, deviceInfo.UsagePage, isWiredModeDevice);
+                await hidppReceiver.SetUp(collection, hidppDev, deviceInfo.UsagePage, isWiredModeDevice);
                 return;
 
-            case HidppMessageType.CENTURION:
-                DiagnosticLogger.Log($"[Centurion] Detected Centurion interface 0x{deviceInfo.UsagePage:X4}: {devPath}");
+            case HidppCollection.Centurion centurion:
+                DiagnosticLogger.Log($"[Centurion] Detected 0x{centurion.ReportIdByte:X2} interface 0x{deviceInfo.UsagePage:X4}: {devPath}");
                 HidDevicePtr centDev = HidOpenPath(ref deviceInfo);
                 if (centDev == 0)
                 {
@@ -148,15 +128,16 @@ public sealed class HidppManagerContext
                     return;
                 }
                 string? productName = deviceInfo.GetProductString();
-                var centurion = new CenturionDevice(centDev, deviceInfo.UsagePage, deviceInfo.ProductId, reportId, productName);
-                _centurionMap[devPath] = centurion;
-                _ = Task.Run(() => centurion.InitAsync());
+                var centurionDevice = new CenturionDevice(centDev, deviceInfo.UsagePage, deviceInfo.ProductId, centurion.ReportId, productName);
+                _centurionMap[devPath] = centurionDevice;
+                _ = Task.Run(() => centurionDevice.InitAsync());
+                return;
+
+            case HidppCollection.Unsupported:                
                 return;
 
             default:
-                DiagnosticLogger.Log($"Skipping device with unsupported message type: {messageType} " +
-                    $"(UsagePage: 0x{deviceInfo.UsagePage:X04}, Usage: 0x{deviceInfo.Usage:X04}, Path: {devPath})");
-                return;
+                throw new System.Diagnostics.UnreachableException($"Unhandled HidppCollection variant: {collection.GetType().Name}");
         }
     }
 

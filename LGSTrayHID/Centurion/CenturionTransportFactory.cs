@@ -12,16 +12,16 @@ namespace LGSTrayHID.Centurion;
 /// </summary>
 public static class CenturionTransportFactory
 {
-    public static async Task<CenturionTransport> CreateAsync(HidDevicePtr dev, HidppReportId reportId, ushort productId, CancellationToken ct)
+    public static async Task<CenturionTransport> CreateAsync(HidDevicePtr dev, CenturionReportId reportId, ushort productId, CancellationToken ct)
     {
         DiagnosticLogger.Log($"[Cent 0x{productId:X4}] Report ID 0x{(byte)reportId:X2} (from descriptor)");
 
         return reportId switch
         {
-            HidppReportId.CenturionShort => new CenturionTransportShort(dev, await ProbeDeviceAddressAsync(dev, (byte)reportId, ct, productId), productId),
-            HidppReportId.CenturionLong => new CenturionTransportLong(dev, productId),
-            // Defensive: the descriptor classifier only routes 0x50/0x51 here. Any other value means
-            // the report ID could not be resolved — fall back to passive sniffing (RX logging only).
+            CenturionReportId.Short => new CenturionTransportShort(dev, await ProbeDeviceAddressAsync(dev, (byte)reportId, ct, productId), productId),
+            CenturionReportId.Long => new CenturionTransportLong(dev, productId),
+            // Defensive: CenturionReportId only has the two named variants above. A value outside the
+            // enum (e.g. a bad cast) cannot be framed — fall back to passive sniffing (RX logging only).
             _ => Passive(dev, productId),
         };
     }

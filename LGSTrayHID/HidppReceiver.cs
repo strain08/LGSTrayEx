@@ -77,24 +77,24 @@ public class HidppReceiver : IDisposable
     /// are present, starts reading and initializes the device. Each report size fills its slot once;
     /// a duplicate collection for an already-filled slot is dropped and its handle closed.
     /// </summary>
-    public async Task SetUp(HidppMessageType messageType, nint dev, ushort usagePage, bool isWiredModeDevice = false)
+    public async Task SetUp(HidppCollection collection, nint dev, ushort usagePage, bool isWiredModeDevice = false)
     {
         // Read threads already running on the chosen transport: ignore any late/duplicate collection
         // and close the redundant handle so it is not leaked.
         if (_readingStarted)
         {
-            DiagnosticLogger.Log($"[SetUp] Ignoring {messageType} collection (page 0x{usagePage:X04}) - transport already initialized");
+            DiagnosticLogger.Log($"[SetUp] Ignoring {collection.GetType().Name} collection (page 0x{usagePage:X04}) - transport already initialized");
             HidApi.HidApi.HidClose(dev);
             return;
         }
 
-        switch (messageType)
+        switch (collection)
         {
-            case HidppMessageType.SHORT:
-                DevShort = AdoptHandle(DevShort, dev, messageType, usagePage);
+            case HidppCollection.Short:
+                DevShort = AdoptHandle(DevShort, dev, collection, usagePage);
                 break;
-            case HidppMessageType.LONG:
-                DevLong = AdoptHandle(DevLong, dev, messageType, usagePage);
+            case HidppCollection.Long:
+                DevLong = AdoptHandle(DevLong, dev, collection, usagePage);
                 break;
             default:
                 HidApi.HidApi.HidClose(dev);
@@ -141,14 +141,14 @@ public class HidppReceiver : IDisposable
     /// </summary>
     private static HidDevicePtr AdoptHandle(HidDevicePtr current,
                                             HidDevicePtr incoming,
-                                            HidppMessageType messageType,
+                                            HidppCollection collection,
                                             ushort usagePage)
     {
         // Empty slot - take the incoming handle.
         if (current == IntPtr.Zero) return incoming;
 
         // Slot already filled - keep what we have and drop the duplicate.
-        DiagnosticLogger.Log($"[SetUp] Keeping existing {messageType} handle; dropping duplicate collection (page 0x{usagePage:X04})");
+        DiagnosticLogger.Log($"[SetUp] Keeping existing {collection.GetType().Name} handle; dropping duplicate collection (page 0x{usagePage:X04})");
         HidApi.HidApi.HidClose(incoming);
         return current;
     }

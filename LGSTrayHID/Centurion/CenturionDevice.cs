@@ -28,7 +28,7 @@ public class CenturionDevice : IDisposable
     private CenturionTransport _transport = null!;
     private readonly ushort _usagePage;
     private readonly ushort _productId;
-    private readonly HidppReportId _reportId; // 0x50/0x51, resolved from the report descriptor
+    private readonly CenturionReportId _reportId; // 0x50/0x51, resolved from the report descriptor
 
     private readonly string _tag;
 
@@ -86,7 +86,7 @@ public class CenturionDevice : IDisposable
     private const int HEADSET_ONLINE_DELAY_MS = 1000;    // time to wait for RF link to stabilise after wakeup
     private const int PENDING_INIT_POLL_INTERVAL_S = 15;
 
-    public CenturionDevice(HidDevicePtr dev, ushort usagePage, ushort productId, HidppReportId reportId, string? productName = null)
+    public CenturionDevice(HidDevicePtr dev, ushort usagePage, ushort productId, CenturionReportId reportId, string? productName = null)
     {
         _dev = dev;
         _usagePage = usagePage;
