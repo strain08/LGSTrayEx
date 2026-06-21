@@ -1,54 +1,35 @@
 using LGSTrayHID.Centurion.Transport;
 using LGSTrayHID.HidApi;
 using LGSTrayPrimitives;
-using System.Diagnostics;
 using static LGSTrayHID.HidApi.HidApi;
 
 namespace LGSTrayHID.Centurion;
 
 /// <summary>
-/// Determines the appropriate Centurion transport implementation
-/// by probing the connected HID device for supported report IDs.
+/// Builds the appropriate Centurion transport for a report ID already resolved from the HID
+/// report descriptor (see <see cref="HidApi.HidppReportProbe"/>). The 0x50 variant additionally
+/// requires a device-address probe, which is a device-I/O scan and cannot be read from the descriptor.
 /// </summary>
 public static class CenturionTransportFactory
 {
-    // Candidate report IDs tried in order
-    private static readonly byte[] ReportIdCandidates = [0x51, 0x50];
-
-    public static async Task<CenturionTransport> CreateAsync(HidDevicePtr dev, ushort productId, CancellationToken ct)
+    public static async Task<CenturionTransport> CreateAsync(HidDevicePtr dev, HidppReportId reportId, ushort productId, CancellationToken ct)
     {
-        byte? reportId = ProbeReportId(dev);
-        if (reportId.HasValue)
-            DiagnosticLogger.Log($"[Cent 0x{productId:X4}] Detected variant: report ID 0x{reportId:X2}");
-        else
-            DiagnosticLogger.LogWarning($"[Cent 0x{productId:X4}] Unknown report ID — passive sniff mode (RX logging only)");
+        DiagnosticLogger.Log($"[Cent 0x{productId:X4}] Report ID 0x{(byte)reportId:X2} (from descriptor)");
 
         return reportId switch
         {
-            0x50 => new CenturionTransportShort(dev, await ProbeDeviceAddressAsync(dev, reportId.Value, ct, productId), productId),
-            0x51 => new CenturionTransportLong(dev, productId),
-            null => new CenturionTransportPassive(dev, productId),
-            // All defined candidates must be assigned to transports
-            _ => throw new UnreachableException($"ProbeReportId returned 0x{reportId:X2}: defined transport not assigned")
+            HidppReportId.CenturionShort => new CenturionTransportShort(dev, await ProbeDeviceAddressAsync(dev, (byte)reportId, ct, productId), productId),
+            HidppReportId.CenturionLong => new CenturionTransportLong(dev, productId),
+            // Defensive: the descriptor classifier only routes 0x50/0x51 here. Any other value means
+            // the report ID could not be resolved — fall back to passive sniffing (RX logging only).
+            _ => Passive(dev, productId),
         };
     }
-    /// <summary>
-    /// Obtains the reportId by trying to send well-formed ROOT.GetProtocolVersion
-    /// </summary>
-    /// <param name="dev"></param>
-    /// <returns>reportId</returns>
-    private static byte? ProbeReportId(HidDevicePtr dev)
-    {        
-        byte[] pingParams = [0x00, 0x00, 0x00];
-        foreach (byte reportId in ReportIdCandidates)
-        {
-            FrameLayout layout = reportId == 0x50 ? FrameLayout.Layout_0x50 : FrameLayout.Layout_0x51;            
-            byte[] probe = CenturionTransport.BuildFrame(layout, reportId, featIdx: 0x00, func: 0x01, pingParams);
-            
-            if (HidWrite(dev, probe, FrameLayout.FRAME_SIZE) > 0)
-                return reportId;
-        }
-        return null;
+
+    private static CenturionTransport Passive(HidDevicePtr dev, ushort productId)
+    {
+        DiagnosticLogger.LogWarning($"[Cent 0x{productId:X4}] No Centurion report ID from descriptor — passive sniff mode (RX logging only)");
+        return new CenturionTransportPassive(dev, productId);
     }
 
     /// <summary>

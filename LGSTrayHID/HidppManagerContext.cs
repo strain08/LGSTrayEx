@@ -85,16 +85,19 @@ public sealed class HidppManagerContext
     {
         var messageType = deviceInfo.GetHidppMessageType();
         string devPath = deviceInfo.GetPath();
+        HidppReportId reportId = HidppReportId.None;
 
-        // Fallback for devices whose usage page we don't recognise (e.g. G733-class headsets that
-        // expose their HID++ channel on a non-FF00/FF43 page). Read the Windows HID descriptor
-        // (no device I/O) and classify by declared input report ID + size. The probe is internally
-        // guarded, so any failure returns NONE and we fall through to the skip path below.
+        // Resolve devices the usage page doesn't classify by reading the Windows HID descriptor
+        // (no device I/O): G733-class headsets on a non-FF00/FF43 page, and Centurion collections
+        // (usage page 0xFFA0) whose specific report ID (0x50/0x51) is needed up front. The probe is
+        // internally guarded, so any failure returns NONE and we fall through to the skip path below.
         if (messageType == HidppMessageType.NONE && !IsExcludedFromProbe(deviceInfo.ProductId))
         {
             // ProbeFromDescriptor logs the full declared report-ID/size picture for the collection,
             // match or not, so we don't add a second line here.
-            messageType = HidppReportProbe.ProbeFromDescriptor(devPath);
+            var probe = HidppReportProbe.ProbeFromDescriptor(devPath);
+            messageType = probe.MessageType;
+            reportId = probe.ReportId;
         }
 
         switch (messageType)
@@ -147,7 +150,7 @@ public sealed class HidppManagerContext
                     return;
                 }
                 string? productName = deviceInfo.GetProductString();
-                var centurion = new CenturionDevice(centDev, deviceInfo.UsagePage, deviceInfo.ProductId, productName);
+                var centurion = new CenturionDevice(centDev, deviceInfo.UsagePage, deviceInfo.ProductId, reportId, productName);
                 _centurionMap[devPath] = centurion;
                 _ = Task.Run(() => centurion.InitAsync());
                 return;
