@@ -1,5 +1,6 @@
 using LGSTrayHID.Centurion.Channel;
 using LGSTrayHID.Metadata;
+using LGSTrayHID.Protocol;
 using LGSTrayPrimitives;
 
 namespace LGSTrayHID.Centurion.Features;
@@ -21,6 +22,10 @@ public sealed class CenturionMetadataReader(CenturionSendAsync sendAsync,
         string name = await TryGetDeviceName() ?? defaultDeviceName;
 
         DeviceIdentity ids = await TryGetDeviceInfo();
+
+        string? fw = await TryGetFirmwareVersion();
+        if (fw != null)
+            DiagnosticLogger.Log($"[Centurion] Firmware: {fw}");
 
         return (name, ids);
     }
@@ -109,5 +114,36 @@ public sealed class CenturionMetadataReader(CenturionSendAsync sendAsync,
         }
         catch (Exception ex) { DiagnosticLogger.LogWarning($"[Centurion] Device info read failed: {ex.Message}"); }
         return new DeviceIdentity(modelId, unitId, serialNumber);
+    }
+
+    /// <summary>
+    /// Reads firmware version info via DeviceInfo (0x0100) function 0x01, iterating entities.
+    /// Centurion format: [type, ?, version_hi, version_lo, name_len, name...]
+    /// </summary>
+    private async Task<string?> TryGetFirmwareVersion()
+    {
+        if (deviceInfoIdx == 0xFF) return null;
+        var parts = new List<string>();
+        try
+        {
+            for (byte i = 0; i < DeviceFwInfoFunction.MAX_ENTITIES; i++)
+            {
+                var resp = await sendAsync(deviceInfoIdx, 0x01, [i], 2000);
+                if (resp == null || resp.Value.Params.Length < 5) break;
+
+                byte[] p = resp.Value.Params;
+                int type = p[0];
+                int version = (p[2] << 8) | p[3];
+                int nameLen = p[4];
+                string name = nameLen > 0 && p.Length >= 5 + nameLen
+                    ? System.Text.Encoding.ASCII.GetString(p, 5, nameLen).TrimEnd('\0')
+                    : string.Empty;
+                string versionStr = $"{version >> 8:X2}.{version & 0xFF:X2}";
+                string kind = type switch { 0 => "main", 1 => "bootloader", 7 => "hardware", _ => $"type{type}" };
+                parts.Add(string.IsNullOrEmpty(name) ? $"{versionStr} ({kind})" : $"{name} {versionStr} ({kind})");
+            }
+        }
+        catch (Exception ex) { DiagnosticLogger.LogWarning($"[Centurion] Firmware version read failed: {ex.Message}"); }
+        return parts.Count > 0 ? string.Join(", ", parts) : null;
     }
 }
