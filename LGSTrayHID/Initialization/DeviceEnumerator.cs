@@ -136,8 +136,8 @@ public class DeviceEnumerator
 
         var devicesToInitialize = new List<HidppDevice>();
 
-        // Ping device indices 1-6 (standard receiver slots)
-        for (byte i = 1; i <= 6; i++)
+        // Ping device indices 1-MAX_SLOTS (standard receiver slots)
+        for (byte i = 1; i <= HidppDeviceIndex.MAX_SLOTS; i++)
         {
             try
             {                

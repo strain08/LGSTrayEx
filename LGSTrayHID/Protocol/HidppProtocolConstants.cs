@@ -19,7 +19,8 @@ public static class HidppDeviceIndex
     /// <summary>Receiver/broadcast address for HID++ 1.0 commands</summary>
     public const byte RECEIVER = 0xFF;
 
-    // Note: Device indices 0x01-0x06 are assigned per connected device
+    /// <summary>Maximum number of paired device slots on a receiver (indices 1–6)</summary>
+    public const byte MAX_SLOTS = 6;
 }
 
 /// <summary>
@@ -88,11 +89,17 @@ public static class DeviceNameFunction
 /// </summary>
 public static class DeviceFwInfoFunction
 {
-    /// <summary>Get firmware info (unit ID, model ID, serial support flag)</summary>
+    /// <summary>Get firmware info (unit ID, model ID, serial support flag, entity count)</summary>
     public const byte GET_FW_INFO = 0x00;
+
+    /// <summary>Get firmware entity info (type, name, version, build) by index</summary>
+    public const byte GET_ENTITY_FW_INFO = 0x01;  // Function nibble value, not 0x10!
 
     /// <summary>Get device serial number (if supported)</summary>
     public const byte GET_SERIAL_NUMBER = 0x02;  // Function nibble value, not 0x20!
+
+    /// <summary>Maximum firmware entities a device can report (main, bootloader, hardware, ...)</summary>
+    public const int MAX_ENTITIES = 8;
 }
 
 /// <summary>

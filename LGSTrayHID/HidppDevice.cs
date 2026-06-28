@@ -198,6 +198,13 @@ public class HidppDevice : IDisposable
 
 
             Identifier = DeviceIdentifierGenerator.GenerateIdentifier(new DeviceIdentity(fwInfo.ModelId, fwInfo.UnitId, serialNumber), DeviceName);
+
+            if (fwInfo.EntityCount > 0)
+            {
+                var fw = await DeviceMetadataRetriever.GetFirmwareVersionStringAsync(this, featureId, fwInfo.EntityCount);
+                if (fw != null)
+                    DiagnosticLogger.Log($"[{DeviceName}] Firmware: {fw}");
+            }
         }
         else
         {

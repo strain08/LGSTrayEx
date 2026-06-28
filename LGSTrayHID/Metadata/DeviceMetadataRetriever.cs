@@ -1,5 +1,6 @@
 using LGSTrayHID.Protocol;
 using System.Text;
+using System.Collections.Generic;
 
 namespace LGSTrayHID.Metadata;
 
@@ -70,9 +71,9 @@ public static class DeviceMetadataRetriever
     }
 
     /// <summary>
-    /// Firmware info result containing unit ID, model ID, and serial number support.
+    /// Firmware info result containing unit ID, model ID, serial number support, and entity count.
     /// </summary>
-    public record FirmwareInfo(string UnitId, string ModelId, bool SerialNumberSupported);
+    public record FirmwareInfo(string UnitId, string ModelId, bool SerialNumberSupported, byte EntityCount);
 
     /// <summary>
     /// Retrieves firmware info (unit ID, model ID, serial support) via HID++ Feature 0x0003.
@@ -91,11 +92,42 @@ public static class DeviceMetadataRetriever
             throw new InvalidOperationException("Failed to retrieve firmware info (timeout or insufficient data)");
         }
 
+        byte entityCount = ret.GetParam(0);
         string unitId = BitConverter.ToString(ret.GetParams().ToArray(), 1, 4).Replace("-", string.Empty);
         string modelId = BitConverter.ToString(ret.GetParams().ToArray(), 7, 5).Replace("-", string.Empty);
         bool serialNumberSupported = (ret.GetParam(14) & 0x1) == 0x1;
 
-        return new FirmwareInfo(unitId, modelId, serialNumberSupported);
+        return new FirmwareInfo(unitId, modelId, serialNumberSupported, entityCount);
+    }
+
+    /// <summary>
+    /// Retrieves firmware version info for all entities via HID++ Feature 0x0003, function 0x10.
+    /// Returns a formatted string like "RQS 01.02.B0003 (main), BL01 01.01 (bootloader)".
+    /// </summary>
+    public static async Task<string?> GetFirmwareVersionStringAsync(HidppDevice device, byte featureIndex, byte entityCount)
+    {
+        var parts = new List<string>();
+        for (byte i = 0; i < Math.Min((int)entityCount, DeviceFwInfoFunction.MAX_ENTITIES); i++)
+        {
+            var ret = await device.Parent.WriteRead20(device.Parent.RequestChannel,
+                                                      Hidpp20Commands.GetFirmwareEntityInfo(device.DeviceIdx, featureIndex, i),
+                                                      backoffStrategy: GlobalSettings.MetadataBackoff);
+            if (ret.Length == 0 || ret.GetParams().Length < 8)
+                continue;
+
+            int level = ret.GetParam(0) & 0x0F;
+            string name = Encoding.ASCII.GetString(ret.GetParams().ToArray(), 1, 3).TrimEnd('\0');
+            int major = ret.GetParam(4);
+            int minor = ret.GetParam(5);
+            int build = ret.GetParam16(6);
+
+            string version = $"{major:X2}.{minor:X2}";
+            if (build != 0) version += $".B{build:X4}";
+
+            string kind = level switch { 0 => "main", 1 => "bootloader", 7 => "hardware", _ => $"type{level}" };
+            parts.Add($"{name} {version} ({kind})");
+        }
+        return parts.Count > 0 ? string.Join(", ", parts) : null;
     }
 
     /// <summary>

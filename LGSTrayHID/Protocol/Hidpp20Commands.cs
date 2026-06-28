@@ -115,8 +115,25 @@ public static class Hidpp20Commands
     }
 
     /// <summary>
+    /// Create a command to get firmware entity info (feature 0x0003, function 0x10).
+    /// Returns type, 3-char name, version major/minor, and build number for one entity.
+    /// </summary>
+    /// <param name="deviceIndex">Device index (1-6)</param>
+    /// <param name="fwInfoIndex">Feature index of the Device FW Info feature</param>
+    /// <param name="entityIndex">Zero-based entity index (0=main, 1=bootloader, ...)</param>
+    /// <returns>GetFirmwareEntityInfo command</returns>
+    public static Hidpp20 GetFirmwareEntityInfo(byte deviceIndex, byte fwInfoIndex, byte entityIndex)
+    {
+        return Hidpp20CommandBuilder.Create(deviceIndex)
+            .WithFeatureIndex(fwInfoIndex)
+            .WithFunction(DeviceFwInfoFunction.GET_ENTITY_FW_INFO)
+            .WithParams(entityIndex)
+            .Build();
+    }
+
+    /// <summary>
     /// Create a command to get device firmware info (feature 0x0003, function 0x00).
-    /// Returns unit ID, model ID, and serial number support flag.
+    /// Returns unit ID, model ID, serial number support flag, and entity count.
     /// </summary>
     /// <param name="deviceIndex">Device index (1-6)</param>
     /// <param name="fwInfoIndex">Feature index of the Device FW Info feature</param>
