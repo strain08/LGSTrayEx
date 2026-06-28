@@ -106,7 +106,7 @@ public class CommandResponseCorrelator
         bool locked = await _semaphore.WaitAsync(100);
         if (!locked)
         {
-            return (Hidpp20)Array.Empty<byte>();
+            return Hidpp20.Empty;
         }
 
         try
@@ -141,7 +141,7 @@ public class CommandResponseCorrelator
                 }
             }
 
-            return (Hidpp20)Array.Empty<byte>();
+            return Hidpp20.Empty;
         }
         finally
         {

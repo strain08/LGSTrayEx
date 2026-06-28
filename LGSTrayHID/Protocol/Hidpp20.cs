@@ -19,6 +19,8 @@ public readonly struct Hidpp20
 
     public int Length => _data.Length;
 
+    public static Hidpp20 Empty => (Hidpp20)Array.Empty<byte>();
+
     public byte GetDeviceIdx() => _data[1];
 
     public byte GetFeatureIndex() => _data[2];

@@ -367,7 +367,7 @@ public class HidppReceiver : IDisposable
         }
 
         // Return result (empty if all retries failed)
-        return result ?? new Hidpp20();
+        return result ?? Hidpp20.Empty;
     }
 
     public async Task<bool> Ping20(byte deviceId, int timeout = 100, bool ignoreHIDPP10 = true, HidDevicePtr? channel = null)
