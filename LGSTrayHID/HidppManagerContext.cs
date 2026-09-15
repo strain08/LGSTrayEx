@@ -15,10 +15,20 @@ public sealed class HidppManagerContext
     public static readonly HidppManagerContext _instance = new();
     public static HidppManagerContext Instance => _instance;
 
-    private readonly Dictionary<string, Guid> _containerMap = [];
-    private readonly Dictionary<Guid, HidppReceiver> _deviceMap = [];
-    private readonly Dictionary<string, CenturionDevice> _centurionMap = [];
+    // Touched from both the native hidapi hotplug thread and the device-queue worker
+    // thread, so these must be concurrent collections.
+    private readonly ConcurrentDictionary<string, Guid> _containerMap = new();
+    private readonly ConcurrentDictionary<Guid, HidppReceiver> _deviceMap = new();
+    private readonly ConcurrentDictionary<string, CenturionDevice> _centurionMap = new();
     private readonly BlockingCollection<HidDeviceInfo> _deviceQueue = [];
+
+    // hidapi keeps the raw function pointers for the lifetime of the process, but the GC
+    // does not track references held by unmanaged code. These fields are the only thing
+    // keeping the delegates (and therefore their native thunks) alive; without them the
+    // GC collects the delegates and the next hotplug event calls a freed thunk, which the
+    // runtime turns into a FailFast (exit code 0x80131623, "Unknown Hard Error" dialog).
+    private static HidApiHotPlugEventCallbackFn? _deviceArrivedCallback;
+    private static HidApiHotPlugEventCallbackFn? _deviceLeftCallback;
 
     // Mode-switch detection: Track recent USB device arrivals
     private readonly object _arrivalLock = new();
@@ -50,24 +60,39 @@ public sealed class HidppManagerContext
                     break;
                 }
 
-                await InitDevice(dev);
+                // This lambda is async void: an escaping exception is rethrown on the
+                // thread pool and kills the daemon. One device failing to initialise must
+                // not take down hotplug handling for every other device.
+                try
+                {
+                    await InitDevice(dev);
+                }
+                catch (Exception ex)
+                {
+                    DiagnosticLogger.LogError($"Unhandled exception initialising device: {ex}", nameof(InitDevice));
+                }
             }
         }).Start();
 
         unsafe
         {
+            // Assign to the static fields first; the delegates must outlive this method
+            // because hidapi invokes them from its own thread for the life of the process.
+            _deviceArrivedCallback = OnDeviceArrived;
+            _deviceLeftCallback = OnDeviceLeft;
+
             HidHotplugRegisterCallback(0x046D,
                                        0x00,
                                        HidApiHotPlugEvent.HID_API_HOTPLUG_EVENT_DEVICE_ARRIVED,
                                        HidApiHotPlugFlag.HID_API_HOTPLUG_ENUMERATE,
-                                       DeviceArrived,
+                                       _deviceArrivedCallback,
                                        IntPtr.Zero,
                                        (int*)IntPtr.Zero);
             HidHotplugRegisterCallback(0x046D,
                                        0x00,
                                        HidApiHotPlugEvent.HID_API_HOTPLUG_EVENT_DEVICE_LEFT,
                                        HidApiHotPlugFlag.NONE,
-                                       DeviceLeft,
+                                       _deviceLeftCallback,
                                        IntPtr.Zero,
                                        (int*)IntPtr.Zero);
         }
@@ -141,19 +166,65 @@ public sealed class HidppManagerContext
         }
     }
 
-    private unsafe int DeviceArrived(HidHotPlugCallbackHandle _, HidDeviceInfo* device, HidApiHotPlugEvent hidApiHotPlugEvent, nint __)
+    // hidapi calls these two thunks from its own native thread.
+    // A managed exception escaping here would unwind through hidapi's native frames,
+    // which is undefined behaviour and takes the daemon down, so nothing may propagate out of them.
+    private unsafe int OnDeviceArrived(HidHotPlugCallbackHandle handle, HidDeviceInfo* device, HidApiHotPlugEvent hidApiHotPlugEvent, nint userData)
+    {
+        try
+        {
+            return DeviceArrived(device, hidApiHotPlugEvent);
+        }
+        catch (Exception ex)
+        {
+            LogCallbackFailure(nameof(DeviceArrived), ex);
+            return 0;
+        }
+    }
+
+    private unsafe int OnDeviceLeft(HidHotPlugCallbackHandle callbackHandle, HidDeviceInfo* deviceInfo, HidApiHotPlugEvent hidApiHotPlugEvent, nint userData)
+    {
+        try
+        {
+            return DeviceLeft(deviceInfo);
+        }
+        catch (Exception ex)
+        {
+            LogCallbackFailure(nameof(DeviceLeft), ex);
+            return 0;
+        }
+    }
+
+    private static void LogCallbackFailure(string callbackName, Exception ex)
+    {
+        // Logging itself must not throw here - we are still on the native thread.
+        try
+        {
+            DiagnosticLogger.LogError($"Exception in hotplug callback (suppressed): {ex}", callbackName);
+        }
+        catch
+        {
+            // Nothing further we can safely do.
+        }
+    }
+
+    private unsafe int DeviceArrived(HidDeviceInfo* device, HidApiHotPlugEvent hidApiHotPlugEvent)
     {
         if (hidApiHotPlugEvent == HidApiHotPlugEvent.HID_API_HOTPLUG_EVENT_DEVICE_ARRIVED)
         {
             string devPath = (*device).GetPath();
             DiagnosticLogger.Log($"HID device arrival detected: {devPath}");
-            _deviceQueue.Add(*device);
+
+            if (!_deviceQueue.IsAddingCompleted)
+            {
+                _deviceQueue.Add(*device);
+            }
         }
 
         return 0;
     }
 
-    private unsafe int DeviceLeft(HidHotPlugCallbackHandle callbackHandle, HidDeviceInfo* deviceInfo, HidApiHotPlugEvent hidApiHotPlugEvent, nint userData)
+    private unsafe int DeviceLeft(HidDeviceInfo* deviceInfo)
     {
         string devPath = (*deviceInfo).GetPath();
         DiagnosticLogger.Log($"HID device removal detected: {devPath}");
@@ -162,14 +233,20 @@ public sealed class HidppManagerContext
         {
             DiagnosticLogger.Log($"[Centurion] Removing device: {devPath}");
             centurionDevice.Dispose();
-            _centurionMap.Remove(devPath);
+            _centurionMap.TryRemove(devPath, out _);
             return 0;
         }
 
         if (!_containerMap.TryGetValue(devPath, out var containerId)) return 0;
 
         // Extract and log device information BEFORE disposal
-        var hidppDevices = _deviceMap[containerId];
+        if (!_deviceMap.TryGetValue(containerId, out var hidppDevices))
+        {
+            // Defensive: path still mapped but its container is no longer tracked - nothing to dispose.
+            _containerMap.TryRemove(devPath, out _);
+            return 0;
+        }
+
         var deviceCollection = hidppDevices.DeviceCollection;
 
         DiagnosticLogger.Log($"Container ID: {containerId}");
@@ -239,9 +316,11 @@ public sealed class HidppManagerContext
         }
 
         // Original disposal logic
-        _deviceMap[containerId].Dispose();
-        _deviceMap.Remove(containerId);
-        _containerMap.Remove(devPath);
+        if (_deviceMap.TryRemove(containerId, out var removedReceiver))
+        {
+            removedReceiver.Dispose();
+        }
+        _containerMap.TryRemove(devPath, out _);
 
         // Confirm cleanup completed
         DiagnosticLogger.Log($"Device removal complete - Path: {devPath}, Container: {containerId}");

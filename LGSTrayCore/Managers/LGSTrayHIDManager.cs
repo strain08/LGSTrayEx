@@ -50,6 +50,15 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
     private readonly CancellationTokenSource _cts = new();
     private CancellationTokenSource? _daemonCts;
 
+    // The restart loop; replaced by a new one when rediscover finds it has given up.
+    private readonly object _supervisorLock = new();
+    private Task? _supervisor;
+
+    // Set once the OS has blocked the daemon from launching. Rediscover runs on every system
+    // resume, so restarting after a block would re-show the "Windows blocked" message box on
+    // each wake; the user has to unblock the files and restart the app instead.
+    private volatile bool _blockedByOS;
+
     private readonly IDistributedSubscriber<IPCMessageType, IPCMessage> _subscriber;
     private readonly IPublisher<IPCMessage> _deviceEventBus;
 
@@ -61,14 +70,6 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
         _deviceEventBus = deviceEventBus;
     }
 
-    private enum DaemonExitReason
-    {
-        Normal,       // Process exited on its own
-        Killed,       // We killed the process (intentional, e.g. rediscover or stop)
-        LaunchFailed, // Failed to start — retriable
-        BlockedByOS,  // OS blocked launch (SmartScreen/MOTW) — permanent, give up
-    }
-
     private readonly struct DaemonResult
     {
         public int ExitCode { get; init; }        
@@ -78,9 +79,9 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
             ExitCode = exitCode, 
             Reason = DaemonExitReason.Normal 
         };
-        public static DaemonResult WasKilled() => new() { 
-            ExitCode = -1, 
-            Reason = DaemonExitReason.Killed 
+        public static DaemonResult WasKilled(DaemonExitReason reason) => new() {
+            ExitCode = -1,
+            Reason = reason
         };
         public static DaemonResult Failed() => new() { 
             Reason = DaemonExitReason.LaunchFailed 
@@ -159,6 +160,7 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
         DiagnosticLogger.Log($"[LGSTrayHIDManager]: HID daemon started (PID {proc.Id})");
 
         bool wasKilled = false;
+        DaemonExitReason killReason = DaemonExitReason.Stopped;
         try
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, _daemonCts.Token);
@@ -170,6 +172,12 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
             {
                 proc.Kill();
                 wasKilled = true;
+
+                // Must be read here: the finally below disposes and clears _daemonCts.
+                if (_daemonCts.IsCancellationRequested)
+                {
+                    killReason = DaemonExitReason.Rediscover;
+                }
             }
         }
         finally
@@ -181,7 +189,7 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
         DiagnosticLogger.Log($"[LGSTrayHIDManager]: HID daemon exited (exit code {proc.ExitCode})");
 
         await Task.Delay(1000);
-        return wasKilled ? DaemonResult.WasKilled() : DaemonResult.Exited(proc.ExitCode);
+        return wasKilled ? DaemonResult.WasKilled(killReason) : DaemonResult.Exited(proc.ExitCode);
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -212,51 +220,83 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
             await sub2.DisposeAsync();
         };
 
-        _ = Task.Run(async () =>
-        {
-            int fastFailCount = 0;
-
-            while (!_cts.Token.IsCancellationRequested)
-            {
-                DateTime then = DateTime.Now;
-                DaemonResult result = await DaemonLoop();
-
-                if (_cts.Token.IsCancellationRequested)
-                {
-                    break;
-                }
-
-                // OS blocked launch (SmartScreen/MOTW) — no point retrying
-                if (result.Reason == DaemonExitReason.BlockedByOS)
-                {
-                    break;
-                }
-
-                double uptimeSeconds = (DateTime.Now - then).TotalSeconds;
-
-                // Intentional kill with sufficient uptime — treat as normal, reset fast-fail counter
-                if (result.Reason == DaemonExitReason.Killed && uptimeSeconds >= 20)
-                {
-                    fastFailCount = 0;
-                }
-                else
-                {
-                    fastFailCount++;
-                    DiagnosticLogger.LogError($"[LGSTrayHIDManager]: HID daemon fast-failed (uptime {uptimeSeconds:F1}s, " +
-                                         $"reason {result.Reason}, exit code {result.ExitCode}, count {fastFailCount}/3)");
-                }
-
-                if (fastFailCount > 3)
-                {
-                    DiagnosticLogger.LogError("[LGSTrayHIDManager]: HID daemon exceeded fast-fail limit — giving up.");
-                    break;
-                }
-
-                DiagnosticLogger.Log("[LGSTrayHIDManager]: Restarting HID daemon...");
-            }
-        }, CancellationToken.None);
+        TryStartSupervisor();
 
         return;
+    }
+
+    /// <summary>
+    /// Starts the daemon supervisor unless one is already running, the host is stopping, or the
+    /// OS has blocked the daemon. The supervisor ends for good when it hits the fast-fail limit,
+    /// so this is also how a rediscover brings native HID back afterwards.
+    /// </summary>
+    /// <returns>true if a new supervisor was started.</returns>
+    private bool TryStartSupervisor()
+    {
+        lock (_supervisorLock)
+        {
+            if (_cts.IsCancellationRequested)
+                return false;
+
+            if (_blockedByOS)
+                return false;
+
+            if (_supervisor != null && !_supervisor.IsCompleted)
+                return false;
+
+            _supervisor = Task.Run(() => SuperviseDaemon(), CancellationToken.None);
+            
+            return true;
+        }
+    }
+
+    private async Task SuperviseDaemon()
+    {
+        int fastFailCount = 0;
+
+        while (!_cts.Token.IsCancellationRequested)
+        {
+            DateTime then = DateTime.Now;
+            DaemonResult result = await DaemonLoop();
+
+            if (_cts.Token.IsCancellationRequested)
+            {
+                break;
+            }
+
+            // OS blocked launch (SmartScreen/MOTW) — no point retrying
+            if (result.Reason == DaemonExitReason.BlockedByOS)
+            {
+                _blockedByOS = true;
+                break;
+            }
+
+            double uptimeSeconds = (DateTime.Now - then).TotalSeconds;
+            bool wasFastFail = DaemonRestartPolicy.IsFastFail(result.Reason, uptimeSeconds);
+            fastFailCount = DaemonRestartPolicy.NextFastFailCount(fastFailCount, result.Reason, uptimeSeconds);
+
+            if (wasFastFail)
+            {
+                DiagnosticLogger.LogError($"[LGSTrayHIDManager]: HID daemon fast-failed (uptime {uptimeSeconds:F1}s, " +
+                                     $"reason {result.Reason}, exit code {result.ExitCode}, " +
+                                     $"count {fastFailCount}/{DaemonRestartPolicy.FastFailLimit})");
+            }
+            else if (result.Reason != DaemonExitReason.Rediscover)
+            {
+                // Died on its own after a healthy run: worth reporting, but it is not a
+                // crash loop and must not consume the restart budget.
+                DiagnosticLogger.LogError($"[LGSTrayHIDManager]: HID daemon exited after a healthy run " +
+                                     $"(uptime {uptimeSeconds:F1}s, reason {result.Reason}, exit code {result.ExitCode}) — restarting.");
+            }
+
+            if (DaemonRestartPolicy.ShouldGiveUp(fastFailCount))
+            {
+                DiagnosticLogger.LogError("[LGSTrayHIDManager]: HID daemon exceeded fast-fail limit — giving up.");
+                break;
+            }
+
+            DiagnosticLogger.Log("[LGSTrayHIDManager]: Restarting HID daemon...");
+        }
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
@@ -275,8 +315,23 @@ public class LGSTrayHIDManager : IDeviceManager, IHostedService, IDisposable
         // Wait 100ms for removal to propagate through MessagePipe
         await Task.Delay(100);
 
-        // Now restart daemon to rediscover devices fresh
-        _daemonCts?.Cancel();
+        // Now restart daemon to rediscover devices fresh. If the supervisor has already given up
+        // on the fast-fail limit there is no daemon to kill, so start a new supervisor with a
+        // fresh restart budget instead.
+        if (TryStartSupervisor())
+        {
+            DiagnosticLogger.Log("[LGSTrayHIDManager]: HID daemon was not running — starting it for rediscovery");
+        }
+        else if (_blockedByOS)
+        {
+            DiagnosticLogger.LogWarning("[LGSTrayHIDManager]: HID daemon was blocked by the OS — not restarting. " +
+                                        "Unblock the app files and restart the app.");
+            return;
+        }
+        else
+        {
+            _daemonCts?.Cancel();
+        }
 
         DiagnosticLogger.Log("Native HID device rediscovery initiated (daemon restart)");
     }
