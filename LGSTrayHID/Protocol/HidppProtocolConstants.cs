@@ -204,6 +204,9 @@ public static class HidppResponse
     /// <summary>HID++ error response feature index</summary>
     public const byte ERROR = 0x8F;
 
+    /// <summary>HID++ 2.0 error response feature index</summary>
+    public const byte ERROR_HIDPP20 = 0xFF;
+
     /// <summary>Device announcement message (hotplug arrival)</summary>
     public const byte DEVICE_ANNOUNCEMENT = 0x41;
 }

@@ -49,6 +49,10 @@ public class HidppDevice : IDisposable
     // Track device online/offline state (independent of polling state)    
     public bool IsOnline { get; set; } = false;
 
+    // True while an initialization is queued or running for this instance (set by the ON handler).
+    // A repeated ON event must not replace the instance and cancel an init that is about to succeed.
+    public volatile bool InitInFlight;
+
     private int _disposeCount = 0;
     public bool Disposed => _disposeCount > 0;
 
@@ -561,10 +565,20 @@ public class HidppDevice : IDisposable
                     }
                 }
 
-                // Dispose managed resources
-                _cancellationSource.Dispose();
-                _poolingCts.Dispose();
-                _initSemaphore.Dispose();
+                // Wait for an in-flight InitAsync (cancelled above) to release the semaphore;
+                // disposing it or the CTS underneath a running init would throw ObjectDisposedException
+                bool initIdle = _initSemaphore.Wait(TimeSpan.FromSeconds(10));
+                if (initIdle)
+                {
+                    // Dispose managed resources
+                    _cancellationSource.Dispose();
+                    _poolingCts.Dispose();
+                    _initSemaphore.Dispose();
+                }
+                else
+                {
+                    DiagnosticLogger.LogWarning($"[{DeviceName}] Initialization did not exit within 10s timeout, leaving resources to GC");
+                }
             }
 
             DiagnosticLogger.Log($"[{DeviceName}] HidppDevice.Dispose completed");

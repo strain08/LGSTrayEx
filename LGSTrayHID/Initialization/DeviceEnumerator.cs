@@ -158,6 +158,12 @@ public class DeviceEnumerator
                     }
                 }
             }
+            catch (ObjectDisposedException) when (_parent.Disposed)
+            {
+                // Expected: receiver was unplugged during the sweep
+                DiagnosticLogger.Log($"Fallback enumeration stopped at index {i} (receiver disposed)");
+                break;
+            }
             catch (Exception ex)
             {
                 DiagnosticLogger.LogError($"Ping to device index {i} failed: {ex.Message} {ex.Source}");
@@ -173,6 +179,12 @@ public class DeviceEnumerator
                 DiagnosticLogger.Log($"Starting fallback initialization for device {device.DeviceIdx}");
                 await device.InitAsync();
                 DiagnosticLogger.Log($"Completed fallback initialization for device {device.DeviceIdx}");
+            }
+            catch (Exception ex) when ((device.Disposed || device.Parent.Disposed) && (ex is OperationCanceledException || ex is ObjectDisposedException))
+            {
+                // Expected: device was replaced by a Device ON event (cancelled) or the receiver was
+                // removed (receiver disposed) mid-init
+                DiagnosticLogger.Log($"Fallback initialization for device {device.DeviceIdx} cancelled (device instance disposed)");
             }
             catch (Exception ex)
             {

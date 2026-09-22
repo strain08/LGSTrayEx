@@ -41,12 +41,12 @@ public class DeviceLifecycleManager
     public HidppDevice CreateDevice(byte deviceIdx, bool isWiredModeDevice = false)
     {
         var device = new HidppDevice(_parent, deviceIdx, isWiredModeDevice);
+        HidppDevice? replacedDevice;
 
         lock (_devices)
         {
             // Check if device already exists (replacement scenario)
-            bool isReplacement = _devices.ContainsKey(deviceIdx);
-            if (isReplacement)
+            if (_devices.TryGetValue(deviceIdx, out replacedDevice))
             {
                 DiagnosticLogger.Log($"[Device {deviceIdx}] Replacing existing device in collection");
             }
@@ -62,6 +62,14 @@ public class DeviceLifecycleManager
                 _enumerationCompletion.TrySetResult(Count);
                 _enumerationCompletion = null;
             }
+        }
+
+        // Dispose the replaced instance so its polling/init is cancelled and its resources released
+        // (previously it was only reclaimed by the finalizer). Run off-thread: Dispose can block up to
+        // 10s waiting for polling/init to exit, and callers may be on the HID read thread.
+        if (replacedDevice != null)
+        {
+            _ = Task.Run(replacedDevice.Dispose);
         }
 
         return device;

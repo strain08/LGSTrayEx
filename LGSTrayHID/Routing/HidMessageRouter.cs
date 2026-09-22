@@ -63,9 +63,12 @@ public class HidMessageRouter
     /// Enumerates a device behind a 2.0-only bridge that announces itself via unsolicited traffic.
     /// Scoped to events (software id 0) from slots 1-6 with no device yet, so it never fires on
     /// command responses (our software id) or direct devices (index 0xFF).
+    /// Error frames are excluded: they carry the failed request's sub-id in byte 3 (read as swid 0),
+    /// e.g. the receiver's 8F reply to a sweep ping of an empty/unreachable slot.
     /// </summary>
     private async Task<bool> TryPickupBridgeDeviceAsync(Hidpp20 message, byte[] buffer)
     {
+        if (message.IsError() || message.GetFeatureIndex() == HidppResponse.ERROR_HIDPP20) return false;
         if (message.GetSoftwareId() != 0) return false;
         byte idx = message.GetDeviceIdx();
         if (idx is < 1 or > 6) return false;

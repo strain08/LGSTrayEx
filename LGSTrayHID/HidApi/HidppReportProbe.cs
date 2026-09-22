@@ -90,7 +90,16 @@ internal static class HidppReportProbe
 
         if (handle.IsInvalid)
         {
-            DiagnosticLogger.LogError($"{path}: CreateFile failed (Win32 {Marshal.GetLastWin32Error()}) - descriptor unreadable");
+            int win32Error = Marshal.GetLastWin32Error();
+            // FILE_NOT_FOUND / PATH_NOT_FOUND: interface was unplugged while queued for probing
+            if (win32Error == 2 || win32Error == 3)
+            {
+                DiagnosticLogger.Log($"{path}: device removed before descriptor probe (Win32 {win32Error})");
+            }
+            else
+            {
+                DiagnosticLogger.LogError($"{path}: CreateFile failed (Win32 {win32Error}) - descriptor unreadable");
+            }
             return null;
         }
 

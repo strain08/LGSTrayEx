@@ -92,6 +92,15 @@ public class DeviceAnnouncementHandler
             return;
         }
 
+        // Existing instance still queued/initializing: let it finish rather than replacing it
+        // (replacement disposes it, cancelling an init that is often mid-ping and about to succeed)
+        if (existingDevice != null && existingDevice.InitInFlight && !existingDevice.Disposed)
+        {
+            existingDevice.NotifyDeviceOn();
+            DiagnosticLogger.Log($"[Device {deviceIdx}] Device ON event ignored (initialization already in progress)");
+            return;
+        }
+
         // Check if we should proceed with initialization (prevents duplicate init)
         if (!_lifecycleManager.ShouldInitialize(deviceIdx))
         {
@@ -119,6 +128,8 @@ public class DeviceAnnouncementHandler
         }
 
         DiagnosticLogger.Log($"[Device {deviceIdx}] Creating Task.Run for initialization...");
+
+        device.InitInFlight = true;
 
         // Fire-and-forget initialization task with proper async handling
         var task = Task.Run(async () =>
@@ -157,6 +168,12 @@ public class DeviceAnnouncementHandler
                     DiagnosticLogger.Log($"[Device {deviceIdx}] Semaphore released");
                 }
             }
+            catch (Exception ex) when ((device.Disposed || device.Parent.Disposed) && (ex is OperationCanceledException || ex is ObjectDisposedException))
+            {
+                // Expected: device was replaced by a newer ON event (cancelled) or the receiver was
+                // removed (receiver disposed) mid-init
+                DiagnosticLogger.Log($"[Device {deviceIdx}] Initialization cancelled (device instance disposed)");
+            }
             catch (Exception ex)
             {
                 // Log with full stack trace for diagnosis
@@ -165,6 +182,10 @@ public class DeviceAnnouncementHandler
                 {
                     DiagnosticLogger.LogError($"[Device {deviceIdx}] Stack trace: {ex.StackTrace}");
                 }
+            }
+            finally
+            {
+                device.InitInFlight = false;
             }
         });
 
