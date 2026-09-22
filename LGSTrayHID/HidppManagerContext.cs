@@ -274,7 +274,7 @@ public sealed class HidppManagerContext
             bool hasAlternativeSource = _deviceMap
                 .Where(kvp => kvp.Key != containerId) // Ignore the container being removed
                 .SelectMany(kvp => kvp.Value.DeviceCollection.Values)
-                .Any(d => d.Identifier == device.Identifier && d.IsOnline && !d.Disposed);
+                .Any(d => d.Identifier == device.Identifier && d.IsOnline && !d.IsStopped);
 
             if (hasAlternativeSource)
             {
@@ -285,7 +285,7 @@ public sealed class HidppManagerContext
                 var altDevice = _deviceMap
                     .Where(kvp => kvp.Key != containerId)
                     .SelectMany(kvp => kvp.Value.DeviceCollection.Values)
-                    .FirstOrDefault(d => d.Identifier == device.Identifier && d.IsOnline && !d.Disposed);
+                    .FirstOrDefault(d => d.Identifier == device.Identifier && d.IsOnline && !d.IsStopped);
 
                 if (altDevice is null) continue;
 

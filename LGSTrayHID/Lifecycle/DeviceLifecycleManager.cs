@@ -64,12 +64,11 @@ public class DeviceLifecycleManager
             }
         }
 
-        // Dispose the replaced instance so its polling/init is cancelled and its resources released
-        // (previously it was only reclaimed by the finalizer). Run off-thread: Dispose can block up to
-        // 10s waiting for polling/init to exit, and callers may be on the HID read thread.
+        // Stop the replaced instance so its polling/init is cancelled. Started off-thread: callers may be
+        // on the HID read thread, and CancellationTokenSource.Cancel runs token callbacks inline.
         if (replacedDevice != null)
         {
-            _ = Task.Run(replacedDevice.Dispose);
+            _ = Task.Run(replacedDevice.StopAsync);
         }
 
         return device;
@@ -126,12 +125,12 @@ public class DeviceLifecycleManager
             if (!_devices.TryGetValue(deviceIdx, out var device))
                 return false;
 
-            // Check if device is initialized (has identifier), not disposed, and online
+            // Check if device is initialized (has identifier), not stopped, and online
             // IsOnline=false indicates device went offline (OFF event) and needs reinitialization
             // Note: Polling may be cancelled due to battery events (keepPollingWithEvents=false),
             // but device is still online and doesn't need reinitialization
             return !string.IsNullOrEmpty(device.Identifier)
-                && !device.Disposed
+                && !device.IsStopped
                 && device.IsOnline;
         }
     }
@@ -178,11 +177,12 @@ public class DeviceLifecycleManager
         }
     }
     /// <summary>
-    /// Disposes all devices in the collection and clears the collection.
+    /// Stops all devices in the collection, then clears the collection.
     /// Called during HidppReceiver disposal to ensure proper cleanup.
     /// </summary>
-    public void DisposeAll()
+    public async Task StopAllAsync()
     {
+        List<HidppDevice> devices;
         lock (_devices)
         {
             // Complete any pending enumeration with current count
@@ -190,10 +190,15 @@ public class DeviceLifecycleManager
             _enumerationCompletion = null;
             _expectedDeviceCount = 0;
 
-            foreach (var device in _devices.Values)
-            {
-                device.Dispose();
-            }
+            devices = [.. _devices.Values];
+        }
+
+        // Stop outside the lock: a running init may call back into this manager (e.g. GetDeviceName).
+        // Devices stay in the collection until stopped so their traffic isn't mistaken for new devices.
+        await Task.WhenAll(devices.Select(device => device.StopAsync()));
+
+        lock (_devices)
+        {
             _devices.Clear();
             _lastInitTime.Clear(); // Clear init tracking
         }

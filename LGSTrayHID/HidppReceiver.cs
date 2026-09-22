@@ -518,6 +518,11 @@ public class HidppReceiver : IDisposable
 
             DiagnosticLogger.Log($"Direct device initialization complete - {device.Identifier} ({device.DeviceName})");
         }
+        catch (Exception ex) when (Disposed && (ex is OperationCanceledException || ex is ObjectDisposedException))
+        {
+            // Expected: device unplugged mid-init (receiver disposed, device instance stopped)
+            DiagnosticLogger.Log("Direct device initialization cancelled (device removed)");
+        }
         catch (Exception ex)
         {
             var stackFirstLine = ex.StackTrace?.Split('\n')[0].Trim() ?? "No stack trace";
@@ -541,8 +546,9 @@ public class HidppReceiver : IDisposable
 
             if (disposing)
             {
-                // Dispose devices first (stops battery polling tasks)
-                _lifecycleManager.DisposeAll();
+                // Stop devices first (cancels init and battery polling, bounded wait per device).
+                // Blocking is acceptable here: one-time teardown, not on the HID read thread.
+                _lifecycleManager.StopAllAsync().GetAwaiter().GetResult();
 
                 // Then dispose message channel (stops read threads)
                 _messageChannel.Dispose();

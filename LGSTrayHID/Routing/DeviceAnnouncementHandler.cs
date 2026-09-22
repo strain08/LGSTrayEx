@@ -78,7 +78,7 @@ public class DeviceAnnouncementHandler
             DiagnosticLogger.Log($"[Device {deviceIdx}] Existing device found - " +
                                 $"Identifier: {existingDevice?.Identifier ?? "null"}, " +
                                 $"IsOnline: {existingDevice?.IsOnline}, " +
-                                $"Disposed: {existingDevice?.Disposed}");
+                                $"Stopped: {existingDevice?.IsStopped}");
         }
         else
         {
@@ -93,8 +93,8 @@ public class DeviceAnnouncementHandler
         }
 
         // Existing instance still queued/initializing: let it finish rather than replacing it
-        // (replacement disposes it, cancelling an init that is often mid-ping and about to succeed)
-        if (existingDevice != null && existingDevice.InitInFlight && !existingDevice.Disposed)
+        // (replacement stops it, cancelling an init that is often mid-ping and about to succeed)
+        if (existingDevice != null && existingDevice.InitInFlight && !existingDevice.IsStopped)
         {
             existingDevice.NotifyDeviceOn();
             DiagnosticLogger.Log($"[Device {deviceIdx}] Device ON event ignored (initialization already in progress)");
@@ -139,10 +139,10 @@ public class DeviceAnnouncementHandler
                 DiagnosticLogger.Log($"[Device {deviceIdx}] Initialization task started, waiting for stabilization...");
                 await Task.Delay(1000); // Device stabilization delay
 
-                // Check if device still valid after delay (may have been disposed during resume)
-                if (device.Disposed)
+                // Check if device still valid after delay (may have been stopped during resume)
+                if (device.IsStopped)
                 {
-                    DiagnosticLogger.LogWarning($"[Device {deviceIdx}] Device disposed during stabilization delay, aborting initialization");
+                    DiagnosticLogger.LogWarning($"[Device {deviceIdx}] Device stopped during stabilization delay, aborting initialization");
                     return;
                 }
 
@@ -152,9 +152,9 @@ public class DeviceAnnouncementHandler
                 try
                 {
                     // Final check before expensive initialization
-                    if (device.Disposed)
+                    if (device.IsStopped)
                     {
-                        DiagnosticLogger.LogWarning($"[Device {deviceIdx}] Device disposed while waiting for semaphore, aborting initialization");
+                        DiagnosticLogger.LogWarning($"[Device {deviceIdx}] Device stopped while waiting for semaphore, aborting initialization");
                         return;
                     }
 
@@ -168,11 +168,11 @@ public class DeviceAnnouncementHandler
                     DiagnosticLogger.Log($"[Device {deviceIdx}] Semaphore released");
                 }
             }
-            catch (Exception ex) when ((device.Disposed || device.Parent.Disposed) && (ex is OperationCanceledException || ex is ObjectDisposedException))
+            catch (Exception ex) when ((device.IsStopped || device.Parent.Disposed) && (ex is OperationCanceledException || ex is ObjectDisposedException))
             {
-                // Expected: device was replaced by a newer ON event (cancelled) or the receiver was
-                // removed (receiver disposed) mid-init
-                DiagnosticLogger.Log($"[Device {deviceIdx}] Initialization cancelled (device instance disposed)");
+                // Expected: device was replaced by a newer ON event (stopped -> cancelled) or the
+                // receiver was removed (receiver disposed) mid-init
+                DiagnosticLogger.Log($"[Device {deviceIdx}] Initialization cancelled (device instance stopped)");
             }
             catch (Exception ex)
             {

@@ -9,7 +9,7 @@ using LGSTrayPrimitives.Retry;
 
 namespace LGSTrayHID;
 
-public class HidppDevice : IDisposable
+public class HidppDevice
 {
     public HidppReceiver Parent { get; init; }
     public byte DeviceIdx { get; init; }
@@ -39,8 +39,9 @@ public class HidppDevice : IDisposable
     // Semaphore to prevent concurrent InitAsync calls
     private readonly SemaphoreSlim _initSemaphore = new(1, 1);
 
-    // Disposal and cancellation support
+    // Stop/cancellation support (see StopAsync)
     private readonly CancellationTokenSource _cancellationSource = new();
+    private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(10);
 
     private Task? _pollingTask;
     private readonly CancellationTokenSource _poolingCts = new();
@@ -53,8 +54,8 @@ public class HidppDevice : IDisposable
     // A repeated ON event must not replace the instance and cancel an init that is about to succeed.
     public volatile bool InitInFlight;
 
-    private int _disposeCount = 0;
-    public bool Disposed => _disposeCount > 0;
+    private int _stopCount = 0;
+    public bool IsStopped => _stopCount > 0;
 
     public HidppDevice(HidppReceiver parent, byte deviceIdx, bool isWiredModeDevice = false)
     {
@@ -71,6 +72,11 @@ public class HidppDevice : IDisposable
         await _initSemaphore.WaitAsync();
         try
         {
+            if (IsStopped)
+            {
+                return;
+            }
+
             Hidpp20 ret;
 
             // Sync Ping with retry logic for sleeping devices
@@ -252,6 +258,10 @@ public class HidppDevice : IDisposable
         {
             DiagnosticLogger.LogWarning($"[{DeviceName}] No battery feature found.");
         }
+
+        // Stopped while a non-cancellable request was in flight (e.g. receiver removed): don't
+        // announce the device, or the UI would flip it back online after the offline notification
+        _cancellationSource.Token.ThrowIfCancellationRequested();
 
         HidppManagerContext.Instance.SignalDeviceEvent(
             IPCMessageType.INIT,
@@ -525,69 +535,59 @@ public class HidppDevice : IDisposable
         );
     }
 
-    #region DISPOSE
-    public void Dispose()
+    #region STOP
+    /// <summary>
+    /// Stops this device instance: cancels polling and any in-flight initialization and waits
+    /// (bounded) for them to exit. Idempotent. Called by DeviceLifecycleManager when the instance
+    /// is replaced or its receiver is removed.
+    /// The CTS/semaphore are deliberately never disposed: they hold no unmanaged resources, and
+    /// disposing them under a running init/poll caused ObjectDisposedException races.
+    /// </summary>
+    public async Task StopAsync()
     {
-        Dispose(disposing: true);
-        GC.SuppressFinalize(this);
-    }
-
-    protected virtual void Dispose(bool disposing)
-    {
-        if (Interlocked.Increment(ref _disposeCount) == 1)
+        if (Interlocked.Increment(ref _stopCount) != 1)
         {
-            DiagnosticLogger.Log($"[{DeviceName}] HidppDevice.Dispose starting");
-
-            if (disposing)
-            {
-                // Cancel battery polling task
-                _cancellationSource.Cancel();
-
-                // Wait for polling task to exit (with timeout)
-                if (_pollingTask != null)
-                {
-                    try
-                    {
-                        // Wait up to 10 seconds for task to exit gracefully (increased for safer disposal)
-                        bool completed = _pollingTask.Wait(TimeSpan.FromSeconds(10));
-                        if (!completed)
-                        {
-                            DiagnosticLogger.LogWarning($"[{DeviceName}] Battery polling task did not exit within 10s timeout");
-                        }
-                        else
-                        {
-                            DiagnosticLogger.Log($"[{DeviceName}] Battery polling task exited successfully");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        DiagnosticLogger.LogWarning($"[{DeviceName}] Error waiting for polling task: {ex.Message}");
-                    }
-                }
-
-                // Wait for an in-flight InitAsync (cancelled above) to release the semaphore;
-                // disposing it or the CTS underneath a running init would throw ObjectDisposedException
-                bool initIdle = _initSemaphore.Wait(TimeSpan.FromSeconds(10));
-                if (initIdle)
-                {
-                    // Dispose managed resources
-                    _cancellationSource.Dispose();
-                    _poolingCts.Dispose();
-                    _initSemaphore.Dispose();
-                }
-                else
-                {
-                    DiagnosticLogger.LogWarning($"[{DeviceName}] Initialization did not exit within 10s timeout, leaving resources to GC");
-                }
-            }
-
-            DiagnosticLogger.Log($"[{DeviceName}] HidppDevice.Dispose completed");
+            return;
         }
-    }
 
-    ~HidppDevice()
-    {
-        Dispose(disposing: false);
+        DiagnosticLogger.Log($"[{DeviceName}] HidppDevice stopping");
+
+        // Cancels battery polling and any in-flight InitAsync request/backoff
+        _cancellationSource.Cancel();
+
+        if (_pollingTask != null)
+        {
+            try
+            {
+                await _pollingTask.WaitAsync(StopTimeout);
+                DiagnosticLogger.Log($"[{DeviceName}] Battery polling task exited successfully");
+            }
+            catch (TimeoutException)
+            {
+                DiagnosticLogger.LogWarning($"[{DeviceName}] Battery polling task did not exit within {StopTimeout.TotalSeconds}s timeout");
+            }
+            catch (OperationCanceledException)
+            {
+                // Task was cancelled before it started running
+                DiagnosticLogger.Log($"[{DeviceName}] Battery polling task exited successfully");
+            }
+            catch (Exception ex)
+            {
+                DiagnosticLogger.LogWarning($"[{DeviceName}] Error waiting for polling task: {ex.Message}");
+            }
+        }
+
+        // Wait for an in-flight InitAsync (cancelled above) to unwind, then hand the semaphore back
+        if (await _initSemaphore.WaitAsync(StopTimeout))
+        {
+            _initSemaphore.Release();
+        }
+        else
+        {
+            DiagnosticLogger.LogWarning($"[{DeviceName}] Initialization did not exit within {StopTimeout.TotalSeconds}s timeout");
+        }
+
+        DiagnosticLogger.Log($"[{DeviceName}] HidppDevice stopped");
     }
     #endregion
 }

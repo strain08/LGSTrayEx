@@ -180,11 +180,11 @@ public class DeviceEnumerator
                 await device.InitAsync();
                 DiagnosticLogger.Log($"Completed fallback initialization for device {device.DeviceIdx}");
             }
-            catch (Exception ex) when ((device.Disposed || device.Parent.Disposed) && (ex is OperationCanceledException || ex is ObjectDisposedException))
+            catch (Exception ex) when ((device.IsStopped || device.Parent.Disposed) && (ex is OperationCanceledException || ex is ObjectDisposedException))
             {
-                // Expected: device was replaced by a Device ON event (cancelled) or the receiver was
-                // removed (receiver disposed) mid-init
-                DiagnosticLogger.Log($"Fallback initialization for device {device.DeviceIdx} cancelled (device instance disposed)");
+                // Expected: device was replaced by a Device ON event (stopped -> cancelled) or the
+                // receiver was removed (receiver disposed) mid-init
+                DiagnosticLogger.Log($"Fallback initialization for device {device.DeviceIdx} cancelled (device instance stopped)");
             }
             catch (Exception ex)
             {
