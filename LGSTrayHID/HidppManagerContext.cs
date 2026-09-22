@@ -340,6 +340,13 @@ public sealed class HidppManagerContext
     {
         // Brief delay to allow device firmware to complete mode-switch handover
         await Task.Delay(1000);
+
+        // Instance may have been replaced (stopped) during the delay; its successor publishes on init
+        if (device.IsStopped)
+        {
+            return;
+        }
+
         await device.UpdateBattery(forceIpcUpdate: true);
         DiagnosticLogger.Log($"[{deviceName}] Triggered battery update on alternative source after mode-switch");
     }

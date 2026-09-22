@@ -67,6 +67,15 @@ public class HidppDevice
 
     }
 
+    /// <summary>
+    /// Initializes the device: ping test, feature enumeration, identification and battery setup,
+    /// then announces it (InitMessage) and starts battery polling.
+    /// Returns without announcing if the ping test fails or the instance is already stopped.
+    /// </summary>
+    /// <exception cref="OperationCanceledException">
+    /// The instance was stopped mid-init (replaced by a newer ON event, or its receiver removed).
+    /// </exception>
+    /// <exception cref="ObjectDisposedException">The parent receiver was disposed mid-init.</exception>
     public async Task InitAsync()
     {
         await _initSemaphore.WaitAsync();
@@ -106,7 +115,8 @@ public class HidppDevice
             // Find IFeatureSet (0x0001) - get its feature index
             ret = await Parent.WriteRead20(Parent.RequestChannel,
                                            Hidpp20Commands.GetFeatureIndex(DeviceIdx, HidppFeature.FEATURE_SET),
-                                           backoffStrategy: GlobalSettings.FeatureEnumBackoff);
+                                           backoffStrategy: GlobalSettings.FeatureEnumBackoff,
+                                           cancellationToken: _cancellationSource.Token);
             FeatureMap[HidppFeature.FEATURE_SET] = ret.GetParam(0);
 
             // Get Feature Count
@@ -163,6 +173,15 @@ public class HidppDevice
         }
     }
 
+    /// <summary>
+    /// Reads name, type, identity and firmware, selects the battery feature, announces the device
+    /// (InitMessage) and starts battery polling.
+    /// </summary>
+    /// <exception cref="OperationCanceledException">
+    /// The instance was stopped mid-init; thrown at the latest right before the InitMessage is published,
+    /// so a stopped instance never announces itself.
+    /// </exception>
+    /// <exception cref="ObjectDisposedException">The parent receiver was disposed mid-init.</exception>
     private async Task InitPopulateAsync()
     {
 
