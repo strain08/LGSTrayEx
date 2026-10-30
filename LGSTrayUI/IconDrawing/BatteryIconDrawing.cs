@@ -254,6 +254,12 @@ public static partial class BatteryIconDrawing
         int width = size;
         int height = size;
 
+        // Round once so the font choice, text and bar all agree (99.6 displays and sizes as 100)
+        int percentage = (int)Math.Round(device.BatteryPercentage, MidpointRounding.AwayFromZero);
+        bool isCharging = device.PowerSupplyStatus == PowerSupplyStatus.CHARGING;
+        bool drawPercentage = device.IsVisuallyOnline && (percentage >= 0);
+        bool drawBatteryBar = _enableBatteryBar && drawPercentage;        
+
         using Bitmap bitmap = new(width, height);
         using (Graphics g = Graphics.FromImage(bitmap))
         {
@@ -264,15 +270,11 @@ public static partial class BatteryIconDrawing
             // It aligns text to the pixel grid (sharpness) but smooths edges.
             // Note: Do NOT use ClearType on transparent backgrounds; it creates ugly black fringes.
             g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-
             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-
-            bool isCharging = device.PowerSupplyStatus == PowerSupplyStatus.CHARGING;
-
             // Draw battery bar if enabled
-            if (_enableBatteryBar && device.IsVisuallyOnline && device.BatteryPercentage >= 0)
+            if (drawBatteryBar)
             {
                 Color barColor = device.DeviceType switch
                 {
@@ -283,7 +285,7 @@ public static partial class BatteryIconDrawing
                 };
                 // Draw 2px bottom battery bar
                 using Brush bgBrush = new SolidBrush(barColor);
-                g.FillRectangle(bgBrush, 0, height - 2, (int)Math.Round(device.BatteryPercentage / 100 * width), 2);
+                g.FillRectangle(bgBrush, 0, height - 2, (int)Math.Round(percentage / 100.0 * width), 2);
             }
 
             // Font style and color
@@ -299,10 +301,10 @@ public static partial class BatteryIconDrawing
                 textColor = isCharging ? Color.LightGreen : Color.White;
             }
 
-            // Font size 
-            float emSize = height * 0.7f;
+            // Font size and text
+            float emSize = drawPercentage && percentage == 100 ? height * 0.6f : height * 0.7f; // smaller font for 100 so it does not clip
             using Font font = new("Segoe UI Variable", emSize, fontStyle, GraphicsUnit.Pixel);
-            string text = (!device.IsVisuallyOnline || device.BatteryPercentage < 0) ? "?" : $"{device.BatteryPercentage:f0}";
+            string text = drawPercentage ? $"{percentage}" : "?";
 
             // Text Centering
             // Render on a scratch canvas first and center the actual glyph pixels; MeasureString
