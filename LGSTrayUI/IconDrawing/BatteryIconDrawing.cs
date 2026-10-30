@@ -24,6 +24,9 @@ public static partial class BatteryIconDrawing
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool DestroyIcon(IntPtr handle);
 
+    [LibraryImport("user32.dll")]
+    private static partial uint GetDpiForSystem();
+
     // Configurable battery bar settings
     private static bool _enableBatteryBar = true;
     private static Color _mouseColor = Color.SlateBlue;
@@ -245,13 +248,12 @@ public static partial class BatteryIconDrawing
 
     public static void DrawNumeric(TaskbarIcon taskbarIcon, LogiDevice device)
     {
-        // 1. Get the exact system DPI scaling
-        // We use a dummy Graphics object to fetch the true system DPI
-        float dpiScale = GetDpiScale();
-
-        // 16x16 is standard, but we scale it up by DPI (e.g., 24x24 at 150%)
-        int width = (int)(16 * dpiScale);
-        int height = (int)(16 * dpiScale);
+        // Use the exact size the taskbar displays tray icons at: 16px scaled by DPI, rounded
+        // (16 at 100%, 18 at 110%, 20 at 125%, ...). Any other size gets resampled and blurs the text.
+        int size = (int)Math.Round(16 * GetDpiForSystem() / 96.0);
+        int width = size;
+        int height = size;
+        float dpiScale = size / 16f;
 
         using Bitmap bitmap = new(width, height);
         using (Graphics g = Graphics.FromImage(bitmap))
