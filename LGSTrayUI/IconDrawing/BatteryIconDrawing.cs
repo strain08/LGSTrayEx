@@ -253,7 +253,6 @@ public static partial class BatteryIconDrawing
         int size = (int)Math.Round(16 * GetDpiForSystem() / 96.0);
         int width = size;
         int height = size;
-        float dpiScale = size / 16f;
 
         using Bitmap bitmap = new(width, height);
         using (Graphics g = Graphics.FromImage(bitmap))
@@ -306,15 +305,24 @@ public static partial class BatteryIconDrawing
             string text = (!device.IsVisuallyOnline || device.BatteryPercentage < 0) ? "?" : $"{device.BatteryPercentage:f0}";
 
             // Text Centering
-            SizeF textSize = g.MeasureString(text, font);
-            float x = (width - textSize.Width) / 2;
-            float y = (height - textSize.Height) / 2;
+            // Render on a scratch canvas first and center the actual glyph pixels; MeasureString
+            // includes leading and descender space, which pushes digits below the icon center.
+            using Bitmap glyphs = new(width * 2, height * 2, PixelFormat.Format32bppArgb);
+            using (Graphics gg = Graphics.FromImage(glyphs))
+            {
+                gg.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+                using Brush textBrush = new SolidBrush(textColor);
+                gg.DrawString(text, font, textBrush, width / 2f, height / 2f);
+            }
 
-            // Fine-tune adjustment            
-            y += 1 * dpiScale;
+            Rectangle ink = GetInkBounds(glyphs);
+            int x = (width - ink.Width) / 2;
+            int y = (height - ink.Height) / 2;
 
-            using Brush textBrush = new SolidBrush(textColor);
-            g.DrawString(text, font, textBrush, x, y);
+            // Copy 1:1 at whole-pixel offsets so the glyphs are not resampled
+            g.InterpolationMode = InterpolationMode.NearestNeighbor;
+            g.PixelOffsetMode = PixelOffsetMode.Half;
+            g.DrawImage(glyphs, new Rectangle(x, y, ink.Width, ink.Height), ink, GraphicsUnit.Pixel);
         }
 
         // Icon
@@ -329,6 +337,42 @@ public static partial class BatteryIconDrawing
         // Cleanup
         DestroyIcon(iconHandle);
         oldIcon?.Dispose();
+    }
+
+    /// <summary>
+    /// Returns the bounds of the non-transparent pixels in the bitmap.
+    /// </summary>
+    private static Rectangle GetInkBounds(Bitmap bitmap)
+    {
+        BitmapData data = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height),
+            ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        try
+        {
+            int left = bitmap.Width, top = bitmap.Height, right = -1, bottom = -1;
+            int[] row = new int[bitmap.Width];
+
+            for (int y = 0; y < bitmap.Height; y++)
+            {
+                Marshal.Copy(data.Scan0 + y * data.Stride, row, 0, row.Length);
+                for (int x = 0; x < row.Length; x++)
+                {
+                    // Skip fully transparent pixels
+                    if (row[x] >>> 24 == 0)
+                        continue;
+
+                    left = Math.Min(left, x);
+                    right = Math.Max(right, x);
+                    top = Math.Min(top, y);
+                    bottom = Math.Max(bottom, y);
+                }
+            }
+
+            return right < 0 ? Rectangle.Empty : Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
+        }
+        finally
+        {
+            bitmap.UnlockBits(data);
+        }
     }
 
 }
