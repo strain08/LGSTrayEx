@@ -77,6 +77,8 @@ public partial class LogiDeviceIcon : UserControl, IDisposable
                     _themeChangedHandler = null;
                 }
 
+                TaskbarDpi.Changed -= DrawBatteryIcon;
+
                 SubRef();
             }
 
@@ -156,6 +158,9 @@ public partial class LogiDeviceIcon : UserControl, IDisposable
         // Store handler to unsubscribe later
         _themeChangedHandler = (_, _) => DrawBatteryIcon();
         CheckTheme.StaticPropertyChanged += _themeChangedHandler;
+
+        // Redraw at the new size when the display scale changes (DrawBatteryIcon marshals to the Dispatcher)
+        TaskbarDpi.Changed += DrawBatteryIcon;
 
         _drawBatteryIcon = userSettings.NumericDisplay ? BatteryIconDrawing.DrawNumeric : BatteryIconDrawing.DrawIcon;
         DrawBatteryIcon();

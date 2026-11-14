@@ -15,6 +15,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>LGSTray</AssemblyName>
     <ApplicationIcon>Resources\logo_black.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>LGSTrayUI.Program</StartupObject>
   </PropertyGroup>
 	<ItemGroup>

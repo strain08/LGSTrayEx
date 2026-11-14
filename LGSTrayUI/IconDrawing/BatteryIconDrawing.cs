@@ -24,9 +24,6 @@ public static partial class BatteryIconDrawing
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool DestroyIcon(IntPtr handle);
 
-    [LibraryImport("user32.dll")]
-    private static partial uint GetDpiForSystem();
-
     // Configurable battery bar settings
     private static bool _enableBatteryBar = true;
     private static Color _mouseColor = Color.SlateBlue;
@@ -103,17 +100,6 @@ public static partial class BatteryIconDrawing
     private static Bitmap Missing => CheckTheme.LightTheme ? Resources.Missing : Resources.Missing_dark;
     private static Bitmap Charging => CheckTheme.LightTheme ? Resources.Charging : Resources.Charging_dark;
 
-    private static float GetDpiScale()
-    {
-        float dpiScale = 1.0f;
-        using (Graphics g = Graphics.FromHwnd(IntPtr.Zero))
-        {
-            dpiScale = g.DpiX / 96.0f;
-        }
-
-        return dpiScale;
-    }
-
     private static Bitmap GetDeviceIcon(LogiDevice device) => device.DeviceType switch
     {
         DeviceType.Keyboard => Keyboard,
@@ -166,7 +152,7 @@ public static partial class BatteryIconDrawing
 
     public static void DrawIcon(TaskbarIcon taskbarIcon, LogiDevice device)
     {
-        var ImageSize = (int)(96 * GetDpiScale());
+        var ImageSize = (int)(96 * TaskbarDpi.Scale);
         var destRect = new Rectangle(0, 0, ImageSize, ImageSize);
         using var b = new Bitmap(ImageSize, ImageSize);
         using var g = Graphics.FromImage(b);
@@ -250,7 +236,7 @@ public static partial class BatteryIconDrawing
     {
         // Use the exact size the taskbar displays tray icons at: 16px scaled by DPI, rounded
         // (16 at 100%, 18 at 110%, 20 at 125%, ...). Any other size gets resampled and blurs the text.
-        int size = (int)Math.Round(16 * GetDpiForSystem() / 96.0);
+        int size = (int)Math.Round(16 * TaskbarDpi.Current / 96.0);
         int width = size;
         int height = size;
 

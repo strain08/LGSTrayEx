@@ -29,6 +29,7 @@ public class MainTaskbarIconWrapper : IDisposable
             {
                 // Unsubscribe from events first to prevent callbacks during disposal
                 LogiDeviceIcon.RefCountChanged -= OnRefCountChanged;
+                TaskbarDpi.Changed -= OnTaskbarDpiChanged;
 
                 // Dispose timer to cancel any pending callbacks
                 _debounceTimer?.Dispose();
@@ -99,7 +100,26 @@ public class MainTaskbarIconWrapper : IDisposable
     public MainTaskbarIconWrapper()
     {
         LogiDeviceIcon.RefCountChanged += OnRefCountChanged;
+        TaskbarDpi.Changed += OnTaskbarDpiChanged;
         OnRefCountChanged(LogiDeviceIcon.RefCount);
+    }
+
+    private void OnTaskbarDpiChanged()
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.HasShutdownStarted)
+            return;
+
+        dispatcher.BeginInvoke(() =>
+        {
+            lock (_timerLock)
+            {
+                if (disposedValue || _taskbarIcon == null)
+                    return;
+
+                BatteryIconDrawing.DrawUnknown(_taskbarIcon);
+            }
+        });
     }
 
     /// <summary>
