@@ -141,7 +141,19 @@ public sealed class HidppManagerContext
                     DiagnosticLogger.Log($"Existing container found - Path: {devPath}, Container: {containerId}");
                 }
 
-                await hidppReceiver.SetUp(collection, hidppDev, deviceInfo.UsagePage, isWiredModeDevice);
+                // A LONG collection with no SHORT partner yet: either the SHORT collection is still
+                // queued (G733 0x0AB5 - LONG arrives first) or it doesn't exist (G733 0x0AFE, issue #31).
+                // Ask hidapi which collections exist rather than waiting on a timer.
+                bool longOnly = false;
+                if (collection is HidppCollection.Long && !hidppReceiver.HasShortChannel)
+                {
+                    longOnly = !HasShortSiblingInContainer(deviceInfo, devPath, containerId);
+                    DiagnosticLogger.Log(longOnly
+                        ? $"No SHORT HID++ sibling in container {containerId} - LONG-only transport"
+                        : $"SHORT HID++ sibling present in container {containerId} - waiting for it");
+                }
+
+                await hidppReceiver.SetUp(collection, hidppDev, deviceInfo.UsagePage, isWiredModeDevice, longOnly);
                 return;
 
             case HidppCollection.Centurion centurion:
@@ -163,6 +175,54 @@ public sealed class HidppManagerContext
 
             default:
                 throw new System.Diagnostics.UnreachableException($"Unhandled HidppCollection variant: {collection.GetType().Name}");
+        }
+    }
+
+    /// <summary>
+    /// Enumerates the collections of the same VID/PID/interface and reports whether one of them is a
+    /// HID++ SHORT channel in the same container. Errs toward "present" on failure, which keeps the
+    /// default behaviour (wait for the SHORT collection) unchanged.
+    /// </summary>
+    private static unsafe bool HasShortSiblingInContainer(HidDeviceInfo deviceInfo, string devPath, Guid containerId)
+    {
+        HidDeviceInfo* head = HidEnumerate(deviceInfo.VendorId, deviceInfo.ProductId);
+        if (head == null)
+        {
+            DiagnosticLogger.LogWarning($"Sibling enumeration returned nothing for PID 0x{deviceInfo.ProductId:X04} - assuming SHORT sibling");
+            return true;
+        }
+
+        try
+        {
+            for (HidDeviceInfo* cur = head; cur != null; cur = cur->Next)
+            {
+                if (cur->InterfaceNumber != deviceInfo.InterfaceNumber) continue;
+                if ((*cur).GetPath() == devPath) continue;
+                if (HidppCollection.Classify(*cur) is not HidppCollection.Short) continue;
+
+                nint sibling = HidOpenPath(ref *cur);
+                if (sibling == 0)
+                {
+                    // Can't confirm the container - treat as a sibling (conservative).
+                    return true;
+                }
+
+                try
+                {
+                    _ = HidWinApiGetContainerId(sibling, out Guid siblingContainer);
+                    if (siblingContainer == containerId) return true;
+                }
+                finally
+                {
+                    HidClose(sibling);
+                }
+            }
+
+            return false;
+        }
+        finally
+        {
+            HidFreeEnumeration(head);
         }
     }
 

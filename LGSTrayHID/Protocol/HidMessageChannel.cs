@@ -25,33 +25,34 @@ public class HidMessageChannel : IDisposable
     }
 
     /// <summary>
-    /// Starts two parallel read threads (SHORT and LONG messages).
+    /// Starts a read thread per present channel (SHORT and/or LONG messages). A zero handle is
+    /// skipped - e.g. a long-only transport (G733 0x0AFE) has no SHORT collection.
     /// Threads run at BelowNormal priority to avoid starving UI thread.
     /// </summary>
-    /// <param name="devShort">HID device handle for SHORT (7-byte) messages</param>
-    /// <param name="devLong">HID device handle for LONG (20-byte) messages</param>
+    /// <param name="devShort">HID device handle for SHORT (7-byte) messages, or zero if absent</param>
+    /// <param name="devLong">HID device handle for LONG (20-byte) messages, or zero if absent</param>
     public void StartReading(HidDevicePtr devShort, HidDevicePtr devLong)
     {
-        Thread shortThread = new(async () =>
+        StartReaderThread(devShort, 7, "HID-SHORT-Reader");
+        StartReaderThread(devLong, 20, "HID-LONG-Reader");
+    }
+
+    private void StartReaderThread(HidDevicePtr device, int bufferSize, string name)
+    {
+        if (device == IntPtr.Zero) return;
+
+        Thread thread = new(async () =>
         {
-            // Signal ready immediately when first thread starts
+            // Signal ready as soon as the first reader thread runs
             _readySignal.TrySetResult(true);
-            await ReadThreadAsync(devShort, 7);
+            await ReadThreadAsync(device, bufferSize);
         })
         {
             Priority = ThreadPriority.BelowNormal,
-            Name = "HID-SHORT-Reader"
+            Name = name
         };
-        lock (_readerThreads) { _readerThreads.Add(shortThread); }
-        shortThread.Start();
-
-        Thread longThread = new(async () => { await ReadThreadAsync(devLong, 20); })
-        {
-            Priority = ThreadPriority.BelowNormal,
-            Name = "HID-LONG-Reader"
-        };
-        lock (_readerThreads) { _readerThreads.Add(longThread); }
-        longThread.Start();
+        lock (_readerThreads) { _readerThreads.Add(thread); }
+        thread.Start();
     }
 
     /// <summary>

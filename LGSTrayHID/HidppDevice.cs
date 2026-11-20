@@ -254,23 +254,31 @@ public class HidppDevice
 
             // Enable battery event reporting (HID++ 1.0 command)
             // Note: Not all devices support this - failures are non-fatal
-            try
+            if (!Parent.HasShortChannel)
             {
-                var enableCmd = Hidpp10Commands.EnableBatteryReports(DeviceIdx);
-                var ret = await Parent.WriteRead10(Parent.DevShort, enableCmd, timeout: 1000);
-                if (ret.Length == 0)
-                {
-                    DiagnosticLogger.Log($"[{DeviceName}] EnableBatteryReports not supported (modern device - events enabled by default)");
-                }
-                else
-                {
-                    DiagnosticLogger.Log($"[{DeviceName}] Battery events enabled via HID++ 1.0 command");
-                }
+                // Long-only transport (G733 0x0AFE): no short channel for HID++ 1.0 register writes.
+                DiagnosticLogger.Log($"[{DeviceName}] EnableBatteryReports skipped (long-only transport)");
             }
-            catch (Exception ex)
+            else
             {
-                DiagnosticLogger.LogWarning($"[{DeviceName}] Exception enabling battery events: {ex.Message}");
-                // Non-fatal - device will fall back to polling
+                try
+                {
+                    var enableCmd = Hidpp10Commands.EnableBatteryReports(DeviceIdx);
+                    var ret = await Parent.WriteRead10(Parent.DevShort, enableCmd, timeout: 1000);
+                    if (ret.Length == 0)
+                    {
+                        DiagnosticLogger.Log($"[{DeviceName}] EnableBatteryReports not supported (modern device - events enabled by default)");
+                    }
+                    else
+                    {
+                        DiagnosticLogger.Log($"[{DeviceName}] Battery events enabled via HID++ 1.0 command");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DiagnosticLogger.LogWarning($"[{DeviceName}] Exception enabling battery events: {ex.Message}");
+                    // Non-fatal - device will fall back to polling
+                }
             }
         }
         else

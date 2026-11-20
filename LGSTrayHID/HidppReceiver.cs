@@ -72,12 +72,28 @@ public class HidppReceiver : IDisposable
     }
 
 
+    public bool HasShortChannel => DevShort != IntPtr.Zero;
+
     /// <summary>
-    /// Assigns a HID++ channel handle for this device and, once both the short and long channels
-    /// are present, starts reading and initializes the device. Each report size fills its slot once;
-    /// a duplicate collection for an already-filled slot is dropped and its handle closed.
+    /// Decides whether the assigned channels are enough to start reading. Normally both short and
+    /// long are required; in long-only mode (no SHORT collection exists in the container, e.g. the
+    /// G733 0x0AFE dongle) the long channel alone is enough.
     /// </summary>
-    public async Task SetUp(HidppCollection collection, nint dev, ushort usagePage, bool isWiredModeDevice = false)
+    internal static bool IsTransportReady(bool hasShort, bool hasLong, bool longOnly)
+    {
+        if (!hasLong) return false;
+        if (hasShort) return true;
+        return longOnly;
+    }
+
+    /// <summary>
+    /// Assigns a HID++ channel handle for this device and, once the transport is ready (see
+    /// <see cref="IsTransportReady"/>), starts reading and initializes the device. Each report size
+    /// fills its slot once; a duplicate collection for an already-filled slot is dropped and its handle closed.
+    /// </summary>
+    /// <param name="longOnly">True when the caller determined no SHORT collection exists in this
+    /// container, so the receiver must start on the long channel alone.</param>
+    public async Task SetUp(HidppCollection collection, nint dev, ushort usagePage, bool isWiredModeDevice = false, bool longOnly = false)
     {
         // Read threads already running on the chosen transport: ignore any late/duplicate collection
         // and close the redundant handle so it is not leaked.
@@ -101,7 +117,12 @@ public class HidppReceiver : IDisposable
                 return;
         }
 
-        if ((DevShort == IntPtr.Zero) || (DevLong == IntPtr.Zero)) return;
+        if (!IsTransportReady(DevShort != IntPtr.Zero, DevLong != IntPtr.Zero, longOnly)) return;
+
+        if (DevShort == IntPtr.Zero)
+        {
+            DiagnosticLogger.Log($"[SetUp] No SHORT HID++ collection in this container - starting LONG-only transport (page 0x{usagePage:X04})");
+        }
 
         // Start reading threads
         _readingStarted = true;
@@ -164,6 +185,15 @@ public class HidppReceiver : IDisposable
         {
             DiagnosticLogger.Log("Detecting device topology (receiver / direct / bridge)...");
 
+            // Long-only transport (G733 0x0AFE): there is no short channel for the HID++ 1.0 query
+            // or the short-channel ping, so strategies 1 and 2 are skipped (the zero-handle guards
+            // in WriteRead10/Ping20 would just return "no reply").
+            if (DevShort == IntPtr.Zero)
+            {
+                DiagnosticLogger.Log("Long-only transport - skipping HID++ 1.0 receiver query and short-channel ping");
+                return await DetectLongOnlyTopologyAsync();
+            }
+
             // Strategy 1: HID++ 1.0 receiver query. Bolt/Unifying/Nano answer; direct devices and
             // 2.0-only dongles do not.
             byte[] response = await WriteRead10(
@@ -211,6 +241,24 @@ public class HidppReceiver : IDisposable
     }
 
     /// <summary>
+    /// Topology for a long-only transport: a 0xFF ping on the long channel means a direct device
+    /// (the G733 0x0AB5 dongle answered this way); otherwise treat it as a HID++ 2.0 bridge.
+    /// </summary>
+    private async Task<DeviceTopology> DetectLongOnlyTopologyAsync()
+    {
+        _useLongRequestChannel = true;
+
+        if (await Ping20(0xFF, timeout: 500, ignoreHIDPP10: false, channel: DevLong))
+        {
+            DiagnosticLogger.Log("Direct device detected (HID++ 2.0 ping at 0xFF, long-only transport) - routing requests via DevLong");
+            return DeviceTopology.Direct;
+        }
+
+        DiagnosticLogger.Log("No 0xFF direct reply on long-only transport - treating as HID++ 2.0 bridge");
+        return DeviceTopology.Bridge;
+    }
+
+    /// <summary>
     /// Sends a HID++ 1.0 command to the specified HID device and waits asynchronously for a matching response.
     /// </summary>
     /// <remarks>The method matches responses based on the command and sub-address fields in the buffer. For
@@ -250,6 +298,13 @@ public class HidppReceiver : IDisposable
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposeCount > 0, this);
+
+        // No channel (e.g. HID++ 1.0 on a long-only transport): hidapi must never see a null handle.
+        if (hidDevicePtr == IntPtr.Zero)
+        {
+            DiagnosticLogger.Verbose($"WriteRead10 skipped - no channel for command {buffer[2]:X02}/{buffer[3]:X02}");
+            return [];
+        }
 
         // If no backoff strategy provided, execute single attempt with specified timeout
         if (backoffStrategy == null)
@@ -321,6 +376,13 @@ public class HidppReceiver : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposeCount > 0, this);
 
+        // No channel: hidapi must never see a null handle.
+        if (hidDevicePtr == IntPtr.Zero)
+        {
+            DiagnosticLogger.Verbose("WriteRead20 skipped - no channel");
+            return Hidpp20.Empty;
+        }
+
         // Re-frame for the long channel if needed (no-op for short/receiver writes).
         buffer = FrameForChannel(buffer, hidDevicePtr);
 
@@ -375,6 +437,9 @@ public class HidppReceiver : IDisposable
         ObjectDisposedException.ThrowIf(_disposeCount > 0, this);
 
         HidDevicePtr target = channel ?? RequestChannel;
+
+        // No channel: hidapi must never see a null handle.
+        if (target == IntPtr.Zero) return false;
 
         // Thread-safe increment with wrap-around to byte range
         byte pingPayload = (byte)Interlocked.Increment(ref _pingPayloadCounter);
